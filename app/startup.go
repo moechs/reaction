@@ -65,39 +65,39 @@ func (c *Conf) setup() {
 	for streamName := range c.Streams {
 
 		stream := c.Streams[streamName]
-		stream.name = streamName
+		stream.Name = streamName
 
-		if strings.Contains(stream.name, ".") {
-			logger.Fatalf("Bad configuration: character '.' is not allowed in stream names: '%v'", stream.name)
+		if strings.Contains(stream.Name, ".") {
+			logger.Fatalf("Bad configuration: character '.' is not allowed in stream names: '%v'", stream.Name)
 		}
 
 		if len(stream.Filters) == 0 {
-			logger.Fatalf("Bad configuration: no filters configured in %v", stream.name)
+			logger.Fatalf("Bad configuration: no filters configured in %v", stream.Name)
 		}
 		for filterName := range stream.Filters {
 
 			filter := stream.Filters[filterName]
-			filter.stream = stream
-			filter.name = filterName
+			filter.Stream = stream
+			filter.Name = filterName
 
-			if strings.Contains(filter.name, ".") {
-				logger.Fatalf("Bad configuration: character '.' is not allowed in filter names: '%v'", filter.name)
+			if strings.Contains(filter.Name, ".") {
+				logger.Fatalf("Bad configuration: character '.' is not allowed in filter names: '%v'", filter.Name)
 			}
 			// Parse Duration
 			if filter.RetryPeriod == "" {
 				if filter.Retry > 1 {
-					logger.Fatalf("Bad configuration: retry but no retryperiod in %v.%v", stream.name, filter.name)
+					logger.Fatalf("Bad configuration: retry but no retryperiod in %v.%v", stream.Name, filter.Name)
 				}
 			} else {
 				retryDuration, err := time.ParseDuration(filter.RetryPeriod)
 				if err != nil {
-					logger.Fatalf("Bad configuration: Failed to parse retry time in %v.%v: %v", stream.name, filter.name, err)
+					logger.Fatalf("Bad configuration: Failed to parse retry time in %v.%v: %v", stream.Name, filter.Name, err)
 				}
 				filter.retryDuration = retryDuration
 			}
 
 			if len(filter.Regex) == 0 {
-				logger.Fatalf("Bad configuration: no regexes configured in %v.%v", stream.name, filter.name)
+				logger.Fatalf("Bad configuration: no regexes configured in %v.%v", stream.Name, filter.Name)
 			}
 			// Compute Regexes
 			// Look for Patterns inside Regexes
@@ -114,32 +114,32 @@ func (c *Conf) setup() {
 				}
 				compiledRegex, err := regexp.Compile(regex)
 				if err != nil {
-					logger.Fatalf("Bad configuration: regex of filter %s.%s: %v", stream.name, filter.name, err)
+					logger.Fatalf("Bad configuration: regex of filter %s.%s: %v", stream.Name, filter.Name, err)
 				}
 				filter.compiledRegex = append(filter.compiledRegex, *compiledRegex)
 			}
 
 			if len(filter.Actions) == 0 {
-				logger.Fatalln("Bad configuration: no actions configured in", stream.name, ".", filter.name)
+				logger.Fatalln("Bad configuration: no actions configured in", stream.Name, ".", filter.Name)
 			}
 			for actionName := range filter.Actions {
 
 				action := filter.Actions[actionName]
-				action.filter = filter
-				action.name = actionName
+				action.Filter = filter
+				action.Name = actionName
 
-				if strings.Contains(action.name, ".") {
-					logger.Fatalln("Bad configuration: character '.' is not allowed in action names", action.name)
+				if strings.Contains(action.Name, ".") {
+					logger.Fatalln("Bad configuration: character '.' is not allowed in action names", action.Name)
 				}
 				// Parse Duration
 				if action.After != "" {
 					afterDuration, err := time.ParseDuration(action.After)
 					if err != nil {
-						logger.Fatalln("Bad configuration: Failed to parse after time in ", stream.name, ".", filter.name, ".", action.name, ":", err)
+						logger.Fatalln("Bad configuration: Failed to parse after time in ", stream.Name, ".", filter.Name, ".", action.Name, ":", err)
 					}
 					action.afterDuration = afterDuration
 				} else if action.OnExit {
-					logger.Fatalln("Bad configuration: Cannot have `onexit: true` without an `after` directive in", stream.name, ".", filter.name, ".", action.name)
+					logger.Fatalln("Bad configuration: Cannot have `onexit: true` without an `after` directive in", stream.Name, ".", filter.Name, ".", action.Name)
 				}
 				if filter.longuestActionDuration == nil || filter.longuestActionDuration.Milliseconds() < action.afterDuration.Milliseconds() {
 					filter.longuestActionDuration = &action.afterDuration

@@ -106,7 +106,8 @@ func basicUsage() {
 ` + bold + `reaction flush` + reset + ` TARGET [TARGET...]
   # remove currently active matches and run currently pending actions for the specified TARGET(s)
   # (then show flushed matches and actions)
-  # e.g. reaction flush 192.168.1.1 root
+  # e.g. reaction flush 192.168.1.1
+  # e.g. reaction flush ip=192.168.1.1 user=root
 
   # options:
     -s/--socket SOCKET               # path to the client-daemon communication socket
@@ -192,6 +193,7 @@ func Main(version, commit string) {
 		var regex *regexp.Regexp
 		var err error
 		if *pattern != "" {
+			// TODO anchor ^$ the pattern?
 			regex, err = regexp.Compile(*pattern)
 			if err != nil {
 				logger.Fatalln("-p/--pattern: ", err)
@@ -223,11 +225,12 @@ func Main(version, commit string) {
 		stream, filter := "", ""
 		if *limit != "" {
 			splitSF := strings.Split(*limit, ".")
-			if len(splitSF) != 2 {
+			stream = splitSF[0]
+			if len(splitSF) == 2 {
+				filter = splitSF[1]
+			} else if len(splitSF) > 2 {
 				logger.Fatalln("-l/--limit: only one . separator is supported")
 			}
-			stream = splitSF[0]
-			filter = splitSF[1]
 		}
 		ClientFlush(f.Args(), stream, filter, *queryFormat)
 

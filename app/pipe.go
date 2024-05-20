@@ -2,57 +2,14 @@ package app
 
 import (
 	"encoding/gob"
+	"errors"
 	"net"
 	"os"
 	"path"
-	"sync"
 	"time"
 
 	"framagit.org/ppom/reaction/logger"
 )
-
-func genClientStatus(local_actions ActionsMap, local_matches MatchesMap, local_actionsLock, local_matchesLock *sync.Mutex) ClientStatus {
-	cs := make(ClientStatus)
-	local_matchesLock.Lock()
-
-	// Painful data manipulation
-	for pf, times := range local_matches {
-		patterns, filter := pf.p, pf.f
-		if cs[filter.stream.name] == nil {
-			cs[filter.stream.name] = make(map[string]MapPatternStatus)
-		}
-		if cs[filter.stream.name][filter.name] == nil {
-			cs[filter.stream.name][filter.name] = make(MapPatternStatus)
-		}
-		cs[filter.stream.name][filter.name][patterns] = &PatternStatus{len(times), nil}
-	}
-
-	local_matchesLock.Unlock()
-	local_actionsLock.Lock()
-
-	// Painful data manipulation
-	for pa, times := range local_actions {
-		patterns, action := pa.p, pa.a
-		if cs[action.filter.stream.name] == nil {
-			cs[action.filter.stream.name] = make(map[string]MapPatternStatus)
-		}
-		if cs[action.filter.stream.name][action.filter.name] == nil {
-			cs[action.filter.stream.name][action.filter.name] = make(MapPatternStatus)
-		}
-		if cs[action.filter.stream.name][action.filter.name][patterns] == nil {
-			cs[action.filter.stream.name][action.filter.name][patterns] = new(PatternStatus)
-		}
-		ps := cs[action.filter.stream.name][action.filter.name][patterns]
-		if ps.Actions == nil {
-			ps.Actions = make(map[string][]string)
-		}
-		for then := range times {
-			ps.Actions[action.name] = append(ps.Actions[action.name], then.Format(time.DateTime))
-		}
-	}
-	local_actionsLock.Unlock()
-	return cs
-}
 
 func createOpenSocket() net.Listener {
 	err := os.MkdirAll(path.Dir(*SocketPath), 0755)
@@ -97,24 +54,20 @@ func SocketManager(conf *Conf) {
 			}
 
 			switch request.Request {
-			case Show:
-				response.ClientStatus = genClientStatus(actions, matches, &actionsLock, &matchesLock)
+			case Info:
+				// response.Config = *conf
+				response.Matches = matches
+				response.Actions = actions
 			case Flush:
-				le := LogEntry{time.Now(), 0, request.Pattern, request.Stream, request.Filter, 0, false}
+				le := LogEntry{time.Now(), 0, request.Flush.P, request.Flush.S, request.Flush.F, 0, false}
 
-				matchesC := FlushMatchOrder{request.Pattern, make(chan MatchesMap)}
-				actionsC := FlushActionOrder{request.Pattern, make(chan ActionsMap)}
-
-				flushToMatchesC <- matchesC
-				flushToActionsC <- actionsC
+				flushToMatchesC <- request.Flush
+				flushToActionsC <- request.Flush
 				flushToDatabaseC <- le
 
-				var lock sync.Mutex
-				response.ClientStatus = genClientStatus(<-actionsC.ret, <-matchesC.ret, &lock, &lock)
-			case Config:
-				response.Config = *conf
 			default:
-				logger.Println(logger.ERROR, "Invalid Message from cli: unrecognised Request type")
+				logger.Println(logger.ERROR, "Invalid Message from cli: unrecognised command type")
+				response.Err = errors.New("unrecognised command type")
 				return
 			}
 

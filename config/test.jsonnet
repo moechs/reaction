@@ -14,7 +14,7 @@
 
   streams: {
     tailDown1: {
-      cmd: ['sh', '-c', "echo 1_a 2_a 3_a a_1 a_2 a_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done"],
+      cmd: ['sh', '-c', "echo 1_a 2_a 3_a a_1 a_2 a_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 30"],
       filters: {
         findIP: {
           regex: [
@@ -29,7 +29,30 @@
             },
             undamn: {
               cmd: ['echo', 'undamn', '<num>'],
-              after: '4s',
+              after: '28s',
+              onexit: true,
+            },
+          },
+        },
+      },
+    },
+    tailDown2: {
+      cmd: ['sh', '-c', "echo 1_a 2_a 3_a a_1 a_2 a_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 30"],
+      filters: {
+        findIP: {
+          regex: [
+            '^found <num>_<letter>$',
+            '^found <letter>_<num>$',
+          ],
+          retry: 2,
+          retryperiod: '30s',
+          actions: {
+            damn: {
+              cmd: ['echo', '<num>'],
+            },
+            undamn: {
+              cmd: ['echo', 'undamn', '<num>'],
+              after: '28s',
               onexit: true,
             },
           },

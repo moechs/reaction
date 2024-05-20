@@ -8,29 +8,29 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
+	"time"
 
 	"framagit.org/ppom/reaction/logger"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	Show   = 0
-	Flush  = 1
-	Config = 2
+	Info  = 0
+	Flush = 1
 )
 
 type Request struct {
 	Request int
-	Stream  string
-	Filter  string
-	Pattern Match
+	Flush   PSF
 }
 
 type Response struct {
-	Err          error
-	ClientStatus ClientStatus
-	Config       Conf
+	Err error
+	// Config  Conf
+	Matches MatchesMap
+	Actions ActionsMap
 }
 
 func SendAndRetrieve(data Request) Response {
@@ -63,13 +63,6 @@ type MapPatternStatusFlush MapPatternStatus
 type ClientStatus map[string]map[string]MapPatternStatus
 type ClientStatusFlush ClientStatus
 
-type CompiledPattern struct{
-	Name          string
-	Regex         string
-	compiledRegex *regexp.Regexp
-}
-type CPM map[string]CompiledPattern
-
 func (mps MapPatternStatusFlush) MarshalJSON() ([]byte, error) {
 	for _, v := range mps {
 		return json.Marshal(v)
@@ -88,137 +81,156 @@ func (csf ClientStatusFlush) MarshalJSON() ([]byte, error) {
 	return json.Marshal(ret)
 }
 
-func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern []string) {
-	response := SendAndRetrieve(Request{Show, stream, filter, ""})
-	if response.Err != nil {
-		logger.Fatalln("Received error from daemon:", response.Err)
+func pfMatches(streamName string, filterName string, regex *regexp.Regexp, regexes map[string]*regexp.Regexp, match Match, filter *Filter) bool {
+	// Check stream and filter match
+	if streamName != "" && streamName != filter.Stream.Name {
+		return false
 	}
-
-	// Remove empty structs
-	for streamName := range response.ClientStatus {
-		for filterName := range response.ClientStatus[streamName] {
-			for patternName, patternMap := range response.ClientStatus[streamName][filterName] {
-				if len(patternMap.Actions) == 0 && patternMap.Matches == 0 {
-					delete(response.ClientStatus[streamName][filterName], patternName)
-				}
-			}
-			if len(response.ClientStatus[streamName][filterName]) == 0 {
-				delete(response.ClientStatus[streamName], filterName)
-			}
-		}
-		if len(response.ClientStatus[streamName]) == 0 {
-			delete(response.ClientStatus, streamName)
-		}
+	if filterName != "" && filterName != filter.Name {
+		return false
 	}
-
-	// Limit to stream, filter if exists
-	if stream != "" {
-		exists := false
-		for streamName := range response.ClientStatus {
-			if stream == streamName {
-				if filter != "" {
-					for filterName := range response.ClientStatus[streamName] {
-						if filter == filterName {
-							exists = true
-						} else {
-							delete(response.ClientStatus[streamName], filterName)
-						}
-					}
-				} else {
-					exists = true
-				}
-			} else {
-				delete(response.ClientStatus, streamName)
-			}
-		}
-		if !exists {
-			logger.Println(logger.WARN, "No matching stream.filter items found. This does not mean it doesn't exist, maybe it just didn't receive any match.")
-			os.Exit(1)
-		}
-	}
-
-	// Limit to pattern
+	// Check regex match
 	if regex != nil {
-		for streamName := range response.ClientStatus {
-			for filterName := range response.ClientStatus[streamName] {
-				for patterns := range response.ClientStatus[streamName][filterName] {
-					pmatch := false
-					for _, p := range patterns.Split() {
-						if regex.MatchString(p) {
-							pmatch = true
-						}
-					}
-					if !pmatch {
-						delete(response.ClientStatus[streamName][filterName], patterns)
-					}
-				}
-				if len(response.ClientStatus[streamName][filterName]) == 0 {
-					delete(response.ClientStatus[streamName], filterName)
-				}
+		var pmatch bool
+		for _, p := range match.Split() {
+			if regex.MatchString(p) {
+				pmatch = true
 			}
-			if len(response.ClientStatus[streamName]) == 0 {
-				delete(response.ClientStatus, streamName)
-			}
+		}
+		if !pmatch {
+			return false
 		}
 	}
-
-	// Limit to kvpatterns
-	if kvpattern != nil {
-		// Get pattern indices (as stored in DB) from config
-		responseConfig := SendAndRetrieve(Request{Config, stream, filter, ""})
-		if responseConfig.Err != nil {
-			logger.Fatalln("Received error from daemon:", responseConfig.Err)
-		}
-		// Build map from kvpattern
-		args := make(CPM)
-		for _, p := range kvpattern {
-			// p syntax already checked in Main
-			a := strings.Split(p, "=")
-			compiled, err := regexp.Compile(fmt.Sprintf("^%v$", a[1]))
-			if err != nil {
-				logger.Fatalf("Bad argument: %v: %v", p, err)
-			}
-			args[a[0]] = CompiledPattern{Name: a[0], Regex: a[1], compiledRegex: compiled}
-		}
-
-		for streamName := range response.ClientStatus {
-			for filterName := range response.ClientStatus[streamName] {
-				for patterns := range response.ClientStatus[streamName][filterName] {
-					pmatch := 0
-					for ip, p := range patterns.Split() {
-						// get pattern name from stream.filter.pattern (which was alphabetically sorted at startup)
-						if v, found := args[responseConfig.Config.Streams[streamName].Filters[filterName].Pattern[ip].Name]; found {
-							if v.compiledRegex.Match([]byte(p)) {
-								pmatch++
-							}
-						}
-					}
-					if pmatch != len(kvpattern) {
-						delete(response.ClientStatus[streamName][filterName], patterns)
-					}
-				}
-				if len(response.ClientStatus[streamName][filterName]) == 0 {
-					delete(response.ClientStatus[streamName], filterName)
+	// Check regexes match
+	if len(regexes) != 0 {
+		// Check that all user requested patterns are in this filter
+		var nbMatched int
+		var localMatches = match.Split()
+		// For each pattern of this filter
+		for i, pattern := range filter.Pattern {
+			// Check that this pattern has user requested name
+			if reg, ok := regexes[pattern.Name]; ok {
+				// Check that the PF.p[i] matches user requested pattern
+				if reg.MatchString(localMatches[i]) {
+					nbMatched++
 				}
 			}
-			if len(response.ClientStatus[streamName]) == 0 {
-				delete(response.ClientStatus, streamName)
-			}
+		}
+		if len(regexes) != nbMatched {
+			return false
 		}
 	}
+	// All checks passed
+	return true
+}
 
+func addMatchToCS(cs ClientStatus, pf PF, times map[time.Time]struct{}) {
+	patterns, streamName, filterName := pf.P, pf.F.Stream.Name, pf.F.Name
+	if cs[streamName] == nil {
+		cs[streamName] = make(map[string]MapPatternStatus)
+	}
+	if cs[streamName][filterName] == nil {
+		cs[streamName][filterName] = make(MapPatternStatus)
+	}
+	cs[streamName][filterName][patterns] = &PatternStatus{len(times), nil}
+}
+
+func addActionToCS(cs ClientStatus, pa PA, times map[time.Time]struct{}) {
+	patterns, streamName, filterName, actionName := pa.P, pa.A.Filter.Stream.Name, pa.A.Filter.Name, pa.A.Name
+	if cs[streamName] == nil {
+		cs[streamName] = make(map[string]MapPatternStatus)
+	}
+	if cs[streamName][filterName] == nil {
+		cs[streamName][filterName] = make(MapPatternStatus)
+	}
+	if cs[streamName][filterName][patterns] == nil {
+		cs[streamName][filterName][patterns] = new(PatternStatus)
+	}
+	ps := cs[streamName][filterName][patterns]
+	if ps.Actions == nil {
+		ps.Actions = make(map[string][]string)
+	}
+	for then := range times {
+		ps.Actions[actionName] = append(ps.Actions[actionName], then.Format(time.DateTime))
+	}
+}
+
+func printClientStatus(cs ClientStatus, format string) {
 	var text []byte
 	var err error
 	if format == "json" {
-		text, err = json.MarshalIndent(response.ClientStatus, "", "  ")
+		text, err = json.MarshalIndent(cs, "", "  ")
 	} else {
-		text, err = yaml.Marshal(response.ClientStatus)
+		text, err = yaml.Marshal(cs)
 	}
 	if err != nil {
 		logger.Fatalln("Failed to convert daemon binary response to text format:", err)
 	}
 
 	fmt.Println(strings.ReplaceAll(string(text), "\\0", " "))
+}
+
+func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern []string) {
+	response := SendAndRetrieve(Request{Info, PSF{}})
+	if response.Err != nil {
+		logger.Fatalln("Received error from daemon:", response.Err)
+	}
+
+	cs := make(ClientStatus)
+
+	var regexes map[string]*regexp.Regexp
+
+	if len(kvpattern) != 0 {
+		// Transform []{"k=v","k=v"} into map["k"]"v"
+		regexes = make(map[string]*regexp.Regexp)
+		for _, p := range kvpattern {
+			// p syntax already checked in Main
+			key, value, found := strings.Cut(p, "=")
+			if !found {
+				logger.Fatalf("Bad argument: no =: %v", p)
+			}
+			compiled, err := regexp.Compile(fmt.Sprintf("^%v$", value))
+			if err != nil {
+				logger.Fatalf("Bad argument: %v: %v", p, err)
+			}
+			regexes[key] = compiled
+		}
+	}
+
+	var found bool
+
+	// Painful data manipulation
+	for pf, times := range response.Matches {
+		// Check this PF is not empty
+		if len(times) == 0 {
+			continue
+		}
+		if !pfMatches(stream, filter, regex, regexes, pf.P, pf.F) {
+			continue
+		}
+		addMatchToCS(cs, pf, times)
+		found = true
+	}
+
+	// Painful data manipulation
+	for pa, times := range response.Actions {
+		// Check this PF is not empty
+		if len(times) == 0 {
+			continue
+		}
+		if !pfMatches(stream, filter, regex, regexes, pa.P, pa.A.Filter) {
+			continue
+		}
+		addActionToCS(cs, pa, times)
+		found = true
+	}
+
+	if !found {
+		logger.Println(logger.WARN, "No matching stream.filter items found. This does not mean it doesn't exist, maybe it just didn't receive any match.")
+		os.Exit(1)
+	}
+
+	printClientStatus(cs, format)
 
 	os.Exit(0)
 }
@@ -236,88 +248,126 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern [
  *      - "2024-04-30 15:27:28"
  *
  */
-func ClientFlush(patterns []string, stream, filter, format string) {
-	responseConfig := SendAndRetrieve(Request{Config, stream, filter, ""})
-	if responseConfig.Err != nil {
-		logger.Fatalln("Received error from daemon:", responseConfig.Err)
+func ClientFlush(patterns []string, streamName, filterName, format string) {
+	// Either we have one pattern that is not of type name=pattern
+	requestedPatterns := make(map[string]string)
+	var requestedPattern string
+	if len(patterns) == 1 && strings.Index(patterns[0], "=") == -1 {
+		requestedPattern = patterns[0]
+		// Or we have one ore multiple patterns that must be of type name=pattern
+	} else {
+		for _, kvpattern := range patterns {
+			k, v, found := strings.Cut(kvpattern, "=")
+			if !found {
+				logger.Fatalf("Multiple patterns provided must be of type name=pattern: %v", kvpattern)
+			}
+			if requestedPatterns[k] != "" {
+				logger.Fatalf("Can't provide the same pattern name multiple times: %v", k)
+			}
+			requestedPatterns[k] = v
+		}
 	}
 
-	if _, found := responseConfig.Config.Streams[stream].Filters[filter]; filter != "" && found == false {
+	// Remember which Filters are compatible with the query
+	filterCompatibility := make(map[SF]bool)
+	isCompatible := func(filter *Filter) bool {
+		sf := SF{filter.Stream.Name, filter.Name}
+		compatible, ok := filterCompatibility[sf]
+
+		// already tested
+		if ok {
+			return compatible
+		}
+
+		for k := range requestedPatterns {
+			if -1 == slices.IndexFunc(filter.Pattern, func(pattern *Pattern) bool {
+				return pattern.Name == k
+			}) {
+				filterCompatibility[sf] = false
+				return false
+			}
+		}
+		filterCompatibility[sf] = true
+		return true
+	}
+
+	// match functions
+	kvMatch := func(filter *Filter, filterPatterns []string) bool {
+		// For each user requested pattern
+		for k, v := range requestedPatterns {
+			// Find its index on the Filter.Pattern
+			for i, pattern := range filter.Pattern {
+				if k == pattern.Name {
+					// Test the match
+					if v != filterPatterns[i] {
+						return false
+					}
+				}
+			}
+		}
+		return true
+	}
+
+	var found bool
+	fullMatch := func(filter *Filter, match Match) bool {
+		// Test if we limit by stream
+		if streamName == "" || filter.Stream.Name == streamName {
+			// Test if we limit by filter
+			if filterName == "" || filter.Name == filterName {
+				found = true
+				filterPatterns := match.Split()
+				// If there is only one pattern
+				if requestedPattern != "" {
+					for _, filterPattern := range filterPatterns {
+						if requestedPattern == filterPattern {
+							return true
+						}
+					}
+				} else {
+					return isCompatible(filter) && kvMatch(filter, filterPatterns)
+				}
+			}
+		}
+		return false
+	}
+
+	response := SendAndRetrieve(Request{Info, PSF{}})
+	if response.Err != nil {
+		logger.Fatalln("Received error from daemon:", response.Err)
+	}
+
+	commands := make([]PSF, 0)
+
+	cs := make(ClientStatus)
+
+	for pf, times := range response.Matches {
+		if fullMatch(pf.F, pf.P) {
+			commands = append(commands, PSF{pf.P, pf.F.Stream.Name, pf.F.Name})
+			addMatchToCS(cs, pf, times)
+		}
+	}
+
+	for pa, times := range response.Actions {
+		if fullMatch(pa.A.Filter, pa.P) {
+			commands = append(commands, PSF{pa.P, pa.A.Filter.Stream.Name, pa.A.Filter.Name})
+			addActionToCS(cs, pa, times)
+		}
+	}
+
+	if !found {
 		logger.Println(logger.WARN, "No matching stream.filter items found. This does not mean it doesn't exist, maybe it just didn't receive any match.")
 		os.Exit(1)
 	}
 
-	processFilter := func(patterns []string, stream, filter, format string) {
-		fpqty := len(responseConfig.Config.Streams[stream].Filters[filter].Pattern)
-
-		if len(patterns) > fpqty {
-			logger.Fatalln("filter have 1 pattern")
-		}
-
-		for _, kv := range patterns {
-			if len(strings.Split(kv, "=")) != 2 && fpqty > 1 {
-				logger.Fatalln("args should be in pattern=value format using more than one pattern in filter")
-			}
-		}
-
-		// Transform arg to k=v
-		if fpqty == 1 && len(strings.Split(patterns[0], "=")) == 1 {
-			patterns[0] = strings.Join([]string{responseConfig.Config.Streams[stream].Filters[filter].Pattern[0].Name, patterns[0]}, "=")
-		}
-
-		// arg pattern map
-		pmap := make(map[string]string)
-		for _, p := range patterns {
-			a := strings.Split(p, "=")
-			pmap[a[0]] = a[1]
-		}
-
-		// Check every arg pattern exist in filter
-		for k, _ := range pmap {
-			found := false
-			for _, fp := range responseConfig.Config.Streams[stream].Filters[filter].Pattern {
-				if strings.EqualFold(k, fp.Name) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				logger.Fatalf("pattern <%s> not found in filter %s.%s\n", k, stream, filter)
-			}
-		}
-
-		// Order arg patterns before JoinMatch
-		var orderedPatterns []string
-		for _, p := range responseConfig.Config.Streams[stream].Filters[filter].Pattern {
-			if v, found := pmap[p.Name]; found {
-				orderedPatterns = append(orderedPatterns, v)
-			} else {
-				orderedPatterns = append(orderedPatterns, "")
-			}
-		}
-		response := SendAndRetrieve(Request{Flush, stream, filter, JoinMatch(orderedPatterns)})
+	for _, psf := range commands {
+		response := SendAndRetrieve(Request{Flush, psf})
 		if response.Err != nil {
-			logger.Fatalln(logger.ERROR, "Received error from daemon:", response.Err)
-		}
-
-		var text []byte
-		var err error
-		if format == "json" {
-			text, err = json.MarshalIndent(ClientStatusFlush(response.ClientStatus), "", "  ")
-		} else {
-			text, err = yaml.Marshal(ClientStatusFlush(response.ClientStatus))
-		}
-		if err != nil {
-			logger.Fatalln("Failed to convert daemon binary response to text format:", err)
-		}
-		fmt.Println(string(text))
-	}
-
-	for streamName := range responseConfig.Config.Streams {
-		for filterName := range responseConfig.Config.Streams[streamName].Filters {
-			processFilter(patterns, streamName, filterName, format)
+			logger.Fatalln("Received error from daemon:", response.Err)
 		}
 	}
+
+	printClientStatus(cs, format)
+	os.Exit(0)
 }
 
 func TestRegex(confFilename, regex, line string) {

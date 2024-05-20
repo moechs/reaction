@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -91,11 +90,11 @@ func (f *Filter) match(line *string) Match {
 					}
 				}
 				if len(result) == len(f.Pattern) {
-					logger.Printf(logger.INFO, "%s.%s: match %s", f.stream.name, f.name, WithBrackets(result))
+					logger.Printf(logger.INFO, "%s.%s: match %s", f.Stream.Name, f.Name, WithBrackets(result))
 					return JoinMatch(result)
 				}
 			} else {
-				logger.Printf(logger.INFO, "%s.%s: match [.]\n", f.stream.name, f.name)
+				logger.Printf(logger.INFO, "%s.%s: match [.]\n", f.Stream.Name, f.Name)
 				// No pattern, so this match will never actually be used
 				return "."
 			}
@@ -115,12 +114,12 @@ func (a *Action) exec(match Match) {
 
 	var computedCommand []string
 
-	if a.filter.Pattern != nil {
+	if a.Filter.Pattern != nil {
 		computedCommand = make([]string, 0, len(a.Cmd))
 		matches := match.Split()
 
 		for _, item := range a.Cmd {
-			for i, p := range a.filter.Pattern {
+			for i, p := range a.Filter.Pattern {
 				item = strings.ReplaceAll(item, p.nameWithBraces, matches[i])
 			}
 			computedCommand = append(computedCommand, item)
@@ -129,12 +128,12 @@ func (a *Action) exec(match Match) {
 		computedCommand = a.Cmd
 	}
 
-	logger.Printf(logger.INFO, "%s.%s.%s: run %s\n", a.filter.stream.name, a.filter.name, a.name, computedCommand)
+	logger.Printf(logger.INFO, "%s.%s.%s: run %s\n", a.Filter.Stream.Name, a.Filter.Name, a.Name, computedCommand)
 
 	cmd := exec.Command(computedCommand[0], computedCommand[1:]...)
 
 	if ret := cmd.Run(); ret != nil {
-		logger.Printf(logger.ERROR, "%s.%s.%s: run %s, code %s\n", a.filter.stream.name, a.filter.name, a.name, computedCommand, ret)
+		logger.Printf(logger.ERROR, "%s.%s.%s: run %s, code %s\n", a.Filter.Stream.Name, a.Filter.Name, a.Name, computedCommand, ret)
 	}
 }
 
@@ -147,7 +146,7 @@ func ActionsManager(concurrency int) {
 				var pa PA
 				for {
 					pa = <-execActionsC
-					pa.a.exec(pa.p)
+					pa.A.exec(pa.P)
 				}
 			}()
 		}
@@ -157,7 +156,7 @@ func ActionsManager(concurrency int) {
 			for {
 				pa = <-execActionsC
 				go func(pa PA) {
-					pa.a.exec(pa.p)
+					pa.A.exec(pa.P)
 				}(pa)
 			}
 		}()
@@ -172,65 +171,49 @@ func ActionsManager(concurrency int) {
 	for {
 		select {
 		case pat := <-actionsC:
-			pa := PA{pat.p, pat.a}
-			pattern, action, then := pat.p, pat.a, pat.t
+			pa := PA{pat.P, pat.A}
+			pattern, action, then := pat.P, pat.A, pat.T
 			now := time.Now()
 			// check if must be executed now
 			if then.Compare(now) <= 0 {
 				execAction(action, pattern)
 			} else {
-				actionsLock.Lock()
 				if actions[pa] == nil {
 					actions[pa] = make(map[time.Time]struct{})
 				}
 				actions[pa][then] = struct{}{}
-				actionsLock.Unlock()
 				go func(insidePat PAT, insideNow time.Time) {
-					time.Sleep(insidePat.t.Sub(insideNow))
+					time.Sleep(insidePat.T.Sub(insideNow))
 					pendingActionsC <- insidePat
 				}(pat, now)
 			}
 		case pat := <-pendingActionsC:
-			pa := PA{pat.p, pat.a}
-			pattern, action, then := pat.p, pat.a, pat.t
-			actionsLock.Lock()
+			pa := PA{pat.P, pat.A}
+			pattern, action, then := pat.P, pat.A, pat.T
 			if actions[pa] != nil {
 				delete(actions[pa], then)
 			}
-			actionsLock.Unlock()
 			execAction(action, pattern)
 		case fo := <-flushToActionsC:
-			ret := make(ActionsMap)
-			match := 0
-			actionsLock.Lock()
 			for pa := range actions {
-				ppa, pfo := pa.p.Split(), fo.p.Split()
-				for i, p := range ppa {
-					if m, err := regexp.MatchString(pfo[i], p); err == nil && m == true {
-						match++
-					}
-				}
-				if match == len(ppa) {
+				if fo.S == pa.A.Filter.Stream.Name &&
+					fo.F == pa.A.Filter.Name &&
+					fo.P == pa.P {
 					for range actions[pa] {
-						execAction(pa.a, pa.p)
+						execAction(pa.A, pa.P)
 					}
-					ret[pa] = actions[pa]
 					delete(actions, pa)
+					break
 				}
-				match = 0
 			}
-			actionsLock.Unlock()
-			fo.ret <- ret
 		case _, _ = <-stopActions:
-			actionsLock.Lock()
 			for pa := range actions {
-				if pa.a.OnExit {
+				if pa.A.OnExit {
 					for range actions[pa] {
-						execAction(pa.a, pa.p)
+						execAction(pa.A, pa.P)
 					}
 				}
 			}
-			actionsLock.Unlock()
 			wgActions.Done()
 			return
 		}
@@ -238,7 +221,7 @@ func ActionsManager(concurrency int) {
 }
 
 func MatchesManager() {
-	var fo FlushMatchOrder
+	var fo PSF
 	var pft PFT
 	end := false
 
@@ -261,7 +244,7 @@ func MatchesManager() {
 			matchesManagerHandleFlush(fo)
 		case pft = <-matchesC:
 
-			entry := LogEntry{pft.t, 0, pft.p, pft.f.stream.name, pft.f.name, 0, false}
+			entry := LogEntry{pft.T, 0, pft.P, pft.F.Stream.Name, pft.F.Name, 0, false}
 
 			entry.Exec = matchesManagerHandleMatch(pft)
 
@@ -270,37 +253,25 @@ func MatchesManager() {
 	}
 }
 
-func matchesManagerHandleFlush(fo FlushMatchOrder) {
-	ret := make(MatchesMap)
-	match := 0
+func matchesManagerHandleFlush(fo PSF) {
 	matchesLock.Lock()
 	for pf := range matches {
-		ppf, pfo := pf.p.Split(), fo.p.Split()
-		for i, p := range ppf {
-			if m, err := regexp.MatchString(pfo[i], p); err == nil && m == true {
-				match++
-			}
-		}
-		if match == len(ppf) {
-			if fo.ret != nil {
-				ret[pf] = matches[pf]
-			}
+		if fo.S == pf.F.Stream.Name &&
+			fo.F == pf.F.Name &&
+			fo.P == pf.P {
 			delete(matches, pf)
+			break
 		}
-		match = 0
 	}
 	matchesLock.Unlock()
-	if fo.ret != nil {
-		fo.ret <- ret
-	}
 }
 
 func matchesManagerHandleMatch(pft PFT) bool {
 	matchesLock.Lock()
 	defer matchesLock.Unlock()
 
-	filter, patterns, then := pft.f, pft.p, pft.t
-	pf := PF{pft.p, pft.f}
+	filter, patterns, then := pft.F, pft.P, pft.T
+	pf := PF{pft.P, pft.F}
 
 	if filter.Retry > 1 {
 		// make sure map exists
@@ -332,7 +303,7 @@ func matchesManagerHandleMatch(pft PFT) bool {
 
 func StreamManager(s *Stream, endedSignal chan *Stream) {
 	defer wgStreams.Done()
-	logger.Printf(logger.INFO, "%s: start %s\n", s.name, s.Cmd)
+	logger.Printf(logger.INFO, "%s: start %s\n", s.Name, s.Cmd)
 
 	lines := cmdStdout(s.Cmd)
 	for {
@@ -356,7 +327,6 @@ func StreamManager(s *Stream, endedSignal chan *Stream) {
 
 var actions ActionsMap
 var matches MatchesMap
-var actionsLock sync.Mutex
 var matchesLock sync.Mutex
 
 var stopStreams chan bool
@@ -391,10 +361,10 @@ var logsC chan LogEntry
 var actionsC chan PAT
 
 // SocketManager, DatabaseManager → MatchesManager
-var flushToMatchesC chan FlushMatchOrder
+var flushToMatchesC chan PSF
 
 // SocketManager → ActionsManager
-var flushToActionsC chan FlushActionOrder
+var flushToActionsC chan PSF
 
 // SocketManager → DatabaseManager
 var flushToDatabaseC chan LogEntry
@@ -406,8 +376,8 @@ func Daemon(confFilename string) {
 	matchesC = make(chan PFT)
 	logsC = make(chan LogEntry)
 	actionsC = make(chan PAT)
-	flushToMatchesC = make(chan FlushMatchOrder)
-	flushToActionsC = make(chan FlushActionOrder)
+	flushToMatchesC = make(chan PSF)
+	flushToActionsC = make(chan PSF)
 	flushToDatabaseC = make(chan LogEntry)
 	stopActions = make(chan bool)
 	stopStreams = make(chan bool)
@@ -438,7 +408,7 @@ func Daemon(confFilename string) {
 	for {
 		select {
 		case finishedStream := <-endSignals:
-			logger.Printf(logger.ERROR, "%s stream finished", finishedStream.name)
+			logger.Printf(logger.ERROR, "%s stream finished", finishedStream.Name)
 			nbStreamsInExecution--
 			if nbStreamsInExecution == 0 {
 				quit(conf, false)

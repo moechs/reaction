@@ -125,7 +125,7 @@ func rotateDB(c *Conf, logDec *gob.Decoder, flushDec *gob.Decoder, logEnc *gob.E
 	defer func() {
 		for sf, t := range discardedEntries {
 			if t > 0 {
-				logger.Printf(logger.WARN, "info discarded %v times from the DBs: stream/filter not found: %s.%s\n", t, sf.s, sf.f)
+				logger.Printf(logger.WARN, "info discarded %v times from the DBs: stream/filter not found: %s.%s\n", t, sf.S, sf.F)
 			}
 		}
 		if malformedEntries > 0 {
@@ -186,8 +186,8 @@ func rotateDB(c *Conf, logDec *gob.Decoder, flushDec *gob.Decoder, logEnc *gob.E
 				discardedEntries[SF{"", ""}]++
 				continue
 			}
-			entry.Stream = sf.s
-			entry.Filter = sf.f
+			entry.Stream = sf.S
+			entry.Filter = sf.F
 		}
 		if stream := c.Streams[entry.Stream]; stream != nil {
 			filter = stream.Filters[entry.Filter]
@@ -231,7 +231,7 @@ func rotateDB(c *Conf, logDec *gob.Decoder, flushDec *gob.Decoder, logEnc *gob.E
 		// replay executions
 		if entry.Exec && entry.T.Add(*filter.longuestActionDuration).Unix() > now.Unix() {
 			if startup {
-				flushToMatchesC <- FlushMatchOrder{entry.Pattern, nil}
+				flushToMatchesC <- PSF{entry.Pattern, entry.Stream, entry.Filter}
 				filter.sendActions(entry.Pattern, entry.T)
 			}
 

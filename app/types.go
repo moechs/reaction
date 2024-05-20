@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/gob"
 	"fmt"
 	"os"
@@ -32,15 +33,33 @@ type Pattern struct {
 // They're always referenced through pointers
 
 type Stream struct {
-	name string `json:"-"`
+	Name string `json:"-"`
 
 	Cmd     []string           `json:"cmd"`
 	Filters map[string]*Filter `json:"filters"`
 }
+type LilStream struct {
+	Name string
+}
+
+func (s *Stream) GobEncode() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(LilStream{s.Name})
+	return buf.Bytes(), err
+}
+
+func (s *Stream) GobDecode(b []byte)(error) {
+	var ls LilStream
+	dec := gob.NewDecoder(bytes.NewReader(b))
+	err := dec.Decode(&ls)
+	s.Name = ls.Name
+	return err
+}
 
 type Filter struct {
-	stream *Stream `json:"-"`
-	name   string  `json:"-"`
+	Stream *Stream `json:"-"`
+	Name   string  `json:"-"`
 
 	Regex         []string        `json:"regex"`
 	compiledRegex []regexp.Regexp `json:"-"`
@@ -54,9 +73,34 @@ type Filter struct {
 	longuestActionDuration *time.Duration
 }
 
+// those small versions are needed to prevent infinite recursion in gob because of
+// data cycles: Stream <-> Filter, Filter <-> Action
+type LilFilter struct {
+	Stream  *Stream
+	Name    string
+	Pattern []*Pattern
+}
+
+func (f *Filter) GobDecode(b []byte)(error) {
+	var lf LilFilter
+	dec := gob.NewDecoder(bytes.NewReader(b))
+	err := dec.Decode(&lf)
+	f.Stream = lf.Stream
+	f.Name = lf.Name
+	f.Pattern = lf.Pattern
+	return err
+}
+
+func (f *Filter) GobEncode() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(LilFilter{f.Stream, f.Name, f.Pattern})
+	return buf.Bytes(), err
+}
+
 type Action struct {
-	filter *Filter `json:"-"`
-	name   string  `json:"-"`
+	Filter *Filter `json:"-"`
+	Name   string  `json:"-"`
 
 	Cmd []string `json:"cmd"`
 
@@ -64,6 +108,26 @@ type Action struct {
 	afterDuration time.Duration `json:"-"`
 
 	OnExit bool `json:"onexit"`
+}
+type LilAction struct {
+	Filter *Filter
+	Name   string
+}
+
+func (a *Action) GobEncode() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(LilAction{a.Filter, a.Name})
+	return buf.Bytes(), err
+}
+
+func (a *Action) GobDecode(b []byte)(error) {
+	var la LilAction
+	dec := gob.NewDecoder(bytes.NewReader(b))
+	err := dec.Decode(&la)
+	a.Filter = la.Filter
+	a.Name = la.Name
+	return err
 }
 
 type LogEntry struct {
@@ -108,38 +172,29 @@ func WithBrackets(mm []string) string {
 
 // Helper structs made to carry information
 // Stream, Filter
-type SF struct{ s, f string }
+type SF struct{ S, F string }
 
 // Pattern, Stream, Filter
 type PSF struct {
-	p    Match
-	s, f string
+	P    Match
+	S, F string
 }
 
 type PF struct {
-	p Match
-	f *Filter
+	P Match
+	F *Filter
 }
 type PFT struct {
-	p Match
-	f *Filter
-	t time.Time
+	P Match
+	F *Filter
+	T time.Time
 }
 type PA struct {
-	p Match
-	a *Action
+	P Match
+	A *Action
 }
 type PAT struct {
-	p Match
-	a *Action
-	t time.Time
-}
-
-type FlushMatchOrder struct {
-	p   Match
-	ret chan MatchesMap
-}
-type FlushActionOrder struct {
-	p   Match
-	ret chan ActionsMap
+	P Match
+	A *Action
+	T time.Time
 }
