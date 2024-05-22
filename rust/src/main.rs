@@ -1,9 +1,21 @@
+#![warn(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::undocumented_unsafe_blocks
+)]
+#![forbid(unsafe_code)]
+
+//! Hey it's the doc!
 use clap::Parser;
 use regex::Regex;
 
 mod cli;
 mod config;
 mod daemon;
+mod parse_duration;
 mod client;
 
 use cli::{Cli, Command};
@@ -24,7 +36,6 @@ fn main() {
             loglevel,
             socket,
         } => {
-            //
             daemon(&config, loglevel, &socket);
         }
         Command::Show {
