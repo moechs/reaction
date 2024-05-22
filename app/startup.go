@@ -21,16 +21,16 @@ func (c *Conf) setup() {
 	}
 
 	// Assure we iterate through c.Patterns map in reproductible order
-	keys := make([]string, 0, len(c.Patterns))
+	sortedPatternNames := make([]string, 0, len(c.Patterns))
 	for k := range c.Patterns {
-		keys = append(keys, k)
+		sortedPatternNames = append(sortedPatternNames, k)
 	}
-	slices.Sort(keys)
+	slices.Sort(sortedPatternNames)
 
-	for _, patternName := range keys {
+	for _, patternName := range sortedPatternNames {
 		pattern := c.Patterns[patternName]
-		c.Patterns[patternName].Name = patternName
-		pattern.nameWithBraces = fmt.Sprintf("<%s>", c.Patterns[patternName].Name)
+		pattern.Name = patternName
+		pattern.nameWithBraces = fmt.Sprintf("<%s>", pattern.Name)
 
 		if pattern.Regex == "" {
 			logger.Fatalf("Bad configuration: pattern's regex %v is empty!", patternName)
@@ -40,7 +40,7 @@ func (c *Conf) setup() {
 		if err != nil {
 			logger.Fatalf("Bad configuration: pattern %v: %v", patternName, err)
 		}
-		c.Patterns[patternName].Regex = fmt.Sprintf("(?P<%s>%s)", patternName, pattern.Regex)
+		pattern.Regex = fmt.Sprintf("(?P<%s>%s)", patternName, pattern.Regex)
 		for _, ignore := range pattern.Ignore {
 			if !compiled.MatchString(ignore) {
 				logger.Fatalf("Bad configuration: pattern ignore '%v' doesn't match pattern %v! It should be fixed or removed.", ignore, pattern.nameWithBraces)
@@ -52,7 +52,7 @@ func (c *Conf) setup() {
 			// Enclose the regex to make sure that it matches the whole detected string
 			compiledRegex, err := regexp.Compile("^" + regex + "$")
 			if err != nil {
-				logger.Fatalf("%vBad configuration: in ignoreregex of pattern %s: %v", logger.FATAL, c.Patterns[patternName].Name, err)
+				logger.Fatalf("%vBad configuration: in ignoreregex of pattern %s: %v", logger.FATAL, pattern.Name, err)
 			}
 
 			pattern.compiledIgnoreRegex = append(pattern.compiledIgnoreRegex, *compiledRegex)
@@ -103,11 +103,11 @@ func (c *Conf) setup() {
 			// Look for Patterns inside Regexes
 			for _, regex := range filter.Regex {
 				// iterate through patterns in reproductible order
-				for _, patternName := range keys {
+				for _, patternName := range sortedPatternNames {
 					pattern := c.Patterns[patternName]
 					if strings.Contains(regex, pattern.nameWithBraces) {
 						if !slices.Contains(filter.Pattern, pattern) {
-							stream.Filters[filterName].Pattern = append(filter.Pattern, pattern)
+							filter.Pattern = append(filter.Pattern, pattern)
 						}
 						regex = strings.Replace(regex, pattern.nameWithBraces, pattern.Regex, 1)
 					}
