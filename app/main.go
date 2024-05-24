@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"framagit.org/ppom/reaction/logger"
@@ -49,10 +48,6 @@ func addLevelFlag(f *flag.FlagSet) *string {
 	return addStringFlag([]string{"l", "loglevel"}, "INFO", f)
 }
 
-func addPatternFlag(f *flag.FlagSet) *string {
-	return addStringFlag([]string{"p", "pattern"}, "", f)
-}
-
 func subCommandParse(f *flag.FlagSet, maxRemainingArgs int) {
 	help := addBoolFlag([]string{"h", "help"}, f)
 	f.Parse(os.Args[2:])
@@ -90,24 +85,25 @@ func basicUsage() {
 ` + bold + `reaction example-conf` + reset + `
   # print a configuration file example
 
-` + bold + `reaction show` + reset + ` [TARGET...]
-  # show current matches and which actions are still to be run for the specified TARGET(s)
+` + bold + `reaction show` + reset + ` [NAME=PATTERN...]
+  # show current matches and which actions are still to be run for the specified PATTERN regexe(s)
   # (e.g know what is currenly banned)
-  # e.g. reaction show -p 192.168.1.1
-  # Specify TARGETs without -p when matching multiple pattern
-  # e.g. reaction show "ip=192\.168\..*" login=root
+
+  reaction show
+  reaction show "ip=192.168.1.1"
+  reaction show "ip=192\.168\..*" login=root
 
   # options:
     -s/--socket SOCKET               # path to the client-daemon communication socket
     -f/--format yaml|json            # (default: yaml)
     -l/--limit STREAM[.FILTER]       # only show items related to this STREAM (or STREAM.FILTER)
-    -p/--pattern PATTERN             # only show items matching the PATTERN regex
 
-` + bold + `reaction flush` + reset + ` TARGET [TARGET...]
-  # remove currently active matches and run currently pending actions for the specified TARGET(s)
+` + bold + `reaction flush` + reset + ` NAME=PATTERN [NAME=PATTERN...]
+  # remove currently active matches and run currently pending actions for the specified PATTERN regexe(s)
   # (then show flushed matches and actions)
-  # e.g. reaction flush 192.168.1.1
-  # e.g. reaction flush ip=192.168.1.1 user=root
+
+  reaction flush "ip=192.168.1.1"
+  reaction flush "ip=192\.168\..*" login=root
 
   # options:
     -s/--socket SOCKET               # path to the client-daemon communication socket
@@ -119,7 +115,7 @@ cat FILE | ` + bold + `reaction test-regex` + reset + ` REGEX # test REGEX again
 
   # options:
     -c/--config CONFIG_FILE          # configuration file in json, jsonnet or yaml format
-                                     # optional: permits to use patterns like <ip> in regex
+                                     # optional: permits to use configured patterns like <ip> in regex
 
 ` + bold + `reaction version` + reset + `
   # print version information
@@ -173,12 +169,9 @@ func Main(version, commit string) {
 		SocketPath = addSocketFlag(f)
 		queryFormat := addFormatFlag(f)
 		limit := addLimitFlag(f)
-		pattern := addPatternFlag(f)
 		subCommandParse(f, -1)
 		if *queryFormat != "yaml" && *queryFormat != "json" {
 			logger.Fatalln("only yaml and json formats are supported")
-			f.PrintDefaults()
-			os.Exit(1)
 		}
 		stream, filter := "", ""
 		if *limit != "" {
@@ -190,22 +183,7 @@ func Main(version, commit string) {
 				logger.Fatalln("-l/--limit: only one . separator is supported")
 			}
 		}
-		var regex *regexp.Regexp
-		var err error
-		if *pattern != "" {
-			// TODO anchor ^$ the pattern?
-			regex, err = regexp.Compile(*pattern)
-			if err != nil {
-				logger.Fatalln("-p/--pattern: ", err)
-			}
-		}
-		// check every f.Args have format k=v
-		for _, kv := range f.Args() {
-			if len(strings.Split(kv, "=")) != 2 {
-				logger.Fatalln("args should be in pattern=value format")
-			}
-		}
-		ClientShow(*queryFormat, stream, filter, regex, f.Args())
+		ClientShow(*queryFormat, stream, filter, f.Args())
 
 	case "flush":
 		SocketPath = addSocketFlag(f)
@@ -214,13 +192,9 @@ func Main(version, commit string) {
 		subCommandParse(f, -1)
 		if *queryFormat != "yaml" && *queryFormat != "json" {
 			logger.Fatalln("only yaml and json formats are supported")
-			f.PrintDefaults()
-			os.Exit(1)
 		}
-		if f.Arg(0) == "" {
+		if len(f.Args()) == 0 {
 			logger.Fatalln("subcommand flush takes at least one TARGET argument")
-			basicUsage()
-			os.Exit(1)
 		}
 		stream, filter := "", ""
 		if *limit != "" {
@@ -232,7 +206,7 @@ func Main(version, commit string) {
 				logger.Fatalln("-l/--limit: only one . separator is supported")
 			}
 		}
-		ClientFlush(f.Args(), stream, filter, *queryFormat)
+		ClientFlush(*queryFormat, stream, filter, f.Args())
 
 	case "test-regex":
 		// socket not needed, no interaction with the daemon

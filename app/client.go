@@ -81,7 +81,7 @@ func (csf ClientStatusFlush) MarshalJSON() ([]byte, error) {
 	return json.Marshal(ret)
 }
 
-func pfMatches(streamName string, filterName string, regex *regexp.Regexp, regexes map[string]*regexp.Regexp, match Match, filter *Filter) bool {
+func pfMatches(streamName string, filterName string, regexes map[string]*regexp.Regexp, match Match, filter *Filter) bool {
 	// Check stream and filter match
 	if streamName != "" && streamName != filter.Stream.Name {
 		return false
@@ -89,36 +89,21 @@ func pfMatches(streamName string, filterName string, regex *regexp.Regexp, regex
 	if filterName != "" && filterName != filter.Name {
 		return false
 	}
-	// Check regex match
-	if regex != nil {
-		var pmatch bool
-		for _, p := range match.Split() {
-			if regex.MatchString(p) {
-				pmatch = true
+	// Check that all user requested patterns are in this filter
+	var nbMatched int
+	var localMatches = match.Split()
+	// For each pattern of this filter
+	for i, pattern := range filter.Pattern {
+		// Check that this pattern has user requested name
+		if reg, ok := regexes[pattern.Name]; ok {
+			// Check that the PF.p[i] matches user requested pattern
+			if reg.MatchString(localMatches[i]) {
+				nbMatched++
 			}
-		}
-		if !pmatch {
-			return false
 		}
 	}
-	// Check regexes match
-	if len(regexes) != 0 {
-		// Check that all user requested patterns are in this filter
-		var nbMatched int
-		var localMatches = match.Split()
-		// For each pattern of this filter
-		for i, pattern := range filter.Pattern {
-			// Check that this pattern has user requested name
-			if reg, ok := regexes[pattern.Name]; ok {
-				// Check that the PF.p[i] matches user requested pattern
-				if reg.MatchString(localMatches[i]) {
-					nbMatched++
-				}
-			}
-		}
-		if len(regexes) != nbMatched {
-			return false
-		}
+	if len(regexes) != nbMatched {
+		return false
 	}
 	// All checks passed
 	return true
@@ -177,21 +162,22 @@ func compileKVPatterns(kvpatterns []string) map[string]*regexp.Regexp {
 		// p syntax already checked in Main
 		key, value, found := strings.Cut(p, "=")
 		if !found {
-			logger.Fatalf("Bad argument: no =: %v", p)
+			logger.Printf(logger.ERROR, "Bad argument: no `=` in %v", p)
+			logger.Fatalln("Patterns must be prefixed by their name (e.g. ip=1.1.1.1)")
 		}
 		if regexes[key] != nil {
 			logger.Fatalf("Bad argument: same pattern name provided multiple times: %v", key)
 		}
 		compiled, err := regexp.Compile(fmt.Sprintf("^%v$", value))
 		if err != nil {
-			logger.Fatalf("Bad argument: %v: %v", p, err)
+			logger.Fatalf("Bad argument: Could not compile: `%v`: %v", value, err)
 		}
 		regexes[key] = compiled
 	}
 	return regexes
 }
 
-func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpatterns []string) {
+func ClientShow(format, stream, filter string, kvpatterns []string) {
 	response := SendAndRetrieve(Request{Info, PSF{}})
 	if response.Err != nil {
 		logger.Fatalln("Received error from daemon:", response.Err)
@@ -213,7 +199,7 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpatterns 
 		if len(times) == 0 {
 			continue
 		}
-		if !pfMatches(stream, filter, regex, regexes, pf.P, pf.F) {
+		if !pfMatches(stream, filter, regexes, pf.P, pf.F) {
 			continue
 		}
 		addMatchToCS(cs, pf, times)
@@ -226,7 +212,7 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpatterns 
 		if len(times) == 0 {
 			continue
 		}
-		if !pfMatches(stream, filter, regex, regexes, pa.P, pa.A.Filter) {
+		if !pfMatches(stream, filter, regexes, pa.P, pa.A.Filter) {
 			continue
 		}
 		addActionToCS(cs, pa, times)
@@ -256,21 +242,8 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpatterns 
  *      - "2024-04-30 15:27:28"
  *
  */
-func ClientFlush(patterns []string, streamName, filterName, format string) {
-	// Either we have one pattern that is not of type name=pattern
-	var err error
-	var requestedPattern *regexp.Regexp
-	var requestedPatterns map[string]*regexp.Regexp
-
-	if len(patterns) == 1 && strings.Index(patterns[0], "=") == -1 {
-		requestedPattern, err = regexp.Compile(fmt.Sprintf("^%v$", patterns[0]))
-		if err != nil {
-			logger.Fatalf("Bad regex: %v", err)
-		}
-	} else {
-		// Or we have one ore multiple patterns that must be of type name=pattern
-		requestedPatterns = compileKVPatterns(patterns)
-	}
+func ClientFlush(format, streamName, filterName string, patterns []string) {
+	requestedPatterns := compileKVPatterns(patterns)
 
 	// Remember which Filters are compatible with the query
 	filterCompatibility := make(map[SF]bool)
@@ -320,16 +293,7 @@ func ClientFlush(patterns []string, streamName, filterName, format string) {
 			if filterName == "" || filter.Name == filterName {
 				found = true
 				filterPatterns := match.Split()
-				// If there is only one pattern
-				if requestedPattern != nil {
-					for _, filterPattern := range filterPatterns {
-						if requestedPattern.MatchString(filterPattern) {
-							return true
-						}
-					}
-				} else {
-					return isCompatible(filter) && kvMatch(filter, filterPatterns)
-				}
+				return isCompatible(filter) && kvMatch(filter, filterPatterns)
 			}
 		}
 		return false
