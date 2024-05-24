@@ -170,7 +170,28 @@ func printClientStatus(cs ClientStatus, format string) {
 	fmt.Println(strings.ReplaceAll(string(text), "\\0", " "))
 }
 
-func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern []string) {
+func compileKVPatterns(kvpatterns []string) map[string]*regexp.Regexp {
+	var regexes map[string]*regexp.Regexp
+	regexes = make(map[string]*regexp.Regexp)
+	for _, p := range kvpatterns {
+		// p syntax already checked in Main
+		key, value, found := strings.Cut(p, "=")
+		if !found {
+			logger.Fatalf("Bad argument: no =: %v", p)
+		}
+		if regexes[key] != nil {
+			logger.Fatalf("Bad argument: same pattern name provided multiple times: %v", key)
+		}
+		compiled, err := regexp.Compile(fmt.Sprintf("^%v$", value))
+		if err != nil {
+			logger.Fatalf("Bad argument: %v: %v", p, err)
+		}
+		regexes[key] = compiled
+	}
+	return regexes
+}
+
+func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpatterns []string) {
 	response := SendAndRetrieve(Request{Info, PSF{}})
 	if response.Err != nil {
 		logger.Fatalln("Received error from daemon:", response.Err)
@@ -180,21 +201,8 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern [
 
 	var regexes map[string]*regexp.Regexp
 
-	if len(kvpattern) != 0 {
-		// Transform []{"k=v","k=v"} into map["k"]"v"
-		regexes = make(map[string]*regexp.Regexp)
-		for _, p := range kvpattern {
-			// p syntax already checked in Main
-			key, value, found := strings.Cut(p, "=")
-			if !found {
-				logger.Fatalf("Bad argument: no =: %v", p)
-			}
-			compiled, err := regexp.Compile(fmt.Sprintf("^%v$", value))
-			if err != nil {
-				logger.Fatalf("Bad argument: %v: %v", p, err)
-			}
-			regexes[key] = compiled
-		}
+	if len(kvpatterns) != 0 {
+		regexes = compileKVPatterns(kvpatterns)
 	}
 
 	var found bool
@@ -250,22 +258,18 @@ func ClientShow(format, stream, filter string, regex *regexp.Regexp, kvpattern [
  */
 func ClientFlush(patterns []string, streamName, filterName, format string) {
 	// Either we have one pattern that is not of type name=pattern
-	requestedPatterns := make(map[string]string)
-	var requestedPattern string
+	var err error
+	var requestedPattern *regexp.Regexp
+	var requestedPatterns map[string]*regexp.Regexp
+
 	if len(patterns) == 1 && strings.Index(patterns[0], "=") == -1 {
-		requestedPattern = patterns[0]
-		// Or we have one ore multiple patterns that must be of type name=pattern
-	} else {
-		for _, kvpattern := range patterns {
-			k, v, found := strings.Cut(kvpattern, "=")
-			if !found {
-				logger.Fatalf("Multiple patterns provided must be of type name=pattern: %v", kvpattern)
-			}
-			if requestedPatterns[k] != "" {
-				logger.Fatalf("Can't provide the same pattern name multiple times: %v", k)
-			}
-			requestedPatterns[k] = v
+		requestedPattern, err = regexp.Compile(fmt.Sprintf("^%v$", patterns[0]))
+		if err != nil {
+			logger.Fatalf("Bad regex: %v", err)
 		}
+	} else {
+		// Or we have one ore multiple patterns that must be of type name=pattern
+		requestedPatterns = compileKVPatterns(patterns)
 	}
 
 	// Remember which Filters are compatible with the query
@@ -299,7 +303,7 @@ func ClientFlush(patterns []string, streamName, filterName, format string) {
 			for i, pattern := range filter.Pattern {
 				if k == pattern.Name {
 					// Test the match
-					if v != filterPatterns[i] {
+					if !v.MatchString(filterPatterns[i]) {
 						return false
 					}
 				}
@@ -317,9 +321,9 @@ func ClientFlush(patterns []string, streamName, filterName, format string) {
 				found = true
 				filterPatterns := match.Split()
 				// If there is only one pattern
-				if requestedPattern != "" {
+				if requestedPattern != nil {
 					for _, filterPattern := range filterPatterns {
-						if requestedPattern == filterPattern {
+						if requestedPattern.MatchString(filterPattern) {
 							return true
 						}
 					}
