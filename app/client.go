@@ -36,7 +36,7 @@ type Response struct {
 func SendAndRetrieve(data Request) Response {
 	conn, err := net.Dial("unix", *SocketPath)
 	if err != nil {
-		logger.Fatalln("Error opening connection top daemon:", err)
+		logger.Fatalln("Error opening connection to daemon:", err)
 	}
 	defer conn.Close()
 
