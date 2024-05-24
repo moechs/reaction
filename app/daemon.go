@@ -192,8 +192,8 @@ func ActionsManager(concurrency int) {
 			pattern, action, then := pat.P, pat.A, pat.T
 			if actions[pa] != nil {
 				delete(actions[pa], then)
+				execAction(action, pattern)
 			}
-			execAction(action, pattern)
 		case fo := <-flushToActionsC:
 			for pa := range actions {
 				if fo.S == pa.A.Filter.Stream.Name &&
