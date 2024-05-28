@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -25,7 +26,7 @@ pub struct Config {
     stop: Vec<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pattern {
     regex: String,
@@ -63,8 +64,10 @@ pub struct Filter {
     regex: Vec<String>,
     #[serde(skip)]
     compiled_regex: Vec<Regex>,
+    // We want patterns to be ordered
+    // This is necessary when using matches which contain multiple patterns
     #[serde(skip)]
-    patterns: Vec<Pattern>,
+    patterns: BTreeSet<Pattern>,
 
     retry: Option<u32>,
     #[serde(rename = "retryperiod")]
@@ -175,6 +178,26 @@ impl Pattern {
     }
 }
 
+// This is required to be added to a BTreeSet
+// We compare Patterns by their names, which are unique.
+// This is enforced by Patterns' names coming from their keys in a BTreeMap in Config
+impl Ord for Pattern {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+impl PartialOrd for Pattern {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Eq for Pattern {}
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
 impl Stream {
     fn setup(&mut self, name: &String, patterns: &Patterns) -> Result<(), String> {
         self._setup(name, patterns)
@@ -225,7 +248,7 @@ impl Filter {
         }
 
         if self.retry.is_some() != self.retry_period.is_some() {
-            return Err("retry and retryperiod must be specified altogether".into());
+            return Err("retry and retryperiod must be specified one with each other".into());
         }
 
         if self.retry.is_some_and(|r| r < 2) {
@@ -244,11 +267,15 @@ impl Filter {
         }
 
         for regex in &self.regex {
+            let mut regex_buf = regex.clone();
             for (_pattern_name, pattern) in patterns {
                 if regex.contains(&pattern.name_with_braces) {
-                    // TODO
+                    self.patterns.insert(pattern.clone());
                 }
+                regex_buf = regex_buf.replacen(&pattern.name_with_braces, &pattern.regex, 1)
             }
+            let compiled = Regex::new(&regex_buf).or_else(|err| Err(err.to_string()))?;
+            self.compiled_regex.push(compiled);
         }
 
         if self.actions.len() == 0 {
@@ -256,8 +283,15 @@ impl Filter {
         }
 
         for (key, value) in &mut self.actions {
-            value.setup(&stream_name, &name, key, patterns)?;
+            value.setup(&stream_name, &name, key)?;
         }
+
+        self.longuest_action_duration = self
+            .actions
+            .iter()
+            .map(|(_, v)| v.after_duration.unwrap_or(Duration::from_secs(0)))
+            .max()
+            .unwrap(); // safe because we already tested that actions.len() > 0
 
         Ok(())
     }
@@ -269,9 +303,8 @@ impl Action {
         stream_name: &String,
         filter_name: &String,
         name: &String,
-        patterns: &Patterns,
     ) -> Result<(), String> {
-        self._setup(stream_name, filter_name, name, patterns)
+        self._setup(stream_name, filter_name, name)
             .or_else(|msg| Err(format!("action {}: {}", name, msg)))
     }
     fn _setup(
@@ -279,7 +312,6 @@ impl Action {
         stream_name: &String,
         filter_name: &String,
         name: &String,
-        _patterns: &Patterns,
     ) -> Result<(), String> {
         self.stream_name = stream_name.clone();
         self.filter_name = filter_name.clone();
@@ -288,9 +320,16 @@ impl Action {
         if self.name.contains('.') {
             return Err("character '.' is not allowed in filter name".into());
         }
-        // for (_key, value) in &mut self.actions {
-        //     value.setup()?;
-        // }
+
+        if let Some(after) = &self.after {
+            self.after_duration =
+                Some(parse_duration(after).or_else(|err| {
+                    Err(format!("failed to parse after time: {}", err.to_string()))
+                })?);
+        } else if self.on_exit {
+            return Err("cannot have `onexit: true`, without an `after` directive".into());
+        }
+
         Ok(())
     }
 }
