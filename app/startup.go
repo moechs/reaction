@@ -52,7 +52,7 @@ func (c *Conf) setup() {
 			// Enclose the regex to make sure that it matches the whole detected string
 			compiledRegex, err := regexp.Compile("^" + regex + "$")
 			if err != nil {
-				logger.Fatalf("%vBad configuration: in ignoreregex of pattern %s: %v", logger.FATAL, pattern.Name, err)
+				logger.Fatalf("Bad configuration: in ignoreregex of pattern %s: %v", pattern.Name, err)
 			}
 
 			pattern.compiledIgnoreRegex = append(pattern.compiledIgnoreRegex, *compiledRegex)
