@@ -414,6 +414,13 @@ func Daemon(confFilename string) {
 				quit(conf, false)
 			}
 		case <-sigs:
+			// Trap endSignals, which may cause a deadlock otherwise
+			go func() {
+				ok := true
+				for ok {
+					_, ok = <-endSignals
+				}
+			}()
 			logger.Printf(logger.INFO, "Received SIGINT/SIGTERM, exiting")
 			quit(conf, true)
 		}
