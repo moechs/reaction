@@ -172,8 +172,8 @@ minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m reactio
 
 #### Debian
 
-The releases also contain a `reaction.deb` file, which packages reaction & ip46tables.
-You can install it using `sudo apt install ./reaction.deb`.
+The releases also contain a `reaction*.deb` file, which packages reaction & ip46tables.
+You can install it using `sudo apt install ./reaction*.deb`.
 You'll have to create a configuration at `/etc/reaction.jsonnet`.
 
 If you want to use another configuration format (YAML or JSON), you can override systemd's `ExecStart` command in `/etc/systemd/system/reaction.service` like this:
@@ -187,8 +187,8 @@ ExecStart=/usr/bin/reaction start -c /etc/reaction.yml
 
 #### NixOS
 
-- [ package ](https://framagit.org/ppom/nixos/-/blob/main/pkgs/reaction/default.nix)
-- [ module ](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix)
+- the package already is in nixos-unstable
+- [here's my module, not yet upstreamed](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix)
 
 #### OpenBSD
 
