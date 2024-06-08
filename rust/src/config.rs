@@ -334,11 +334,39 @@ impl Action {
     }
 }
 
+enum Format {
+    YAML,
+    JSON,
+    JSONnet,
+}
+
 pub fn config_from_file(path: &PathBuf) -> Result<Config> {
-    let file = File::open(&path)
-        .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
-    let mut config: Config =
-        serde_json::from_reader(file).context("Failed to parse configuration file")?;
+    _config_from_file(path).with_context(|| anyhow!("Configuration file {}:", path.display()))
+}
+fn _config_from_file(path: &PathBuf) -> Result<Config> {
+    let extension = path.extension().map(|ex| ex.to_str()).flatten().ok_or(anyhow!("no file extension"))?;
+
+    let format = match extension {
+        "yaml" | "yml" => Format::YAML,
+        "json" => Format::JSON,
+        "jsonnet" => Format::JSONnet,
+        _ => {
+            return Err(anyhow!(
+                "extension {} is not recognized. Must be json, jsonnet, yml or yaml.",
+                extension
+            ))
+        }
+    };
+
+    let file = File::open(&path)?;
+
+    let mut config: Config = match format {
+        Format::JSON => serde_json::from_reader(file)?,
+        Format::YAML => serde_yaml::from_reader(file)?,
+        Format::JSONnet => return Err(anyhow!("JSONnet is not implemented yet")),
+    };
+
     config.setup()?;
+
     return Ok(config);
 }
