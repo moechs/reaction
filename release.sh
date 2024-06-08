@@ -37,4 +37,4 @@ curl \
 	'https://framagit.org/api/v4/projects/90566/releases' \
 	--data "$DATA"
 
-make clean
+sudo make clean

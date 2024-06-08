@@ -1,3 +1,9 @@
+reaction (1.4.1-1) stable; urgency=low
+
+  * New upstream release.
+
+ -- ppom <reaction@ppom.me>  Sat, 08 Jun 2024 20:27:11 +0000
+
 reaction (1.4.0-1) stable; urgency=low
 
   * New upstream release.
