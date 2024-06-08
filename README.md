@@ -157,7 +157,7 @@ A standard place to put such executables is `/usr/local/bin/`.
 > Provided binaries in the previous section are compiled this way:
 ```shell
 $ docker run -it --rm -e HOME=/tmp/ -v $(pwd):/tmp/code -w /tmp/code -u $(id -u) golang:1.20 make clean reaction.deb
-$ make signaturese
+$ make signatures
 ```
 #### Signature verification
 
