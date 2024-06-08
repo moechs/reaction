@@ -187,8 +187,7 @@ ExecStart=/usr/bin/reaction start -c /etc/reaction.yml
 
 #### NixOS
 
-- the package already is in nixos-unstable
-- [here's my module, not yet upstreamed](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix)
+[not yet upstreamed **module**](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix)
 
 #### OpenBSD
 
