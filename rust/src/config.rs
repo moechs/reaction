@@ -17,9 +17,13 @@ pub type Patterns = BTreeMap<String, Pattern>;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    concurrency: usize,
     patterns: Patterns,
+
     streams: BTreeMap<String, Stream>,
+
+    #[serde(default = "num_cpus::get")]
+    concurrency: usize,
+
     #[serde(default)]
     start: Vec<Vec<String>>,
     #[serde(default)]
@@ -99,10 +103,6 @@ pub struct Action {
     filter_name: String,
     #[serde(skip)]
     stream_name: String,
-}
-
-fn set_0() -> u32 {
-    0
 }
 
 fn set_false() -> bool {
