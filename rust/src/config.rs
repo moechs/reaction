@@ -344,7 +344,11 @@ pub fn config_from_file(path: &PathBuf) -> Result<Config> {
     _config_from_file(path).with_context(|| anyhow!("Configuration file {}:", path.display()))
 }
 fn _config_from_file(path: &PathBuf) -> Result<Config> {
-    let extension = path.extension().map(|ex| ex.to_str()).flatten().ok_or(anyhow!("no file extension"))?;
+    let extension = path
+        .extension()
+        .map(|ex| ex.to_str())
+        .flatten()
+        .ok_or(anyhow!("no file extension"))?;
 
     let format = match extension {
         "yaml" | "yml" => Format::YAML,
@@ -358,15 +362,39 @@ fn _config_from_file(path: &PathBuf) -> Result<Config> {
         }
     };
 
-    let file = File::open(&path)?;
-
     let mut config: Config = match format {
-        Format::JSON => serde_json::from_reader(file)?,
-        Format::YAML => serde_yaml::from_reader(file)?,
-        Format::JSONnet => return Err(anyhow!("JSONnet is not implemented yet")),
+        Format::JSON => serde_json::from_reader(File::open(&path)?)?,
+        Format::YAML => serde_yaml::from_reader(File::open(&path)?)?,
+        Format::JSONnet => serde_json::from_str(&jsonnet::from_path(&path)?)?,
     };
 
     config.setup()?;
 
     return Ok(config);
+}
+
+mod jsonnet {
+    use std::path::PathBuf;
+
+    use anyhow::{anyhow, Result};
+    use jrsonnet_evaluator::{error::LocError, EvaluationState, FileImportResolver};
+
+    pub fn from_path(path: &PathBuf) -> Result<String> {
+        let state = EvaluationState::default();
+        state.with_stdlib();
+        state.set_import_resolver(Box::new(FileImportResolver::default()));
+        // state.set_import_resolver(Box::new(FileImportResolver {
+        //     library_paths: Vec::new(),
+        // }));
+
+        match evaluate(path, &state) {
+            Ok(val) => Ok(val),
+            Err(err) => Err(anyhow!("{}", state.stringify_err(&err))),
+        }
+    }
+    fn evaluate(path: &PathBuf, state: &EvaluationState) -> Result<String, LocError> {
+        let val = state.evaluate_file_raw(path)?;
+        let result = state.manifest(val)?;
+        Ok(result.to_string())
+    }
 }
