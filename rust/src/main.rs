@@ -12,6 +12,11 @@
 use clap::Parser;
 use regex::Regex;
 
+mod pattern;
+mod stream;
+mod filter;
+mod action;
+
 mod cli;
 mod config;
 mod daemon;
