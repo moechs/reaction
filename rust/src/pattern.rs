@@ -8,6 +8,7 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Pattern {
     pub regex: String,
+
     #[serde(default)]
     ignore: Vec<String>,
 
@@ -31,6 +32,13 @@ impl Pattern {
     pub fn _setup(&mut self, name: &String) -> Result<(), String> {
         self.name = name.clone();
         self.name_with_braces = format!("<{}>", name);
+
+        if self.name.len() == 0 {
+            return Err("pattern name is empty".into());
+        }
+        if self.name.contains(".") {
+            return Err("character '.' is not allowed in pattern name".into());
+        }
 
         if self.regex.len() == 0 {
             return Err("regex is empty".into());
@@ -82,5 +90,102 @@ impl Eq for Pattern {}
 impl PartialEq for Pattern {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    use super::*;
+
+    pub fn default_pattern() -> Pattern {
+        Pattern {
+            regex: "".into(),
+            ignore: Vec::new(),
+            ignore_regex: Vec::new(),
+            compiled_ignore_regex: Vec::new(),
+            name: "".into(),
+            name_with_braces: "".into(),
+        }
+    }
+
+    pub fn ok_pattern() -> Pattern {
+        let mut pattern = default_pattern();
+        pattern.regex = "[abc]".into();
+        pattern
+    }
+
+    #[test]
+    fn missing_information() {
+        let mut pattern;
+
+        // Empty name
+        pattern = default_pattern();
+        pattern.regex = "abc".into();
+        assert!(pattern.setup(&"".into()).is_err());
+
+        // '.' in name
+        pattern = default_pattern();
+        pattern.regex = "abc".into();
+        assert!(pattern.setup(&"na.me".into()).is_err());
+
+        // Empty regex
+        pattern = default_pattern();
+        assert!(pattern.setup(&"name".into()).is_err());
+    }
+
+    #[test]
+    fn regex() {
+        let mut pattern;
+
+        // regex ok
+        pattern = ok_pattern();
+        assert!(pattern.setup(&"name".into()).is_ok());
+
+        // regex ok
+        pattern = default_pattern();
+        pattern.regex = "abc".into();
+        assert!(pattern.setup(&"name".into()).is_ok());
+
+        // regex ko
+        pattern = default_pattern();
+        pattern.regex = "[abc".into();
+        assert!(pattern.setup(&"name".into()).is_err());
+    }
+
+    #[test]
+    fn ignore() {
+        let mut pattern;
+
+        // ignore ok
+        pattern = default_pattern();
+        pattern.regex = "[abc]".into();
+        pattern.ignore.push("a".into());
+        pattern.ignore.push("b".into());
+        assert!(pattern.setup(&"name".into()).is_ok());
+
+        // ignore ko
+        pattern = default_pattern();
+        pattern.regex = "[abc]".into();
+        pattern.ignore.push("d".into());
+        assert!(pattern.setup(&"name".into()).is_err());
+    }
+
+    #[test]
+    fn ignore_regex() {
+        let mut pattern;
+
+        // ignore_regex ok
+        pattern = default_pattern();
+        pattern.regex = "[abc]".into();
+        pattern.ignore_regex.push("[a]".into());
+        pattern.ignore_regex.push("a".into());
+        assert!(pattern.setup(&"name".into()).is_ok());
+
+        // ignore_regex ko
+        pattern = default_pattern();
+        pattern.regex = "[abc]".into();
+        pattern.ignore.push("[a".into());
+        assert!(pattern.setup(&"name".into()).is_err());
     }
 }

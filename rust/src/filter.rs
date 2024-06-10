@@ -1,9 +1,12 @@
-use std::{collections::{BTreeMap, BTreeSet}, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::{action::Action, pattern::Pattern, config::Patterns, parse_duration::parse_duration};
+use crate::{action::Action, config::Patterns, parse_duration::parse_duration, pattern::Pattern};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,7 +34,6 @@ pub struct Filter {
     stream_name: String,
 }
 
-
 impl Filter {
     pub fn setup(
         &mut self,
@@ -52,6 +54,9 @@ impl Filter {
         self.stream_name = stream_name.clone();
         self.name = name.clone();
 
+        if self.name.len() == 0 {
+            return Err("filter name is empty".into());
+        }
         if self.name.contains('.') {
             return Err("character '.' is not allowed in filter name".into());
         }
@@ -104,4 +109,124 @@ impl Filter {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    use crate::action::tests::ok_action;
+
+    use super::*;
+
+    pub fn default_filter() -> Filter {
+        Filter {
+            name: "".into(),
+            stream_name: "".into(),
+            actions: BTreeMap::new(),
+            patterns: BTreeSet::new(),
+            regex: Vec::new(),
+            compiled_regex: Vec::new(),
+            retry: None,
+            retry_period: None,
+            retry_duration: None,
+            longuest_action_duration: Duration::default(),
+        }
+    }
+
+    pub fn ok_filter() -> Filter {
+        let mut filter = default_filter();
+        let name = "name".to_string();
+        filter.regex = vec!["reg".into()];
+        filter
+            .actions
+            .insert(name.clone(), crate::action::tests::ok_action());
+        filter
+    }
+
+    #[test]
+    fn missing_config() {
+        let mut filter;
+        let name = "name".to_string();
+
+        // action but no regex
+        filter = ok_filter();
+        filter.regex = Vec::new();
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_err());
+
+        // regex but no action
+        filter = ok_filter();
+        filter.actions = BTreeMap::new();
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_err());
+
+        // ok
+        filter = ok_filter();
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_ok());
+    }
+
+    #[test]
+    fn retry() {
+        let mut filter;
+        let name = "name".to_string();
+
+        // retry but no retry_period
+        filter = ok_filter();
+        filter.retry = Some(2);
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_err());
+
+        // retry_period but no retry
+        filter = ok_filter();
+        filter.retry_period = Some("2d".into());
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_err());
+
+        // invalid retry_period
+        filter = ok_filter();
+        filter.retry = Some(2);
+        filter.retry_period = Some("2".into());
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_err());
+
+        // ok
+        filter = ok_filter();
+        filter.retry = Some(2);
+        filter.retry_period = Some("2d".into());
+        assert!(filter.setup(&name, &name, &BTreeMap::new()).is_ok());
+    }
+
+    #[test]
+    fn longuest_action_duration() {
+        let mut filter;
+        let name = "name".to_string();
+        let minute_str = "1m".to_string();
+        let minute = Duration::from_secs(60);
+        let two_minutes = Duration::from_secs(60 * 2);
+        let two_minutes_str = "2m".to_string();
+
+        // duration 0
+        filter = ok_filter();
+        filter.setup(&name, &name, &BTreeMap::new()).unwrap();
+        assert_eq!(filter.longuest_action_duration, Duration::default());
+
+        let mut minute_action = ok_action();
+        minute_action.after_duration = Some(minute);
+
+        // duration 60
+        filter = ok_filter();
+        filter.actions.insert(minute_str.clone(), minute_action);
+        filter.setup(&name, &name, &BTreeMap::new()).unwrap();
+        assert_eq!(filter.longuest_action_duration, minute);
+
+        let mut minute_action = ok_action();
+        minute_action.after_duration = Some(minute);
+
+        let mut two_minutes_action = ok_action();
+        two_minutes_action.after_duration = Some(two_minutes);
+
+        // duration 120
+        filter = ok_filter();
+        filter.actions.insert(two_minutes_str, two_minutes_action);
+        filter.actions.insert(minute_str, minute_action);
+        filter.setup(&name, &name, &BTreeMap::new()).unwrap();
+        assert_eq!(filter.longuest_action_duration, two_minutes);
+    }
+
+    // TODO test filters with regexes (and actions)
 }

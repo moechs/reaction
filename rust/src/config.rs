@@ -117,3 +117,25 @@ mod jsonnet {
         Ok(result.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn default_config() -> Config {
+        Config {
+            concurrency: 0,
+            patterns: BTreeMap::new(),
+            streams: BTreeMap::new(),
+            start: Vec::new(),
+            stop: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn config_missing() {
+        let mut config = default_config();
+        assert!(config.setup().is_err());
+    }
+}
