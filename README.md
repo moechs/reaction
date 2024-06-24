@@ -29,7 +29,7 @@ both are extensions of JSON, so JSON is transitively supported.
 - See [reaction.yml](./app/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference
 - See [server.jsonnet](./config/server.jsonnet) for a real-world configuration
 - See [reaction.example.service](./config/reaction.example.service) for a systemd service file
-- This quick example shows what's needed to prevent brute force attacks on an ssh server:
+- This minimal example shows what's needed to prevent brute force attacks on an ssh server (please take a look at more complete references before starting 🆙):
 
 <details open>
 
