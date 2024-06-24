@@ -128,7 +128,7 @@ on the ` + bold + `wiki` + reset + `: https://reaction.ppom.me
 //go:embed example.yml
 var exampleConf string
 
-func Main(version, commit string) {
+func Main(version string) {
 	if len(os.Args) <= 1 {
 		logger.Fatalln("No argument provided. Try `reaction help`")
 		basicUsage()
@@ -140,7 +140,7 @@ func Main(version, commit string) {
 		basicUsage()
 
 	case "version", "-v", "--version":
-		fmt.Printf("reaction version %v commit %v\n", version, commit)
+		fmt.Printf("reaction version %v\n", version)
 
 	case "example-conf":
 		subCommandParse(f, 0)
