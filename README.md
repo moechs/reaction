@@ -37,7 +37,8 @@ both are extensions of JSON, so JSON is transitively supported.
 
 ```yaml
 patterns:
-  ip: '(([ 0-9 ]{1,3}\.){3}[0-9]{1,3})|([0-9a-fA-F:]{2,90})'
+  ip:
+    regex: '(([0-9]{1,3}\.){3}[0-9]{1,3})|([0-9a-fA-F:]{2,90})'
 
 start:
   - [ 'ip46tables', '-w', '-N', 'reaction' ]
