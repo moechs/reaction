@@ -18,7 +18,7 @@ pub type Patterns = BTreeMap<String, Pattern>;
 pub struct Config {
     patterns: Patterns,
 
-    streams: BTreeMap<String, Stream>,
+    pub streams: BTreeMap<String, Stream>,
 
     #[serde(default = "num_cpus::get")]
     concurrency: usize,
@@ -142,7 +142,7 @@ fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
             Ok(exit_status) => {
                 if !exit_status.success() {
                     error!(
-                        "{} command: run {:?}: exit code: {}\n",
+                        "{} command: run {:?}: exit code: {}",
                         moment,
                         command,
                         exit_status.code().unwrap_or(1)
@@ -152,7 +152,7 @@ fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
             }
             Err(err) => {
                 error!(
-                    "{} command: run {:?}: could not execute: {}\n",
+                    "{} command: run {:?}: could not execute: {}",
                     moment, command, err
                 );
                 ok = false;

@@ -14,12 +14,15 @@
 
   start: [
     ['echo', 'coucou'],
-    ['echo coucou'],
+  ],
+
+  stop: [
+    ['echo', 'byebye'],
   ],
 
   streams: {
     tailDown1: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 30"],
+      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 2"],
       filters: {
         findIP: {
           regex: [
@@ -42,7 +45,7 @@
       },
     },
     tailDown2: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 30"],
+      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 3"],
       filters: {
         findIP: {
           regex: [

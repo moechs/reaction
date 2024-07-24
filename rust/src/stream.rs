@@ -1,5 +1,11 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, BufReader},
+    process::{Child, Command, Stdio},
+    sync::mpsc,
+};
 
+use log::{debug, error, info};
 use serde::Deserialize;
 
 use crate::{config::Patterns, filter::Filter};
@@ -46,6 +52,42 @@ impl Stream {
         }
 
         Ok(())
+    }
+
+    pub fn manager(&self, childs_channel: mpsc::SyncSender<Option<Child>>) {
+        info!("{}: start {:?}", self.name, self.cmd);
+        let mut child = match Command::new(&self.cmd[0])
+            .args(&self.cmd[1..])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(err) => {
+                error!("could not execute stream {} cmd: {}", self.name, err);
+                let _ = childs_channel.send(None);
+                return;
+            }
+        };
+
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+        // let main handle the child processus
+        let _ = childs_channel.send(Some(child));
+
+        let mut line: String = "".into();
+        while let Ok(nb_chars) = stdout.read_line(&mut line) {
+            if nb_chars == 0 {
+                break;
+            }
+            debug!("stream {} stdout: {}", self.name, line);
+
+            // TODO apply each filter on the line
+
+            line.clear();
+        }
+        info!("stream {} exited", self.name);
     }
 }
 

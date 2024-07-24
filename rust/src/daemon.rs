@@ -1,8 +1,10 @@
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::thread;
 use std::{path::PathBuf, sync::Arc};
 
-use log::{debug, error, warn, Level};
+use log::{debug, error, Level, info};
 
 use crate::{config, logger};
 
@@ -22,39 +24,57 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         }
     };
 
-    // This AtomicBool prevents us from freeing resources two times
-    let quitting = Arc::new(AtomicBool::new(false));
-    {
-        // Handle SIGINT, SIGTERM, SIGHUP
-        let quitting_ctrlc = quitting.clone();
-        let config_ctrlc = config.clone();
-        if let Err(err) = ctrlc::set_handler(move || quit(&quitting_ctrlc, &config_ctrlc, false)) {
-            error!("impossible to launch a thread for catching signals, exiting: {err}");
-            exit(1);
-        }
-    }
-
-    if !&config.start() {
+    if !config.start() {
         error!("a start command failed, exiting.");
         exit(1);
     }
 
-    // TODO launch streams
+    let mut stream_process_child_handles = Vec::new();
+    let mut stream_thread_handles = Vec::new();
 
-    // TODO wait for streams to finish
+    for (_, stream) in &config.streams {
+        let stream = stream.clone();
+        let (tx, rx) = sync_channel(0);
 
-    quit(&quitting, &config, true);
-}
+        stream_thread_handles.push(thread::spawn(move || stream.manager(tx)));
 
-fn quit(quitting: &Arc<AtomicBool>, _config: &config::Config, graceful: bool) {
-    if let Err(_) = quitting.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
-        warn!("tried to quit while already quitting");
-        return;
+        if let Ok(Some(child)) = rx.recv() {
+            stream_process_child_handles.push(child);
+        }
     }
 
-    // TODO free resources, flush DB etc.
+    let signal_received = Arc::new(AtomicBool::new(false));
+    {
+        // Handle SIGINT, SIGTERM, SIGHUP
+        let signal_received2 = signal_received.clone();
+        if let Err(err) = ctrlc::set_handler(move || {
+            signal_received2.store(true, Ordering::SeqCst);
 
-    exit(match graceful {
+            info!("waiting for streams to finish...");
+            // Kill stream subprocesses
+            for child_handle in stream_process_child_handles.iter_mut() {
+                let _ = child_handle.kill();
+            }
+        }) {
+            error!("impossible to launch a signal-catching thread, exiting: {err}");
+            exit(1);
+        }
+    }
+
+    // Wait for all streams to quit
+    for thread_handle in stream_thread_handles {
+        let _ = thread_handle.join();
+    }
+
+    // TODO wait for actions to complete
+
+    let stop_ok = config.stop();
+
+    // TODO flush DB
+
+    // TODO remove socket
+
+    exit(match !signal_received.load(Ordering::SeqCst) && stop_ok {
         true => 0,
         false => 1,
     });
