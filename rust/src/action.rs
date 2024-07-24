@@ -68,6 +68,7 @@ impl Action {
                 Some(parse_duration(after).or_else(|err| {
                     Err(format!("failed to parse after time: {}", err.to_string()))
                 })?);
+            self.after = None;
         } else if self.on_exit {
             return Err("cannot have `onexit: true`, without an `after` directive".into());
         }

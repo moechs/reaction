@@ -68,6 +68,7 @@ impl Pattern {
 
             self.compiled_ignore_regex.push(compiled_ignore);
         }
+        self.ignore_regex.clear();
 
         Ok(())
     }

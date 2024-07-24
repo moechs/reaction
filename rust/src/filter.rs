@@ -74,6 +74,7 @@ impl Filter {
                 Some(parse_duration(retry_period).or_else(|err| {
                     Err(format!("failed to parse retry time: {}", err.to_string()))
                 })?);
+            self.retry_period = None;
         }
 
         if self.regex.len() == 0 {
@@ -97,6 +98,7 @@ impl Filter {
             let compiled = Regex::new(&regex_buf).or_else(|err| Err(err.to_string()))?;
             self.compiled_regex.push(compiled);
         }
+        self.regex.clear();
 
         if self.actions.len() == 0 {
             return Err("no actions configured".into());
