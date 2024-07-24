@@ -13,7 +13,7 @@ use crate::{pattern::Pattern, stream::Stream};
 
 pub type Patterns = BTreeMap<String, Pattern>;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     patterns: Patterns,

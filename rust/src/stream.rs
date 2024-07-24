@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::{config::Patterns, filter::Filter};
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     cmd: Vec<String>,

@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::parse_duration::parse_duration;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
     cmd: Vec<String>,

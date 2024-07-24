@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::{action::Action, config::Patterns, parse_duration::parse_duration, pattern::Pattern};
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     actions: BTreeMap<String, Action>,

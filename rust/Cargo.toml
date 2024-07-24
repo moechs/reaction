@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.86"
 clap = { version = "4.5.4", features = ["derive"] }
 clap_complete = "4.5.2"
+ctrlc = { version = "3.4.4", features = ["termination"] }
 jrsonnet-evaluator = "0.4.2"
 log = { version = "0.4.22", features = ["std"] }
 num_cpus = "1.16.0"
