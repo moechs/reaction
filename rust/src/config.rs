@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::{collections::BTreeMap, process::Command};
 
 use anyhow::{anyhow, Context, Result};
 use log::{error, info};
@@ -51,6 +52,14 @@ impl Config {
             value.setup(key, &self.patterns)?;
         }
         Ok(())
+    }
+
+    pub fn start(&self) -> bool {
+        return run_commands(&self.start, "start");
+    }
+
+    pub fn stop(&self) -> bool {
+        return run_commands(&self.stop, "stop");
     }
 }
 
@@ -116,6 +125,42 @@ mod jsonnet {
         let result = state.manifest(val)?;
         Ok(result.to_string())
     }
+}
+
+fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
+    let mut ok = true;
+    for command in commands {
+        info!("{} command: run {:?}\n", moment, command);
+        // TODO reaction-go waits the subprocess completion for a minute maximum
+        match Command::new(&command[0])
+            .args(&command[1..])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        {
+            Ok(exit_status) => {
+                if !exit_status.success() {
+                    error!(
+                        "{} command: run {:?}: exit code: {}\n",
+                        moment,
+                        command,
+                        exit_status.code().unwrap_or(1)
+                    );
+                    ok = false;
+                }
+            }
+            Err(err) => {
+                error!(
+                    "{} command: run {:?}: could not execute: {}\n",
+                    moment, command, err
+                );
+                ok = false;
+            }
+        }
+    }
+
+    return ok;
 }
 
 #[cfg(test)]
