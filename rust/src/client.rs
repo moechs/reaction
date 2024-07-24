@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use log::debug;
 use regex::Regex;
 
 use crate::cli::{Format, NamedRegex};
@@ -11,7 +12,10 @@ pub fn show(
     pattern: &Option<Regex>,
     patterns: &Vec<NamedRegex>,
 ) {
-    println!("show {:?} {:?} {:?} {:?} {:?}", socket, format, limit, pattern, patterns);
+    debug!(
+        "show {:?} {:?} {:?} {:?} {:?}",
+        socket, format, limit, pattern, patterns
+    );
 }
 
 pub fn flush(
@@ -21,9 +25,12 @@ pub fn flush(
     pattern: &Option<Regex>,
     patterns: &Vec<NamedRegex>,
 ) {
-    println!("flush {:?} {:?} {:?} {:?} {:?}", socket, format, limit, pattern, patterns);
+    debug!(
+        "flush {:?} {:?} {:?} {:?} {:?}",
+        socket, format, limit, pattern, patterns
+    );
 }
 
 pub fn test_regex(config_path: &PathBuf, regex: &String, line: &Option<String>) {
-    println!("test-regex {:?} {:?} {:?} ", config_path, regex, line);
+    debug!("test-regex {:?} {:?} {:?} ", config_path, regex, line);
 }

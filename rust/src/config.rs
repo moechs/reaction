@@ -5,6 +5,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
+use log::{error, info};
 use serde::Deserialize;
 
 use crate::{pattern::Pattern, stream::Stream};

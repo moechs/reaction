@@ -31,8 +31,8 @@ pub enum Command {
         config: PathBuf,
 
         /// minimum log level to show
-        #[clap(short = 'l', long, default_value_t = LogLevel::INFO, ignore_case = true)]
-        loglevel: LogLevel,
+        #[clap(short = 'l', long, value_parser = parse_log_level, default_value_t = log::Level::Info, ignore_case = true)]
+        loglevel: log::Level,
 
         /// path to the client-daemon communication socket
         #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
@@ -130,27 +130,6 @@ impl fmt::Display for Format {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
-pub enum LogLevel {
-    DEBUG,
-    INFO,
-    WARN,
-    ERROR,
-    FATAL,
-}
-
-impl fmt::Display for LogLevel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            LogLevel::DEBUG => write!(f, "DEBUG"),
-            LogLevel::INFO => write!(f, "INFO"),
-            LogLevel::WARN => write!(f, "WARN"),
-            LogLevel::ERROR => write!(f, "ERROR"),
-            LogLevel::FATAL => write!(f, "FATAL"),
-        }
-    }
-}
-
 // Structs
 
 #[derive(Clone, Debug)]
@@ -169,3 +148,17 @@ fn parse_named_regex(s: &str) -> Result<NamedRegex, String> {
         name: name.to_string(),
     })
 }
+
+fn parse_log_level(s: &str) -> Result<log::Level, String> {
+    match s.to_ascii_uppercase().as_str() {
+        "DEBUG" => Ok(log::Level::Debug),
+        "INFO" => Ok(log::Level::Info),
+        "WARN" => Ok(log::Level::Warn),
+        "ERROR" => Ok(log::Level::Error),
+        "FATAL" => Ok(log::Level::Error),
+        _ => Err("must be one of ERROR, WARN, INFO, DEBUG".into()),
+    }
+}
+
+// TODO generate completion
+// TODO generate a man page https://rust-cli.github.io/book/in-depth/docs.html
