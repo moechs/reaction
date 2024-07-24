@@ -144,9 +144,7 @@ pub mod tests {
         let mut filter = default_filter();
         let name = "name".to_string();
         filter.regex = vec!["reg".into()];
-        filter
-            .actions
-            .insert(name.clone(), ok_action());
+        filter.actions.insert(name.clone(), ok_action());
         filter
     }
 
@@ -265,9 +263,7 @@ pub mod tests {
 
         // TODO correct regex replacement
         filter = default_filter();
-        filter
-            .actions
-            .insert(name.clone(), ok_action());
+        filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
@@ -282,9 +278,7 @@ pub mod tests {
 
         // TODO same pattern two times in regex
         filter = default_filter();
-        filter
-            .actions
-            .insert(name.clone(), ok_action());
+        filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
             .push("there <name> are two <name> s!".to_string());
@@ -292,10 +286,10 @@ pub mod tests {
 
         // TODO two patterns in one regex
         filter = default_filter();
+        filter.actions.insert(name.clone(), ok_action());
         filter
-            .actions
-            .insert(name.clone(), ok_action());
-        filter.regex.push("insert <name> here and <boubou> there".to_string());
+            .regex
+            .push("insert <name> here and <boubou> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
             filter.compiled_regex[0].to_string(),
@@ -311,9 +305,7 @@ pub mod tests {
 
         // TODO multiple regexes with same pattern
         filter = default_filter();
-        filter
-            .actions
-            .insert(name.clone(), ok_action());
+        filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
@@ -335,11 +327,13 @@ pub mod tests {
 
         // TODO multiple regexes with same patterns
         filter = default_filter();
+        filter.actions.insert(name.clone(), ok_action());
         filter
-            .actions
-            .insert(name.clone(), ok_action());
-        filter.regex.push("insert <name> here and <boubou> there".to_string());
-        filter.regex.push("also add <boubou> here and <name> there".to_string());
+            .regex
+            .push("insert <name> here and <boubou> there".to_string());
+        filter
+            .regex
+            .push("also add <boubou> here and <name> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
             filter.compiled_regex[0].to_string(),
@@ -361,9 +355,7 @@ pub mod tests {
 
         // TODO multiple regexes with different patterns
         filter = default_filter();
-        filter
-            .actions
-            .insert(name.clone(), ok_action());
+        filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <boubou> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());

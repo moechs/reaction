@@ -59,7 +59,6 @@ enum Format {
     JSON,
     JSONnet,
 }
-
 pub fn config_from_file(path: &PathBuf) -> Result<Config> {
     _config_from_file(path).with_context(|| anyhow!("Configuration file {}:", path.display()))
 }

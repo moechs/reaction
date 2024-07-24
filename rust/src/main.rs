@@ -12,20 +12,21 @@
 use clap::Parser;
 use regex::Regex;
 
+mod action;
+mod filter;
 mod pattern;
 mod stream;
-mod filter;
-mod action;
 
 mod cli;
+mod client;
 mod config;
 mod daemon;
+mod logger;
 mod parse_duration;
-mod client;
 
 use cli::{Cli, Command};
+use client::{flush, show, test_regex};
 use daemon::daemon;
-use client::{show, flush, test_regex};
 
 fn main() {
     cli::NamedRegex {
@@ -49,24 +50,18 @@ fn main() {
             limit,
             pattern,
             patterns,
-        } => {
-            show(&socket, format, &limit, &pattern, &patterns)
-        }
+        } => show(&socket, format, &limit, &pattern, &patterns),
         Command::Flush {
             socket,
             format,
             limit,
             pattern,
             patterns,
-        } => {
-            flush(&socket, format, &limit, &pattern, &patterns)
-        }
+        } => flush(&socket, format, &limit, &pattern, &patterns),
         Command::TestRegex {
             config,
             regex,
             line,
-        } => {
-            test_regex(&config, &regex, &line)
-        }
+        } => test_regex(&config, &regex, &line),
     }
 }

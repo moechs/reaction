@@ -32,10 +32,10 @@ impl Stream {
 
         if self.cmd.len() == 0 {
             return Err("cmd is empty".into());
-        } 
+        }
         if self.cmd[0].len() == 0 {
             return Err("cmd's first item is empty".into());
-        } 
+        }
 
         if self.filters.len() == 0 {
             return Err("no filters configured".into());
@@ -49,7 +49,6 @@ impl Stream {
     }
 }
 
-
 #[cfg(test)]
 pub mod tests {
 
@@ -59,14 +58,16 @@ pub mod tests {
         Stream {
             cmd: Vec::new(),
             name: "".into(),
-            filters: BTreeMap::new()
+            filters: BTreeMap::new(),
         }
     }
 
     pub fn ok_stream() -> Stream {
         let mut stream = default_stream();
         stream.cmd = vec!["command".into()];
-        stream.filters.insert("name".into(), crate::filter::tests::ok_filter());
+        stream
+            .filters
+            .insert("name".into(), crate::filter::tests::ok_filter());
         stream
     }
 

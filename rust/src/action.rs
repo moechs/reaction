@@ -58,10 +58,10 @@ impl Action {
 
         if self.cmd.len() == 0 {
             return Err("cmd is empty".into());
-        } 
+        }
         if self.cmd[0].len() == 0 {
             return Err("cmd's first item is empty".into());
-        } 
+        }
 
         if let Some(after) = &self.after {
             self.after_duration =
