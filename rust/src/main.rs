@@ -13,13 +13,14 @@ use clap::Parser;
 use regex::Regex;
 
 mod action;
+mod config;
 mod filter;
+mod messages;
 mod pattern;
 mod stream;
 
 mod cli;
 mod client;
-mod config;
 mod daemon;
 mod logger;
 mod parse_duration;

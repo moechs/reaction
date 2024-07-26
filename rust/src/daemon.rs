@@ -1,10 +1,11 @@
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{channel, sync_channel};
+use std::sync::Arc;
 use std::thread;
-use std::{path::PathBuf, sync::Arc};
 
-use log::{debug, error, Level, info};
+use log::{debug, error, info, Level};
 
 use crate::{config, logger};
 
@@ -29,16 +30,20 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         exit(1);
     }
 
+    // TODO match manager
+    let (match_tx, match_rx) = channel();
+
     let mut stream_process_child_handles = Vec::new();
     let mut stream_thread_handles = Vec::new();
 
-    for (_, stream) in &config.streams {
+    for (_, stream) in config.streams() {
         let stream = stream.clone();
-        let (tx, rx) = sync_channel(0);
+        let match_tx = match_tx.clone();
+        let (child_tx, child_rx) = sync_channel(0);
 
-        stream_thread_handles.push(thread::spawn(move || stream.manager(tx)));
+        stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
 
-        if let Ok(Some(child)) = rx.recv() {
+        if let Ok(Some(child)) = child_rx.recv() {
             stream_process_child_handles.push(child);
         }
     }

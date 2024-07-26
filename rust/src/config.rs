@@ -1,9 +1,8 @@
-#![allow(dead_code)]
-
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
+use std::process::Command;
 use std::process::Stdio;
-use std::{collections::BTreeMap, process::Command};
 
 use anyhow::{anyhow, Context, Result};
 use log::{error, info};
@@ -18,7 +17,7 @@ pub type Patterns = BTreeMap<String, Pattern>;
 pub struct Config {
     patterns: Patterns,
 
-    pub streams: BTreeMap<String, Stream>,
+    streams: BTreeMap<String, Stream>,
 
     #[serde(default = "num_cpus::get")]
     concurrency: usize,
@@ -30,6 +29,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn streams(&self) -> &BTreeMap<String, Stream> {
+        &self.streams
+    }
+
     pub fn setup(&mut self) -> Result<()> {
         self._setup()
             .or_else(|msg| Err(anyhow!("Bad configuration: {}", msg)))

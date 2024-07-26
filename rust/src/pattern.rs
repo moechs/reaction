@@ -18,7 +18,7 @@ pub struct Pattern {
     compiled_ignore_regex: Vec<Regex>,
 
     #[serde(skip)]
-    name: String,
+    pub name: String,
     #[serde(skip)]
     pub name_with_braces: String,
 }
@@ -72,6 +72,20 @@ impl Pattern {
 
         Ok(())
     }
+
+    pub fn not_an_ignore(&self, match_: &str) -> bool {
+        for regex in &self.compiled_ignore_regex {
+            if regex.is_match(match_) {
+                return false;
+            }
+        }
+        for ignore in &self.ignore {
+            if ignore == match_ {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 // This is required to be added to a BTreeSet
@@ -116,8 +130,21 @@ pub mod tests {
         pattern
     }
 
+    pub fn ok_pattern_with_ignore() -> Pattern {
+        let mut pattern = ok_pattern();
+        pattern.ignore.push("a".into());
+        pattern
+    }
+
+    pub fn boubou_pattern_with_ignore() -> Pattern {
+        let mut pattern = ok_pattern();
+        pattern.regex = "(?:bou){1,3}".to_string();
+        pattern.ignore.push("boubou".into());
+        pattern
+    }
+
     #[test]
-    fn missing_information() {
+    fn setup_missing_information() {
         let mut pattern;
 
         // Empty name
@@ -136,7 +163,7 @@ pub mod tests {
     }
 
     #[test]
-    fn regex() {
+    fn setup_regex() {
         let mut pattern;
 
         // regex ok
@@ -155,7 +182,7 @@ pub mod tests {
     }
 
     #[test]
-    fn ignore() {
+    fn setup_ignore() {
         let mut pattern;
 
         // ignore ok
@@ -173,7 +200,7 @@ pub mod tests {
     }
 
     #[test]
-    fn ignore_regex() {
+    fn setup_ignore_regex() {
         let mut pattern;
 
         // ignore_regex ok
@@ -188,5 +215,28 @@ pub mod tests {
         pattern.regex = "[abc]".into();
         pattern.ignore.push("[a".into());
         assert!(pattern.setup(&"name".into()).is_err());
+    }
+
+    #[test]
+    fn not_an_ignore() {
+        let mut pattern;
+
+        // ignore ok
+        pattern = default_pattern();
+        pattern.regex = "[abcdefg]".into();
+        pattern.ignore.push("a".into());
+        pattern.ignore.push("b".into());
+        pattern.ignore_regex.push("c".into());
+        pattern.ignore_regex.push("[de]".into());
+
+        pattern.setup(&"name".into()).unwrap();
+        assert_eq!(pattern.not_an_ignore("a"), false);
+        assert_eq!(pattern.not_an_ignore("b"), false);
+        assert_eq!(pattern.not_an_ignore("c"), false);
+        assert_eq!(pattern.not_an_ignore("d"), false);
+        assert_eq!(pattern.not_an_ignore("e"), false);
+        assert_eq!(pattern.not_an_ignore("f"), true);
+        assert_eq!(pattern.not_an_ignore("g"), true);
+        assert_eq!(pattern.not_an_ignore("h"), true);
     }
 }

@@ -1,14 +1,13 @@
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader},
-    process::{Child, Command, Stdio},
-    sync::mpsc,
-};
+use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Sender, SyncSender};
+use std::time::SystemTime;
 
 use log::{debug, error, info};
 use serde::Deserialize;
 
-use crate::{config::Patterns, filter::Filter};
+use crate::{config::Patterns, filter::Filter, messages::PFT};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,7 +53,7 @@ impl Stream {
         Ok(())
     }
 
-    pub fn manager(&self, childs_channel: mpsc::SyncSender<Option<Child>>) {
+    pub fn manager(&self, child_tx: SyncSender<Option<Child>>, match_tx: Sender<PFT>) {
         info!("{}: start {:?}", self.name, self.cmd);
         let mut child = match Command::new(&self.cmd[0])
             .args(&self.cmd[1..])
@@ -66,15 +65,17 @@ impl Stream {
             Ok(child) => child,
             Err(err) => {
                 error!("could not execute stream {} cmd: {}", self.name, err);
-                let _ = childs_channel.send(None);
+                let _ = child_tx.send(None);
                 return;
             }
         };
 
+        // keep stdout before sending/moving child to the main thread
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
 
-        // let main handle the child processus
-        let _ = childs_channel.send(Some(child));
+        // let main handle the child process
+        let _ = child_tx.send(Some(child));
+        drop(child_tx);
 
         let mut line: String = "".into();
         while let Ok(nb_chars) = stdout.read_line(&mut line) {
@@ -83,7 +84,18 @@ impl Stream {
             }
             debug!("stream {} stdout: {}", self.name, line);
 
-            // TODO apply each filter on the line
+            for (_, filter) in &self.filters {
+                if let Some(match_) = filter.get_match(&line) {
+                    match_tx
+                        .send(PFT {
+                            m: match_,
+                            // FIXME this clone is a lot :'(
+                            f: filter.clone(),
+                            t: SystemTime::now(),
+                        })
+                        .unwrap();
+                }
+            }
 
             line.clear();
         }
