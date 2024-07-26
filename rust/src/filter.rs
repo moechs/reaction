@@ -39,24 +39,19 @@ pub struct Filter {
 impl Filter {
     pub fn setup(
         &mut self,
-        stream_name: &String,
-        name: &String,
+        stream_name: &str,
+        name: &str,
         patterns: &Patterns,
     ) -> Result<(), String> {
         self._setup(stream_name, name, patterns)
-            .or_else(|msg| Err(format!("filter {}: {}", name, msg)))
+            .map_err(|msg| format!("filter {}: {}", name, msg))
     }
 
-    fn _setup(
-        &mut self,
-        stream_name: &String,
-        name: &String,
-        patterns: &Patterns,
-    ) -> Result<(), String> {
-        self.stream_name = stream_name.clone();
-        self.name = name.clone();
+    fn _setup(&mut self, stream_name: &str, name: &str, patterns: &Patterns) -> Result<(), String> {
+        self.stream_name = stream_name.to_string();
+        self.name = name.to_string();
 
-        if self.name.len() == 0 {
+        if self.name.is_empty() {
             return Err("filter name is empty".into());
         }
         if self.name.contains('.') {
@@ -72,21 +67,21 @@ impl Filter {
         }
 
         if let Some(retry_period) = &self.retry_period {
-            self.retry_duration =
-                Some(parse_duration(retry_period).or_else(|err| {
-                    Err(format!("failed to parse retry time: {}", err.to_string()))
-                })?);
+            self.retry_duration = Some(
+                parse_duration(retry_period)
+                    .map_err(|err| format!("failed to parse retry time: {}", err))?,
+            );
             self.retry_period = None;
         }
 
-        if self.regex.len() == 0 {
+        if self.regex.is_empty() {
             return Err("no regex configured".into());
         }
 
         let mut first = true;
         for regex in &self.regex {
             let mut regex_buf = regex.clone();
-            for (_pattern_name, pattern) in patterns {
+            for pattern in patterns.values() {
                 if let Some(index) = regex.find(&pattern.name_with_braces) {
                     if regex.rfind(&pattern.name_with_braces).unwrap() != index {
                         return Err(format!(
@@ -96,13 +91,13 @@ impl Filter {
                     }
                     if first {
                         self.patterns.insert(pattern.clone());
-                    } else if !self.patterns.contains(&pattern) {
+                    } else if !self.patterns.contains(pattern) {
                         return Err(format!(
                             "pattern {} is not present in the first regex but is present in a following regex. all regexes should contain the same set of regexes",
                             &pattern.name_with_braces
                         ));
                     }
-                } else if !first && self.patterns.contains(&pattern) {
+                } else if !first && self.patterns.contains(pattern) {
                     return Err(format!(
                             "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
                             &pattern.name_with_braces
@@ -110,37 +105,38 @@ impl Filter {
                 }
                 regex_buf = regex_buf.replacen(&pattern.name_with_braces, &pattern.regex, 1);
             }
-            let compiled = Regex::new(&regex_buf).or_else(|err| Err(err.to_string()))?;
+            let compiled = Regex::new(&regex_buf).map_err(|err| err.to_string())?;
             self.compiled_regex.push(compiled);
             first = false;
         }
         self.regex.clear();
 
-        if self.actions.len() == 0 {
+        if self.actions.is_empty() {
             return Err("no actions configured".into());
         }
 
         for (key, value) in &mut self.actions {
-            value.setup(&stream_name, &name, key)?;
+            value.setup(stream_name, name, key)?;
         }
 
-        self.longuest_action_duration = self
-            .actions
-            .iter()
-            .map(|(_, v)| v.after_duration.unwrap_or(Duration::from_secs(0)))
-            .max()
-            .unwrap(); // safe because we already tested that actions.len() > 0
+        self.longuest_action_duration =
+            self.actions
+                .values()
+                .fold(Duration::from_secs(0), |acc, v| {
+                    v.after_duration
+                        .map_or(acc, |v| if v > acc { v } else { acc })
+                });
 
         Ok(())
     }
 
-    pub fn get_match(&self, line: &String) -> Option<Match> {
+    pub fn get_match(&self, line: &str) -> Option<Match> {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
-                if self.patterns.len() > 0 {
+                if !self.patterns.is_empty() {
                     let mut result = Match::new();
                     for pattern in &self.patterns {
-                        let match_ = matches.name(&pattern.name).expect("logic error");
+                        let match_ = matches.name(&pattern.name).unwrap();
                         if pattern.not_an_ignore(match_.as_str()) {
                             result.push(match_.as_str().to_string());
                         }
@@ -444,13 +440,10 @@ pub mod tests {
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here$".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
-        assert_eq!(
-            filter.get_match(&"insert b here".into()),
-            Some(vec!("b".into()))
-        );
-        assert_eq!(filter.get_match(&"insert a here".into()), None);
-        assert_eq!(filter.get_match(&"youpi b youpi".into()), None);
-        assert_eq!(filter.get_match(&"insert  here".into()), None);
+        assert_eq!(filter.get_match(&"insert b here"), Some(vec!("b".into())));
+        assert_eq!(filter.get_match(&"insert a here"), None);
+        assert_eq!(filter.get_match(&"youpi b youpi"), None);
+        assert_eq!(filter.get_match(&"insert  here"), None);
 
         // two patterns in one regex
         filter = default_filter();
@@ -460,17 +453,11 @@ pub mod tests {
             .push("insert <name> here and <boubou> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
         assert_eq!(
-            filter.get_match(&"insert b here and bouboubou there".into()),
+            filter.get_match(&"insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
-        assert_eq!(
-            filter.get_match(&"insert a here and bouboubou there".into()),
-            None
-        );
-        assert_eq!(
-            filter.get_match(&"insert b here and boubou there".into()),
-            None
-        );
+        assert_eq!(filter.get_match(&"insert a here and bouboubou there"), None);
+        assert_eq!(filter.get_match(&"insert b here and boubou there"), None);
 
         // multiple regexes with same pattern
         filter = default_filter();
@@ -478,14 +465,11 @@ pub mod tests {
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
-        assert_eq!(filter.get_match(&"insert a here".into()), None);
+        assert_eq!(filter.get_match(&"insert a here"), None);
+        assert_eq!(filter.get_match(&"insert b here"), Some(vec!("b".into())));
+        assert_eq!(filter.get_match(&"also add a there"), None);
         assert_eq!(
-            filter.get_match(&"insert b here".into()),
-            Some(vec!("b".into()))
-        );
-        assert_eq!(filter.get_match(&"also add a there".into()), None);
-        assert_eq!(
-            filter.get_match(&"also add b there".into()),
+            filter.get_match(&"also add b there"),
             Some(vec!("b".into()))
         );
 
@@ -500,28 +484,19 @@ pub mod tests {
             .push("also add <boubou> here and <name> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
         assert_eq!(
-            filter.get_match(&"insert b here and bouboubou there".into()),
+            filter.get_match(&"insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
-            filter.get_match(&"also add bouboubou here and b there".into()),
+            filter.get_match(&"also add bouboubou here and b there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
+        assert_eq!(filter.get_match(&"insert a here and bouboubou there"), None);
         assert_eq!(
-            filter.get_match(&"insert a here and bouboubou there".into()),
+            filter.get_match(&"also add bouboubou here and a there"),
             None
         );
-        assert_eq!(
-            filter.get_match(&"also add bouboubou here and a there".into()),
-            None
-        );
-        assert_eq!(
-            filter.get_match(&"insert b here and boubou there".into()),
-            None
-        );
-        assert_eq!(
-            filter.get_match(&"also add boubou here and b there".into()),
-            None
-        );
+        assert_eq!(filter.get_match(&"insert b here and boubou there"), None);
+        assert_eq!(filter.get_match(&"also add boubou here and b there"), None);
     }
 }

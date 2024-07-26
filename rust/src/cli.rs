@@ -140,7 +140,7 @@ pub struct NamedRegex {
 
 fn parse_named_regex(s: &str) -> Result<NamedRegex, String> {
     let (name, v) = s
-        .split_once("=")
+        .split_once('=')
         .ok_or("When given as a positional argument, a pattern must be prefixed with a name, ex: ip=192.168.0.1")?;
     let regex = Regex::new(v).map_err(|err| format!("{}", err))?;
     Ok(NamedRegex {

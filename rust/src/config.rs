@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
 
@@ -35,7 +35,7 @@ impl Config {
 
     pub fn setup(&mut self) -> Result<()> {
         self._setup()
-            .or_else(|msg| Err(anyhow!("Bad configuration: {}", msg)))
+            .map_err(|msg| anyhow!("Bad configuration: {}", msg))
     }
 
     pub fn _setup(&mut self) -> Result<(), String> {
@@ -47,7 +47,7 @@ impl Config {
             value.setup(key)?;
         }
 
-        if self.streams.len() == 0 {
+        if self.streams.is_empty() {
             return Err("no streams configured".into());
         }
 
@@ -58,33 +58,32 @@ impl Config {
     }
 
     pub fn start(&self) -> bool {
-        return run_commands(&self.start, "start");
+        run_commands(&self.start, "start")
     }
 
     pub fn stop(&self) -> bool {
-        return run_commands(&self.stop, "stop");
+        run_commands(&self.stop, "stop")
     }
 }
 
 enum Format {
-    YAML,
-    JSON,
-    JSONnet,
+    Yaml,
+    Json,
+    Jsonnet,
 }
-pub fn config_from_file(path: &PathBuf) -> Result<Config> {
+pub fn config_from_file(path: &Path) -> Result<Config> {
     _config_from_file(path).with_context(|| anyhow!("Configuration file {}:", path.display()))
 }
-fn _config_from_file(path: &PathBuf) -> Result<Config> {
+fn _config_from_file(path: &Path) -> Result<Config> {
     let extension = path
         .extension()
-        .map(|ex| ex.to_str())
-        .flatten()
+        .and_then(|ex| ex.to_str())
         .ok_or(anyhow!("no file extension"))?;
 
     let format = match extension {
-        "yaml" | "yml" => Format::YAML,
-        "json" => Format::JSON,
-        "jsonnet" => Format::JSONnet,
+        "yaml" | "yml" => Format::Yaml,
+        "json" => Format::Json,
+        "jsonnet" => Format::Jsonnet,
         _ => {
             return Err(anyhow!(
                 "extension {} is not recognized. Must be json, jsonnet, yml or yaml.",
@@ -94,26 +93,26 @@ fn _config_from_file(path: &PathBuf) -> Result<Config> {
     };
 
     let mut config: Config = match format {
-        Format::JSON => serde_json::from_reader(File::open(&path)?)?,
-        Format::YAML => serde_yaml::from_reader(File::open(&path)?)?,
-        Format::JSONnet => serde_json::from_str(&jsonnet::from_path(&path)?)?,
+        Format::Json => serde_json::from_reader(File::open(path)?)?,
+        Format::Yaml => serde_yaml::from_reader(File::open(path)?)?,
+        Format::Jsonnet => serde_json::from_str(&jsonnet::from_path(path)?)?,
     };
 
     config.setup()?;
 
-    return Ok(config);
+    Ok(config)
 }
 
 mod jsonnet {
-    use std::path::PathBuf;
+    use std::path::Path;
 
     use anyhow::{anyhow, Result};
     use jrsonnet_evaluator::{error::LocError, EvaluationState, FileImportResolver};
 
-    pub fn from_path(path: &PathBuf) -> Result<String> {
+    pub fn from_path(path: &Path) -> Result<String> {
         let state = EvaluationState::default();
         state.with_stdlib();
-        state.set_import_resolver(Box::new(FileImportResolver::default()));
+        state.set_import_resolver(Box::<FileImportResolver>::default());
         // state.set_import_resolver(Box::new(FileImportResolver {
         //     library_paths: Vec::new(),
         // }));
@@ -123,7 +122,7 @@ mod jsonnet {
             Err(err) => Err(anyhow!("{}", state.stringify_err(&err))),
         }
     }
-    fn evaluate(path: &PathBuf, state: &EvaluationState) -> Result<String, LocError> {
+    fn evaluate(path: &Path, state: &EvaluationState) -> Result<String, LocError> {
         let val = state.evaluate_file_raw(path)?;
         let result = state.manifest(val)?;
         Ok(result.to_string())
@@ -163,7 +162,7 @@ fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
         }
     }
 
-    return ok;
+    ok
 }
 
 #[cfg(test)]

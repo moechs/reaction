@@ -25,31 +25,30 @@ pub struct Pattern {
 
 impl Pattern {
     pub fn setup(&mut self, name: &String) -> Result<(), String> {
-        self._setup(name)
-            .or_else(|msg| Err(format!("pattern {}: {}", name, msg)))
+        self._setup(name).map_err(|msg| format!("pattern {}: {}", name, msg))
     }
 
     pub fn _setup(&mut self, name: &String) -> Result<(), String> {
         self.name = name.clone();
         self.name_with_braces = format!("<{}>", name);
 
-        if self.name.len() == 0 {
+        if self.name.is_empty() {
             return Err("pattern name is empty".into());
         }
-        if self.name.contains(".") {
+        if self.name.contains('.') {
             return Err("character '.' is not allowed in pattern name".into());
         }
 
-        if self.regex.len() == 0 {
+        if self.regex.is_empty() {
             return Err("regex is empty".into());
         }
         let compiled =
-            Regex::new(&format!("^{}$", self.regex)).or_else(|err| Err(err.to_string()))?;
+            Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())?;
 
         self.regex = format!("(?P<{}>{})", self.name, self.regex);
 
         for ignore in &self.ignore {
-            if !compiled.is_match(&ignore) {
+            if !compiled.is_match(ignore) {
                 return Err(format!(
                     "ignore '{}' doesn't match pattern. It should be fixed or removed.",
                     ignore,
@@ -58,13 +57,11 @@ impl Pattern {
         }
 
         for ignore_regex in &self.ignore_regex {
-            let compiled_ignore = Regex::new(&format!("^{}$", ignore_regex)).or_else(|err| {
-                Err(format!(
+            let compiled_ignore = Regex::new(&format!("^{}$", ignore_regex)).map_err(|err| format!(
                     "ignoreregex '{}': {}",
                     ignore_regex,
-                    err.to_string()
-                ))
-            })?;
+                    err
+                ))?;
 
             self.compiled_ignore_regex.push(compiled_ignore);
         }
@@ -230,13 +227,13 @@ pub mod tests {
         pattern.ignore_regex.push("[de]".into());
 
         pattern.setup(&"name".into()).unwrap();
-        assert_eq!(pattern.not_an_ignore("a"), false);
-        assert_eq!(pattern.not_an_ignore("b"), false);
-        assert_eq!(pattern.not_an_ignore("c"), false);
-        assert_eq!(pattern.not_an_ignore("d"), false);
-        assert_eq!(pattern.not_an_ignore("e"), false);
-        assert_eq!(pattern.not_an_ignore("f"), true);
-        assert_eq!(pattern.not_an_ignore("g"), true);
-        assert_eq!(pattern.not_an_ignore("h"), true);
+        assert!(!pattern.not_an_ignore("a"));
+        assert!(!pattern.not_an_ignore("b"));
+        assert!(!pattern.not_an_ignore("c"));
+        assert!(!pattern.not_an_ignore("d"));
+        assert!(!pattern.not_an_ignore("e"));
+        assert!(pattern.not_an_ignore("f"));
+        assert!(pattern.not_an_ignore("g"));
+        assert!(pattern.not_an_ignore("h"));
     }
 }

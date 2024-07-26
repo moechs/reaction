@@ -32,42 +32,39 @@ fn set_false() -> bool {
 impl Action {
     pub fn setup(
         &mut self,
-        stream_name: &String,
-        filter_name: &String,
-        name: &String,
+        stream_name: &str,
+        filter_name: &str,
+        name: &str,
     ) -> Result<(), String> {
-        self._setup(stream_name, filter_name, name)
-            .or_else(|msg| Err(format!("action {}: {}", name, msg)))
+        self._setup(stream_name, filter_name, name).map_err(|msg| format!("action {}: {}", name, msg))
     }
     fn _setup(
         &mut self,
-        stream_name: &String,
-        filter_name: &String,
-        name: &String,
+        stream_name: &str,
+        filter_name: &str,
+        name: &str,
     ) -> Result<(), String> {
-        self.stream_name = stream_name.clone();
-        self.filter_name = filter_name.clone();
-        self.name = name.clone();
+        self.stream_name = stream_name.to_string();
+        self.filter_name = filter_name.to_string();
+        self.name = name.to_string();
 
-        if self.name.len() == 0 {
+        if self.name.is_empty() {
             return Err("action name is empty".into());
         }
         if self.name.contains('.') {
             return Err("character '.' is not allowed in filter name".into());
         }
 
-        if self.cmd.len() == 0 {
+        if self.cmd.is_empty() {
             return Err("cmd is empty".into());
         }
-        if self.cmd[0].len() == 0 {
+        if self.cmd[0].is_empty() {
             return Err("cmd's first item is empty".into());
         }
 
         if let Some(after) = &self.after {
             self.after_duration =
-                Some(parse_duration(after).or_else(|err| {
-                    Err(format!("failed to parse after time: {}", err.to_string()))
-                })?);
+                Some(parse_duration(after).map_err(|err| format!("failed to parse after time: {}", err))?);
             self.after = None;
         } else if self.on_exit {
             return Err("cannot have `onexit: true`, without an `after` directive".into());

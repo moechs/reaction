@@ -20,34 +20,33 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub fn setup(&mut self, name: &String, patterns: &Patterns) -> Result<(), String> {
-        self._setup(name, patterns)
-            .or_else(|msg| Err(format!("stream {}: {}", name, msg)))
+    pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
+        self._setup(name, patterns).map_err(|msg| format!("stream {}: {}", name, msg))
     }
 
-    fn _setup(&mut self, name: &String, patterns: &Patterns) -> Result<(), String> {
-        self.name = name.clone();
+    fn _setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
+        self.name = name.to_string();
 
-        if self.name.len() == 0 {
+        if self.name.is_empty() {
             return Err("stream name is empty".into());
         }
         if self.name.contains('.') {
             return Err("character '.' is not allowed in stream name".into());
         }
 
-        if self.cmd.len() == 0 {
+        if self.cmd.is_empty() {
             return Err("cmd is empty".into());
         }
-        if self.cmd[0].len() == 0 {
+        if self.cmd[0].is_empty() {
             return Err("cmd's first item is empty".into());
         }
 
-        if self.filters.len() == 0 {
+        if self.filters.is_empty() {
             return Err("no filters configured".into());
         }
 
         for (key, value) in &mut self.filters {
-            value.setup(&name, key, patterns)?;
+            value.setup(name, key, patterns)?;
         }
 
         Ok(())
@@ -84,7 +83,7 @@ impl Stream {
             }
             debug!("stream {} stdout: {}", self.name, line);
 
-            for (_, filter) in &self.filters {
+            for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
                     match_tx
                         .send(PFT {
@@ -128,7 +127,7 @@ pub mod tests {
     #[test]
     fn test() {
         let mut stream;
-        let name = "name".into();
+        let name = "name";
 
         // missing cmd
         stream = ok_stream();

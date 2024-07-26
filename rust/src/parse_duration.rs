@@ -6,7 +6,7 @@ pub fn parse_duration(d: &str) -> Result<Duration, String> {
     let mut value = 0;
     let mut i = 0;
     while i < chars.len() && chars[i].is_ascii_digit() {
-        value = value * 10 + (chars[i] - '0' as u8) as u32;
+        value = value * 10 + (chars[i] - b'0') as u32;
         i += 1;
     }
     if i == 0 {
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn char_conversion() {
-        assert_eq!('9' as u8 - '0' as u8, 9);
+        assert_eq!(b'9' - b'0', 9);
     }
 
     #[test]
@@ -56,12 +56,12 @@ mod tests {
             Ok(Duration::from_secs(365 * 24 * 60 * 60))
         );
 
-        assert_eq!(parse_duration("d 3").is_err(), true);
-        assert_eq!(parse_duration("d3").is_err(), true);
-        assert_eq!(parse_duration("3da").is_err(), true);
-        assert_eq!(parse_duration("3_days").is_err(), true);
-        assert_eq!(parse_duration("_3d").is_err(), true);
-        assert_eq!(parse_duration("3 3d").is_err(), true);
-        assert_eq!(parse_duration("3.3d").is_err(), true);
+        assert!(parse_duration("d 3").is_err());
+        assert!(parse_duration("d3").is_err());
+        assert!(parse_duration("3da").is_err());
+        assert!(parse_duration("3_days").is_err());
+        assert!(parse_duration("_3d").is_err());
+        assert!(parse_duration("3 3d").is_err());
+        assert!(parse_duration("3.3d").is_err());
     }
 }

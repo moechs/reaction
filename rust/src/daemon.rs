@@ -36,7 +36,7 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
     let mut stream_process_child_handles = Vec::new();
     let mut stream_thread_handles = Vec::new();
 
-    for (_, stream) in config.streams() {
+    for stream in config.streams().values() {
         let stream = stream.clone();
         let match_tx = match_tx.clone();
         let (child_tx, child_rx) = sync_channel(0);

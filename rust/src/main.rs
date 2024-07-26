@@ -1,16 +1,15 @@
 #![warn(
     missing_docs,
-    clippy::unwrap_used,
     clippy::panic,
     clippy::unimplemented,
     clippy::todo,
     clippy::undocumented_unsafe_blocks
 )]
+#![allow(clippy::upper_case_acronyms)]
 #![forbid(unsafe_code)]
 
 //! Hey it's the doc!
 use clap::Parser;
-use regex::Regex;
 
 mod action;
 mod config;
@@ -30,10 +29,18 @@ use client::{flush, show, test_regex};
 use daemon::daemon;
 
 fn main() {
-    cli::NamedRegex {
-        regex: Regex::new(".").unwrap(),
-        name: "test".to_string(),
-    };
+    // Show a nice message when reaction panics
+    std::panic::set_hook(Box::new(move |panic_info| {
+        eprintln!("ERROR internal reaction error: panic");
+        eprintln!("{}", panic_info);
+        eprintln!();
+        eprintln!("This is likely a bug in reaction. Please report it on the issue tracker:");
+        eprintln!("https://framagit.org/ppom/reaction/-/issues");
+        eprintln!();
+        eprintln!("Please include the last log messages in your bug report, as well as any");
+        eprintln!("relevant information on the context in which reaction was running when");
+        eprintln!("this error occurred.");
+    }));
 
     let cli = Cli::parse();
 
