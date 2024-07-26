@@ -81,6 +81,7 @@ impl Stream {
             if nb_chars == 0 {
                 break;
             }
+            line.pop(); // remove trailing newline
             debug!("stream {} stdout: {}", self.name, line);
 
             for filter in self.filters.values() {
