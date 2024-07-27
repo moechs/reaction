@@ -1,15 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Display;
-use std::sync::mpsc::Sender;
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    sync::mpsc::Sender,
+    time::{Duration, SystemTime},
+};
 
 use log::info;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::messages::MAT;
 use crate::{
-    action::Action, config::Patterns, messages::Match, parse_duration::parse_duration,
+    action::Action,
+    config::Patterns,
+    messages::{Match, MAT},
+    parse_duration::parse_duration,
     pattern::Pattern,
 };
 

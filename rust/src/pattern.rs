@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use regex::Regex;
-
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]

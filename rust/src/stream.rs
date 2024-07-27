@@ -1,8 +1,10 @@
-use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{Sender, SyncSender};
-use std::time::SystemTime;
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, BufReader},
+    process::{Child, Command, Stdio},
+    sync::mpsc::{Sender, SyncSender},
+    time::SystemTime,
+};
 
 use log::{debug, error, info};
 use serde::Deserialize;

@@ -1,14 +1,17 @@
-use std::path::PathBuf;
-use std::process::exit;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, sync_channel};
-use std::sync::Arc;
-use std::thread;
+use std::{
+    path::PathBuf,
+    process::exit,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{channel, sync_channel},
+        Arc,
+    },
+    thread,
+};
 
 use log::{debug, error, info, Level};
 
-use crate::matches::matches_manager;
-use crate::{config, logger};
+use crate::{config, logger, matches::matches_manager};
 
 pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
     if let Err(err) = logger::SimpleLogger::init(loglevel) {
@@ -43,7 +46,7 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
             matches_manager(config_matches, match_rx, action_tx)
         }));
 
-        // TODO action manager
+        // TODO execs manager
 
         for stream in config.streams().values() {
             let stream = stream.clone();

@@ -1,16 +1,19 @@
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::path::Path;
-use std::process::Command;
-use std::process::Stdio;
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use anyhow::{anyhow, Context, Result};
 use log::{error, info};
 use serde::Deserialize;
 
-use crate::filter::Filter;
-use crate::filter::FilterName;
-use crate::{pattern::Pattern, stream::Stream};
+use crate::{
+    filter::{Filter, FilterName},
+    pattern::Pattern,
+    stream::Stream,
+};
 
 pub type Patterns = BTreeMap<String, Pattern>;
 

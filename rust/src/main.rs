@@ -11,7 +11,7 @@
 //! TODO document a bit
 use clap::Parser;
 
-// important structs and concepts
+// structs and concepts
 mod action;
 mod config;
 mod filter;
@@ -22,12 +22,12 @@ mod stream;
 // important threads
 mod matches;
 
-// client & daemon "mains"
+// top-level
+mod cli;
 mod client;
 mod daemon;
 
 // utils
-mod cli;
 mod logger;
 mod parse_duration;
 

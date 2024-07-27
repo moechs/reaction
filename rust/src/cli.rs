@@ -1,5 +1,4 @@
-use std::fmt;
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
