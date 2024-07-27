@@ -42,8 +42,9 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         let (action_tx, _action_rx) = channel();
 
         let config_matches = config.clone();
+        let match_tx_matches = match_tx.clone();
         stream_thread_handles.push(thread::spawn(move || {
-            matches_manager(config_matches, match_rx, action_tx)
+            matches_manager(config_matches, match_rx, match_tx_matches, action_tx)
         }));
 
         // TODO execs manager

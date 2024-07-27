@@ -9,7 +9,7 @@ use std::{
 use log::{debug, error, info};
 use serde::Deserialize;
 
-use crate::{config::Patterns, filter::Filter, messages::MFT};
+use crate::{config::Patterns, filter::Filter, matches::MatchManagerInput, messages::MFT};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +59,11 @@ impl Stream {
         Ok(())
     }
 
-    pub fn manager(&self, child_tx: SyncSender<Option<Child>>, match_tx: Sender<MFT>) {
+    pub fn manager(
+        &self,
+        child_tx: SyncSender<Option<Child>>,
+        match_tx: Sender<MatchManagerInput>,
+    ) {
         info!("{}: start {:?}", self.name, self.cmd);
         let mut child = match Command::new(&self.cmd[0])
             .args(&self.cmd[1..])
@@ -94,11 +98,11 @@ impl Stream {
             for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
                     match_tx
-                        .send(MFT {
+                        .send(MatchManagerInput::Match(MFT {
                             m: match_,
                             f: filter.name(),
                             t: SystemTime::now(),
-                        })
+                        }))
                         .unwrap();
                 }
             }

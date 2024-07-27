@@ -4,6 +4,7 @@ use crate::{action::ActionName, filter::FilterName};
 
 pub type Match = Vec<String>;
 
+#[derive(Clone)]
 pub struct MFT {
     pub m: Match,
     pub f: FilterName,
@@ -16,7 +17,8 @@ pub struct MAT {
     pub t: SystemTime,
 }
 
-// pub struct LogEntry {
-//     pub mft: MFT,
-//     pub exec: bool,
-// }
+#[allow(dead_code)]
+pub struct LogEntry {
+    pub mft: MFT,
+    pub exec: bool,
+}

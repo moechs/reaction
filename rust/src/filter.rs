@@ -32,7 +32,7 @@ pub struct Filter {
     #[serde(skip)]
     patterns: BTreeSet<Pattern>,
 
-    pub retry: Option<u32>,
+    retry: Option<u32>,
     #[serde(rename = "retryperiod")]
     retry_period: Option<String>,
     retry_duration: Option<Duration>,
@@ -49,6 +49,14 @@ impl Filter {
             stream: self.stream_name.clone(),
             filter: self.name.clone(),
         }
+    }
+
+    pub fn retry(&self) -> Option<u32> {
+        self.retry
+    }
+
+    pub fn retry_duration(&self) -> Option<Duration> {
+        self.retry_duration
     }
 
     pub fn setup(
