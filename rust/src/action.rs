@@ -30,6 +30,14 @@ fn set_false() -> bool {
 }
 
 impl Action {
+    pub fn name(&self) -> ActionName {
+        ActionName {
+            stream: self.stream_name.clone(),
+            filter: self.filter_name.clone(),
+            action: self.name.clone(),
+        }
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,
@@ -69,6 +77,18 @@ impl Action {
         }
 
         Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct ActionName {
+    pub stream: String,
+    pub filter: String,
+    pub action: String,
+}
+impl ToString for ActionName {
+    fn to_string(&self) -> String {
+        format!("{}.{}.{}", self.stream, self.filter, self.action)
     }
 }
 

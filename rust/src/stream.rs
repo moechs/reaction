@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use log::{debug, error, info};
 use serde::Deserialize;
 
-use crate::{config::Patterns, filter::Filter, messages::PFT};
+use crate::{config::Patterns, filter::Filter, messages::MFT};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +20,10 @@ pub struct Stream {
 }
 
 impl Stream {
+    pub fn get_filter(&self, name: &str) -> Option<&Filter> {
+        self.filters.get(name)
+    }
+
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
         self._setup(name, patterns)
             .map_err(|msg| format!("stream {}: {}", name, msg))
@@ -53,7 +57,7 @@ impl Stream {
         Ok(())
     }
 
-    pub fn manager(&self, child_tx: SyncSender<Option<Child>>, match_tx: Sender<PFT>) {
+    pub fn manager(&self, child_tx: SyncSender<Option<Child>>, match_tx: Sender<MFT>) {
         info!("{}: start {:?}", self.name, self.cmd);
         let mut child = match Command::new(&self.cmd[0])
             .args(&self.cmd[1..])
@@ -88,10 +92,9 @@ impl Stream {
             for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
                     match_tx
-                        .send(PFT {
+                        .send(MFT {
                             m: match_,
-                            // FIXME this clone is a lot :'(
-                            f: filter.clone(),
+                            f: filter.name(),
                             t: SystemTime::now(),
                         })
                         .unwrap();

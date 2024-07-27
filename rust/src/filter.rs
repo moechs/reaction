@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::fmt::Display;
+use std::sync::mpsc::Sender;
+use std::time::{Duration, SystemTime};
 
 use log::info;
 use regex::Regex;
 use serde::Deserialize;
 
+use crate::messages::MAT;
 use crate::{
     action::Action, config::Patterns, messages::Match, parse_duration::parse_duration,
     pattern::Pattern,
@@ -25,7 +28,7 @@ pub struct Filter {
     #[serde(skip)]
     patterns: BTreeSet<Pattern>,
 
-    retry: Option<u32>,
+    pub retry: Option<u32>,
     #[serde(rename = "retryperiod")]
     retry_period: Option<String>,
     retry_duration: Option<Duration>,
@@ -37,6 +40,13 @@ pub struct Filter {
 }
 
 impl Filter {
+    pub fn name(&self) -> FilterName {
+        FilterName {
+            stream: self.stream_name.clone(),
+            filter: self.name.clone(),
+        }
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,
@@ -142,16 +152,38 @@ impl Filter {
                         }
                     }
                     if result.len() == self.patterns.len() {
-                        info!("{}.{}: match {:?}", self.stream_name, self.name, result);
+                        info!("{}: match {:?}", self.name(), result);
                         return Some(result);
                     }
                 } else {
-                    info!("{}.{}: match [.]", self.stream_name, self.name);
+                    info!("{}: match []", self.name());
                     return Some(vec![".".to_string()]);
                 }
             }
         }
         None
+    }
+
+    pub fn send_actions(&self, m: &Match, t: SystemTime, tx: &Sender<MAT>) {
+        for action in self.actions.values() {
+            tx.send(MAT {
+                m: m.clone(),
+                a: action.name(),
+                t,
+            })
+            .unwrap();
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FilterName {
+    pub stream: String,
+    pub filter: String,
+}
+impl Display for FilterName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.stream, self.filter)
     }
 }
 

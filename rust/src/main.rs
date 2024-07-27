@@ -8,9 +8,10 @@
 #![allow(clippy::upper_case_acronyms)]
 #![forbid(unsafe_code)]
 
-//! Hey it's the doc!
+//! TODO document a bit
 use clap::Parser;
 
+// important structs and concepts
 mod action;
 mod config;
 mod filter;
@@ -18,9 +19,15 @@ mod messages;
 mod pattern;
 mod stream;
 
-mod cli;
+// important threads
+mod matches;
+
+// client & daemon "mains"
 mod client;
 mod daemon;
+
+// utils
+mod cli;
 mod logger;
 mod parse_duration;
 

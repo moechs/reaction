@@ -7,6 +7,7 @@ use std::thread;
 
 use log::{debug, error, info, Level};
 
+use crate::matches::matches_manager;
 use crate::{config, logger};
 
 pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
@@ -30,21 +31,30 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         exit(1);
     }
 
-    // TODO match manager
-    let (match_tx, match_rx) = channel();
-
     let mut stream_process_child_handles = Vec::new();
     let mut stream_thread_handles = Vec::new();
 
-    for stream in config.streams().values() {
-        let stream = stream.clone();
-        let match_tx = match_tx.clone();
-        let (child_tx, child_rx) = sync_channel(0);
+    {
+        let (match_tx, match_rx) = channel();
+        let (action_tx, _action_rx) = channel();
 
-        stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
+        let config_matches = config.clone();
+        stream_thread_handles.push(thread::spawn(move || {
+            matches_manager(config_matches, match_rx, action_tx)
+        }));
 
-        if let Ok(Some(child)) = child_rx.recv() {
-            stream_process_child_handles.push(child);
+        // TODO action manager
+
+        for stream in config.streams().values() {
+            let stream = stream.clone();
+            let match_tx = match_tx.clone();
+            let (child_tx, child_rx) = sync_channel(0);
+
+            stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
+
+            if let Ok(Some(child)) = child_rx.recv() {
+                stream_process_child_handles.push(child);
+            }
         }
     }
 
