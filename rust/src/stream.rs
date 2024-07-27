@@ -21,7 +21,8 @@ pub struct Stream {
 
 impl Stream {
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
-        self._setup(name, patterns).map_err(|msg| format!("stream {}: {}", name, msg))
+        self._setup(name, patterns)
+            .map_err(|msg| format!("stream {}: {}", name, msg))
     }
 
     fn _setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
@@ -133,20 +134,20 @@ pub mod tests {
         // missing cmd
         stream = ok_stream();
         stream.cmd = Vec::new();
-        assert!(stream.setup(&name, &BTreeMap::new()).is_err());
+        assert!(stream.setup(name, &BTreeMap::new()).is_err());
 
         // missing cmd
         stream = ok_stream();
         stream.cmd = vec!["".into(), "arg1".into()];
-        assert!(stream.setup(&name, &BTreeMap::new()).is_err());
+        assert!(stream.setup(name, &BTreeMap::new()).is_err());
 
         // missing filters
         stream = ok_stream();
         stream.filters = BTreeMap::new();
-        assert!(stream.setup(&name, &BTreeMap::new()).is_err());
+        assert!(stream.setup(name, &BTreeMap::new()).is_err());
 
         // stream ok
         stream = ok_stream();
-        assert!(stream.setup(&name, &BTreeMap::new()).is_ok());
+        assert!(stream.setup(name, &BTreeMap::new()).is_ok());
     }
 }

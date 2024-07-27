@@ -440,10 +440,10 @@ pub mod tests {
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here$".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
-        assert_eq!(filter.get_match(&"insert b here"), Some(vec!("b".into())));
-        assert_eq!(filter.get_match(&"insert a here"), None);
-        assert_eq!(filter.get_match(&"youpi b youpi"), None);
-        assert_eq!(filter.get_match(&"insert  here"), None);
+        assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
+        assert_eq!(filter.get_match("insert a here"), None);
+        assert_eq!(filter.get_match("youpi b youpi"), None);
+        assert_eq!(filter.get_match("insert  here"), None);
 
         // two patterns in one regex
         filter = default_filter();
@@ -453,11 +453,11 @@ pub mod tests {
             .push("insert <name> here and <boubou> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
         assert_eq!(
-            filter.get_match(&"insert b here and bouboubou there"),
+            filter.get_match("insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
-        assert_eq!(filter.get_match(&"insert a here and bouboubou there"), None);
-        assert_eq!(filter.get_match(&"insert b here and boubou there"), None);
+        assert_eq!(filter.get_match("insert a here and bouboubou there"), None);
+        assert_eq!(filter.get_match("insert b here and boubou there"), None);
 
         // multiple regexes with same pattern
         filter = default_filter();
@@ -465,13 +465,10 @@ pub mod tests {
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
-        assert_eq!(filter.get_match(&"insert a here"), None);
-        assert_eq!(filter.get_match(&"insert b here"), Some(vec!("b".into())));
-        assert_eq!(filter.get_match(&"also add a there"), None);
-        assert_eq!(
-            filter.get_match(&"also add b there"),
-            Some(vec!("b".into()))
-        );
+        assert_eq!(filter.get_match("insert a here"), None);
+        assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
+        assert_eq!(filter.get_match("also add a there"), None);
+        assert_eq!(filter.get_match("also add b there"), Some(vec!("b".into())));
 
         // multiple regexes with same patterns
         filter = default_filter();
@@ -484,19 +481,19 @@ pub mod tests {
             .push("also add <boubou> here and <name> there".to_string());
         filter.setup(&name, &name, &patterns).unwrap();
         assert_eq!(
-            filter.get_match(&"insert b here and bouboubou there"),
+            filter.get_match("insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
-            filter.get_match(&"also add bouboubou here and b there"),
+            filter.get_match("also add bouboubou here and b there"),
             Some(vec!("bouboubou".into(), "b".into()))
         );
-        assert_eq!(filter.get_match(&"insert a here and bouboubou there"), None);
+        assert_eq!(filter.get_match("insert a here and bouboubou there"), None);
         assert_eq!(
-            filter.get_match(&"also add bouboubou here and a there"),
+            filter.get_match("also add bouboubou here and a there"),
             None
         );
-        assert_eq!(filter.get_match(&"insert b here and boubou there"), None);
-        assert_eq!(filter.get_match(&"also add boubou here and b there"), None);
+        assert_eq!(filter.get_match("insert b here and boubou there"), None);
+        assert_eq!(filter.get_match("also add boubou here and b there"), None);
     }
 }

@@ -36,14 +36,10 @@ impl Action {
         filter_name: &str,
         name: &str,
     ) -> Result<(), String> {
-        self._setup(stream_name, filter_name, name).map_err(|msg| format!("action {}: {}", name, msg))
+        self._setup(stream_name, filter_name, name)
+            .map_err(|msg| format!("action {}: {}", name, msg))
     }
-    fn _setup(
-        &mut self,
-        stream_name: &str,
-        filter_name: &str,
-        name: &str,
-    ) -> Result<(), String> {
+    fn _setup(&mut self, stream_name: &str, filter_name: &str, name: &str) -> Result<(), String> {
         self.stream_name = stream_name.to_string();
         self.filter_name = filter_name.to_string();
         self.name = name.to_string();
@@ -63,8 +59,10 @@ impl Action {
         }
 
         if let Some(after) = &self.after {
-            self.after_duration =
-                Some(parse_duration(after).map_err(|err| format!("failed to parse after time: {}", err))?);
+            self.after_duration = Some(
+                parse_duration(after)
+                    .map_err(|err| format!("failed to parse after time: {}", err))?,
+            );
             self.after = None;
         } else if self.on_exit {
             return Err("cannot have `onexit: true`, without an `after` directive".into());

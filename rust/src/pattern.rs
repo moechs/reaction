@@ -25,7 +25,8 @@ pub struct Pattern {
 
 impl Pattern {
     pub fn setup(&mut self, name: &String) -> Result<(), String> {
-        self._setup(name).map_err(|msg| format!("pattern {}: {}", name, msg))
+        self._setup(name)
+            .map_err(|msg| format!("pattern {}: {}", name, msg))
     }
 
     pub fn _setup(&mut self, name: &String) -> Result<(), String> {
@@ -42,8 +43,7 @@ impl Pattern {
         if self.regex.is_empty() {
             return Err("regex is empty".into());
         }
-        let compiled =
-            Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())?;
+        let compiled = Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())?;
 
         self.regex = format!("(?P<{}>{})", self.name, self.regex);
 
@@ -57,11 +57,8 @@ impl Pattern {
         }
 
         for ignore_regex in &self.ignore_regex {
-            let compiled_ignore = Regex::new(&format!("^{}$", ignore_regex)).map_err(|err| format!(
-                    "ignoreregex '{}': {}",
-                    ignore_regex,
-                    err
-                ))?;
+            let compiled_ignore = Regex::new(&format!("^{}$", ignore_regex))
+                .map_err(|err| format!("ignoreregex '{}': {}", ignore_regex, err))?;
 
             self.compiled_ignore_regex.push(compiled_ignore);
         }
