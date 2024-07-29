@@ -17,15 +17,22 @@ pub struct Pattern {
     compiled_ignore_regex: Vec<Regex>,
 
     #[serde(skip)]
-    pub name: String,
+    name: String,
     #[serde(skip)]
-    pub name_with_braces: String,
+    name_with_braces: String,
 }
 
 impl Pattern {
     pub fn setup(&mut self, name: &String) -> Result<(), String> {
         self._setup(name)
             .map_err(|msg| format!("pattern {}: {}", name, msg))
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+    pub fn name_with_braces(&self) -> &String {
+        &self.name_with_braces
     }
 
     pub fn _setup(&mut self, name: &String) -> Result<(), String> {

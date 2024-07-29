@@ -104,11 +104,11 @@ impl Filter {
         for regex in &self.regex {
             let mut regex_buf = regex.clone();
             for pattern in patterns.values() {
-                if let Some(index) = regex.find(&pattern.name_with_braces) {
-                    if regex.rfind(&pattern.name_with_braces).unwrap() != index {
+                if let Some(index) = regex.find(pattern.name_with_braces()) {
+                    if regex.rfind(pattern.name_with_braces()).unwrap() != index {
                         return Err(format!(
                             "pattern {} present multiple times in regex",
-                            &pattern.name_with_braces
+                            pattern.name_with_braces()
                         ));
                     }
                     if first {
@@ -116,16 +116,16 @@ impl Filter {
                     } else if !self.patterns.contains(pattern) {
                         return Err(format!(
                             "pattern {} is not present in the first regex but is present in a following regex. all regexes should contain the same set of regexes",
-                            &pattern.name_with_braces
+                            &pattern.name_with_braces()
                         ));
                     }
                 } else if !first && self.patterns.contains(pattern) {
                     return Err(format!(
                             "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
-                            &pattern.name_with_braces
+                            &pattern.name_with_braces()
                         ));
                 }
-                regex_buf = regex_buf.replacen(&pattern.name_with_braces, &pattern.regex, 1);
+                regex_buf = regex_buf.replacen(pattern.name_with_braces(), &pattern.regex, 1);
             }
             let compiled = Regex::new(&regex_buf).map_err(|err| err.to_string())?;
             self.compiled_regex.push(compiled);
@@ -145,7 +145,7 @@ impl Filter {
             self.actions
                 .values()
                 .fold(Duration::from_secs(0), |acc, v| {
-                    v.after_duration
+                    v.after_duration()
                         .map_or(acc, |v| if v > acc { v } else { acc })
                 });
 
@@ -158,7 +158,7 @@ impl Filter {
                 if !self.patterns.is_empty() {
                     let mut result = Match::new();
                     for pattern in &self.patterns {
-                        let match_ = matches.name(&pattern.name).unwrap();
+                        let match_ = matches.name(pattern.name()).unwrap();
                         if pattern.not_an_ignore(match_.as_str()) {
                             result.push(match_.as_str().to_string());
                         }
@@ -202,7 +202,7 @@ impl Display for FilterName {
 #[cfg(test)]
 pub mod tests {
 
-    use crate::action::tests::ok_action;
+    use crate::action::tests::{ok_action, ok_action_with_after};
     use crate::pattern::tests::{
         boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore,
     };
@@ -297,20 +297,17 @@ pub mod tests {
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, Duration::default());
 
-        let mut minute_action = ok_action();
-        minute_action.after_duration = Some(minute);
+        let minute_action = ok_action_with_after(minute_str.clone(), &minute_str);
 
         // duration 60
         filter = ok_filter();
-        filter.actions.insert(minute_str.clone(), minute_action);
+        filter
+            .actions
+            .insert(minute_str.clone(), minute_action.clone());
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, minute);
 
-        let mut minute_action = ok_action();
-        minute_action.after_duration = Some(minute);
-
-        let mut two_minutes_action = ok_action();
-        two_minutes_action.after_duration = Some(two_minutes);
+        let two_minutes_action = ok_action_with_after(two_minutes_str.clone(), &two_minutes_str);
 
         // duration 120
         filter = ok_filter();

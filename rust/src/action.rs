@@ -12,7 +12,7 @@ pub struct Action {
     // TODO one shot time deserialization
     after: Option<String>,
     #[serde(skip)]
-    pub after_duration: Option<Duration>,
+    after_duration: Option<Duration>,
 
     #[serde(rename = "onexit", default = "set_false")]
     on_exit: bool,
@@ -36,6 +36,10 @@ impl Action {
             filter: self.filter_name.clone(),
             action: self.name.clone(),
         }
+    }
+
+    pub fn after_duration(&self) -> Option<Duration> {
+        self.after_duration
     }
 
     pub fn setup(
@@ -112,6 +116,14 @@ pub mod tests {
     pub fn ok_action() -> Action {
         let mut action = default_action();
         action.cmd = vec!["command".into()];
+        action
+    }
+
+    pub fn ok_action_with_after(d: String, name: &str) -> Action {
+        let mut action = default_action();
+        action.cmd = vec!["command".into()];
+        action.after = Some(d);
+        action.setup("", "", name).unwrap();
         action
     }
 
