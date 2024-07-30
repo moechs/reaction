@@ -11,10 +11,10 @@ use std::{
 
 use log::{debug, error, info, Level};
 
-use crate::{config, logger, matches::matches_manager};
+use crate::{config, execs::execs_manager, matches::matches_manager, utils::SimpleLogger};
 
 pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
-    if let Err(err) = logger::SimpleLogger::init(loglevel) {
+    if let Err(err) = SimpleLogger::init(loglevel) {
         eprintln!("ERROR could not initialize logging: {err}");
         exit(1);
     }
@@ -39,12 +39,18 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
 
     {
         let (match_tx, match_rx) = channel();
-        let (action_tx, _action_rx) = channel();
+        let (exec_tx, exec_rx) = channel();
 
         let config_matches = config.clone();
         let match_tx_matches = match_tx.clone();
+        let exec_tx_matches = exec_tx.clone();
         stream_thread_handles.push(thread::spawn(move || {
-            matches_manager(config_matches, match_rx, match_tx_matches, action_tx)
+            matches_manager(config_matches, match_rx, match_tx_matches, exec_tx_matches)
+        }));
+
+        let config_execs = config.clone();
+        stream_thread_handles.push(thread::spawn(move || {
+            execs_manager(config_execs, exec_rx, exec_tx)
         }));
 
         // TODO execs manager

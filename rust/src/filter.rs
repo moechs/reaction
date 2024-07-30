@@ -2,9 +2,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
     sync::mpsc::Sender,
-    time::{Duration, SystemTime},
 };
 
+use chrono::TimeDelta;
 use log::info;
 use regex::Regex;
 use serde::Deserialize;
@@ -12,9 +12,10 @@ use serde::Deserialize;
 use crate::{
     action::Action,
     config::Patterns,
-    messages::{Match, MAT},
-    parse_duration::parse_duration,
+    execs::ExecsManagerInput,
+    messages::{Match, Time, MAT},
     pattern::Pattern,
+    utils::parse_duration,
 };
 
 #[derive(Clone, Debug, Deserialize)]
@@ -22,7 +23,7 @@ use crate::{
 pub struct Filter {
     actions: BTreeMap<String, Action>,
     #[serde(skip)]
-    longuest_action_duration: Duration,
+    longuest_action_duration: TimeDelta,
 
     regex: Vec<String>,
     #[serde(skip)]
@@ -35,7 +36,8 @@ pub struct Filter {
     retry: Option<u32>,
     #[serde(rename = "retryperiod")]
     retry_period: Option<String>,
-    retry_duration: Option<Duration>,
+    #[serde(skip)]
+    retry_duration: Option<TimeDelta>,
 
     #[serde(skip)]
     name: String,
@@ -55,8 +57,16 @@ impl Filter {
         self.retry
     }
 
-    pub fn retry_duration(&self) -> Option<Duration> {
+    pub fn retry_duration(&self) -> Option<TimeDelta> {
         self.retry_duration
+    }
+
+    pub fn patterns(&self) -> &BTreeSet<Pattern> {
+        &self.patterns
+    }
+
+    pub fn get_action(&self, name: &str) -> Option<&Action> {
+        self.actions.get(name)
     }
 
     pub fn setup(
@@ -142,12 +152,10 @@ impl Filter {
         }
 
         self.longuest_action_duration =
-            self.actions
-                .values()
-                .fold(Duration::from_secs(0), |acc, v| {
-                    v.after_duration()
-                        .map_or(acc, |v| if v > acc { v } else { acc })
-                });
+            self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
+                v.after_duration()
+                    .map_or(acc, |v| if v > acc { v } else { acc })
+            });
 
         Ok(())
     }
@@ -176,13 +184,13 @@ impl Filter {
         None
     }
 
-    pub fn send_actions(&self, m: &Match, t: SystemTime, tx: &Sender<MAT>) {
+    pub fn send_actions(&self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
         for action in self.actions.values() {
-            tx.send(MAT {
+            tx.send(ExecsManagerInput::Exec(MAT {
                 m: m.clone(),
                 a: action.name(),
                 t,
-            })
+            }))
             .unwrap();
         }
     }
@@ -220,7 +228,7 @@ pub mod tests {
             retry: None,
             retry_period: None,
             retry_duration: None,
-            longuest_action_duration: Duration::default(),
+            longuest_action_duration: TimeDelta::default(),
         }
     }
 
@@ -288,14 +296,14 @@ pub mod tests {
         let name = "name".to_string();
         let empty_patterns = Patterns::new();
         let minute_str = "1m".to_string();
-        let minute = Duration::from_secs(60);
-        let two_minutes = Duration::from_secs(60 * 2);
+        let minute = TimeDelta::seconds(60);
+        let two_minutes = TimeDelta::seconds(60 * 2);
         let two_minutes_str = "2m".to_string();
 
         // duration 0
         filter = ok_filter();
         filter.setup(&name, &name, &empty_patterns).unwrap();
-        assert_eq!(filter.longuest_action_duration, Duration::default());
+        assert_eq!(filter.longuest_action_duration, TimeDelta::default());
 
         let minute_action = ok_action_with_after(minute_str.clone(), &minute_str);
 

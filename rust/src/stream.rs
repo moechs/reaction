@@ -3,9 +3,9 @@ use std::{
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
     sync::mpsc::{Sender, SyncSender},
-    time::SystemTime,
 };
 
+use chrono::Local;
 use log::{debug, error, info};
 use serde::Deserialize;
 
@@ -101,7 +101,7 @@ impl Stream {
                         .send(MatchManagerInput::Match(MFT {
                             m: match_,
                             f: filter.name(),
-                            t: SystemTime::now(),
+                            t: Local::now(),
                         }))
                         .unwrap();
                 }

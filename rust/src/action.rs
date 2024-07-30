@@ -1,8 +1,10 @@
-use std::time::Duration;
+use std::{collections::BTreeSet, fmt::Display, process::Command};
+
+use chrono::TimeDelta;
 
 use serde::Deserialize;
 
-use crate::parse_duration::parse_duration;
+use crate::{messages::Match, pattern::Pattern, utils::parse_duration};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,7 +14,7 @@ pub struct Action {
     // TODO one shot time deserialization
     after: Option<String>,
     #[serde(skip)]
-    after_duration: Option<Duration>,
+    after_duration: Option<TimeDelta>,
 
     #[serde(rename = "onexit", default = "set_false")]
     on_exit: bool,
@@ -38,7 +40,7 @@ impl Action {
         }
     }
 
-    pub fn after_duration(&self) -> Option<Duration> {
+    pub fn after_duration(&self) -> Option<TimeDelta> {
         self.after_duration
     }
 
@@ -82,17 +84,38 @@ impl Action {
 
         Ok(())
     }
+
+    // TODO test
+    pub fn exec(&self, match_: &Match, patterns: &BTreeSet<Pattern>) -> Command {
+        let computed_command = if patterns.is_empty() {
+            self.cmd.clone()
+        } else {
+            self.cmd
+                .iter()
+                .map(|item| {
+                    (0..match_.len())
+                        .zip(patterns)
+                        .fold(item.clone(), |acc, (i, pattern)| {
+                            acc.replace(pattern.name_with_braces(), &match_[i])
+                        })
+                })
+                .collect()
+        };
+        let mut cmd = Command::new(&computed_command[0]);
+        cmd.args(&computed_command[1..]);
+        cmd
+    }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ActionName {
     pub stream: String,
     pub filter: String,
     pub action: String,
 }
-impl ToString for ActionName {
-    fn to_string(&self) -> String {
-        format!("{}.{}.{}", self.stream, self.filter, self.action)
+impl Display for ActionName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.stream, self.filter, self.action)
     }
 }
 

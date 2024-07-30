@@ -1,6 +1,6 @@
-use std::time::Duration;
+use chrono::TimeDelta;
 
-pub fn parse_duration(d: &str) -> Result<Duration, String> {
+pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
     let d_trimmed = d.trim();
     let chars = d_trimmed.as_bytes();
     let mut value = 0;
@@ -12,8 +12,8 @@ pub fn parse_duration(d: &str) -> Result<Duration, String> {
     if i == 0 {
         return Err(format!("duration '{}' doesn't start with digits", d));
     }
-    let ok_secs = |mul: u32| -> Result<Duration, String> {
-        Ok(Duration::from_secs(mul as u64 * value as u64))
+    let ok_secs = |mul: u32| -> Result<TimeDelta, String> {
+        Ok(TimeDelta::seconds(mul as i64 * value as i64))
     };
 
     match d_trimmed[i..].trim() {
@@ -31,7 +31,7 @@ pub fn parse_duration(d: &str) -> Result<Duration, String> {
 #[cfg(test)]
 mod tests {
 
-    use std::time::Duration;
+    use chrono::TimeDelta;
 
     use super::*;
 
@@ -42,18 +42,18 @@ mod tests {
 
     #[test]
     fn parse_duration_test() {
-        assert_eq!(parse_duration("1s"), Ok(Duration::from_secs(1)));
-        assert_eq!(parse_duration("12s"), Ok(Duration::from_secs(12)));
-        assert_eq!(parse_duration("  12  secs  "), Ok(Duration::from_secs(12)));
-        assert_eq!(parse_duration("2m"), Ok(Duration::from_secs(2 * 60)));
+        assert_eq!(parse_duration("1s"), Ok(TimeDelta::seconds(1)));
+        assert_eq!(parse_duration("12s"), Ok(TimeDelta::seconds(12)));
+        assert_eq!(parse_duration("  12  secs  "), Ok(TimeDelta::seconds(12)));
+        assert_eq!(parse_duration("2m"), Ok(TimeDelta::seconds(2 * 60)));
         assert_eq!(
             parse_duration("6 hours"),
-            Ok(Duration::from_secs(6 * 60 * 60))
+            Ok(TimeDelta::seconds(6 * 60 * 60))
         );
-        assert_eq!(parse_duration("1d"), Ok(Duration::from_secs(24 * 60 * 60)));
+        assert_eq!(parse_duration("1d"), Ok(TimeDelta::seconds(24 * 60 * 60)));
         assert_eq!(
             parse_duration("365d"),
-            Ok(Duration::from_secs(365 * 24 * 60 * 60))
+            Ok(TimeDelta::seconds(365 * 24 * 60 * 60))
         );
 
         assert!(parse_duration("d 3").is_err());

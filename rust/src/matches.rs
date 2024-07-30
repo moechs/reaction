@@ -4,16 +4,15 @@ use std::{
         mpsc::{Receiver, Sender},
         Arc,
     },
-    time::SystemTime,
 };
 
-use chrono::TimeDelta;
 use timer::MessageTimer;
 
 use crate::{
     config::Config,
+    execs::ExecsManagerInput,
     filter::FilterName,
-    messages::{Match, MAT, MFT},
+    messages::{Match, Time, MFT},
 };
 
 #[derive(Clone)]
@@ -24,7 +23,7 @@ pub enum MatchManagerInput {
     Flush(MFT),
 }
 
-type MatchesMap = BTreeMap<Match, BTreeMap<FilterName, BTreeSet<SystemTime>>>;
+type MatchesMap = BTreeMap<FilterName, BTreeMap<Match, BTreeSet<Time>>>;
 
 trait MatchesMapTrait {
     fn add(&mut self, mft: &MFT);
@@ -32,21 +31,21 @@ trait MatchesMapTrait {
 }
 impl MatchesMapTrait for MatchesMap {
     fn add(&mut self, mft: &MFT) {
-        let inner_map = self.entry(mft.m.clone()).or_default();
-        let inner_set = inner_map.entry(mft.f.clone()).or_default();
+        let inner_map = self.entry(mft.f.clone()).or_default();
+        let inner_set = inner_map.entry(mft.m.clone()).or_default();
         inner_set.insert(mft.t);
     }
 
     fn rm(&mut self, mft: &MFT) {
-        if let Some(inner_map) = self.get_mut(&mft.m) {
-            if let Some(inner_set) = inner_map.get_mut(&mft.f) {
+        if let Some(inner_map) = self.get_mut(&mft.f) {
+            if let Some(inner_set) = inner_map.get_mut(&mft.m) {
                 inner_set.remove(&mft.t);
                 if inner_set.is_empty() {
-                    inner_map.remove(&mft.f);
+                    inner_map.remove(&mft.m);
                 }
             }
             if inner_map.is_empty() {
-                self.remove(&mft.m);
+                self.remove(&mft.f);
             }
         }
     }
@@ -56,7 +55,7 @@ pub fn matches_manager(
     config: Arc<Config>,
     match_rx: Receiver<MatchManagerInput>,
     match_tx: Sender<MatchManagerInput>,
-    action_tx: Sender<MAT>,
+    action_tx: Sender<ExecsManagerInput>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
@@ -65,7 +64,7 @@ pub fn matches_manager(
     while let Ok(mft) = match_rx.recv() {
         match mft {
             MatchManagerInput::Match(mft) => {
-                let filter = config.get_filter(&mft.f).unwrap();
+                let filter = config.get_filter(&mft.f.stream, &mft.f.filter).unwrap();
 
                 let is_retry = filter.retry().is_some();
 
@@ -74,20 +73,19 @@ pub fn matches_manager(
                     // Add new match
                     matches.add(&mft);
                     // Remove match when expired
-                    timer.schedule_with_delay(
-                        // unwrap: retry_duration is guaranted to be Some when retry is Some
-                        // unwrap: TimeDelta max value is ~292471 millenaries
-                        TimeDelta::from_std(filter.retry_duration().unwrap()).unwrap(),
+                    let guard = timer.schedule_with_delay(
+                        filter.retry_duration().unwrap(),
                         MatchManagerInput::Unmatch(mft.clone()),
                     );
+                    guard.ignore();
                 }
 
                 // Executing actions
-                let exec = !is_retry || matches.get(&mft.m).map(|map| map.get(&mft.f)).is_some();
+                let exec = !is_retry || matches.get(&mft.f).map(|map| map.get(&mft.m)).is_some();
                 if exec {
                     // Delete matches only if storing them
                     if is_retry {
-                        matches.get_mut(&mft.m).unwrap().remove(&mft.f);
+                        matches.get_mut(&mft.f).unwrap().remove(&mft.m);
                     }
                     filter.send_actions(&mft.m, mft.t, &action_tx);
                 }

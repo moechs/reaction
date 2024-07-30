@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use log::debug;
 use regex::Regex;
 
-use crate::cli::{Format, NamedRegex};
+use crate::utils::cli::{Format, NamedRegex};
 
 pub fn show(
     socket: &PathBuf,

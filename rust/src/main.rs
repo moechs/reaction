@@ -20,20 +20,18 @@ mod pattern;
 mod stream;
 
 // important threads
+mod execs;
 mod matches;
 
 // top-level
-mod cli;
 mod client;
 mod daemon;
 
-// utils
-mod logger;
-mod parse_duration;
+mod utils;
 
-use cli::{Cli, Command};
 use client::{flush, show, test_regex};
 use daemon::daemon;
+use utils::cli::{Cli, Command};
 
 fn main() {
     // Show a nice message when reaction panics
