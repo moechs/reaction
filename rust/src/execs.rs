@@ -120,7 +120,28 @@ pub fn execs_manager(
             }
             #[allow(clippy::todo)]
             ExecsManagerInput::Flush(_mat) => todo!(),
-            ExecsManagerInput::Stop => break,
+            ExecsManagerInput::Stop => {
+                for (action_name, inner_map) in execs {
+                    if config
+                        .get_filter(&action_name.stream, &action_name.filter)
+                        .unwrap()
+                        .get_action(&action_name.action)
+                        .unwrap()
+                        .on_exit()
+                    {
+                        for (match_, inner_set) in inner_map {
+                            for _ in inner_set {
+                                exec_now(MAT {
+                                    m: match_.clone(),
+                                    a: action_name.clone(),
+                                    t: Local::now(),
+                                });
+                            }
+                        }
+                    }
+                }
+                break;
+            }
         }
     }
 

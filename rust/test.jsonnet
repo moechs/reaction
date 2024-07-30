@@ -22,7 +22,7 @@
 
   streams: {
     tailDown1: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 2"],
+      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do echo found $i; done"],
       filters: {
         findIP: {
           regex: [
@@ -45,7 +45,7 @@
       },
     },
     tailDown2: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 3; echo found $i; done; sleep 3"],
+      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do echo found $i; done"],
       filters: {
         findIP: {
           regex: [
@@ -61,7 +61,7 @@
             undamn: {
               cmd: ['notify-send', 'second stream', 'unban <num>'],
               after: '4s',
-              onexit: true,
+              // onexit: false,
             },
           },
         },

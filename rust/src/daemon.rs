@@ -34,6 +34,8 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         }
     };
 
+    debug!("config: {:?}", config);
+
     if !config.start() {
         error!("a start command failed, exiting.");
         exit(1);

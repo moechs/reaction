@@ -44,6 +44,10 @@ impl Action {
         self.after_duration
     }
 
+    pub fn on_exit(&self) -> bool {
+        self.on_exit
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,
