@@ -21,6 +21,7 @@ pub enum MatchManagerInput {
     Unmatch(MFT),
     #[allow(dead_code)]
     Flush(MFT),
+    Stop,
 }
 
 type MatchesMap = BTreeMap<FilterName, BTreeMap<Match, BTreeSet<Time>>>;
@@ -96,6 +97,7 @@ pub fn matches_manager(
             MatchManagerInput::Unmatch(mft) => matches.rm(&mft),
             #[allow(clippy::todo)]
             MatchManagerInput::Flush(_) => todo!(), // TODO handle flushes
+            MatchManagerInput::Stop => break,
         }
     }
 }

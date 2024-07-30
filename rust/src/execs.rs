@@ -24,6 +24,7 @@ pub enum ExecsManagerInput {
     ExecPending(MAT),
     #[allow(dead_code)]
     Flush(MAT),
+    Stop,
 }
 
 type ExecsMap = BTreeMap<ActionName, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
@@ -56,8 +57,8 @@ impl ExecsMapTrait for ExecsMap {
 
 pub fn execs_manager(
     config: Arc<Config>,
-    action_rx: Receiver<ExecsManagerInput>,
-    action_tx: Sender<ExecsManagerInput>,
+    exec_rx: Receiver<ExecsManagerInput>,
+    exec_tx: Sender<ExecsManagerInput>,
 ) {
     // Initialize a ThreadPool only when concurrency hasn't been disabled
     let thread_pool = if config.concurrency() > 1 {
@@ -76,14 +77,14 @@ pub fn execs_manager(
         let mut command = action.exec(&mat.m, patterns);
 
         let mut closure = move || {
-            info!("{}: run {:?}", &mat.a, command);
+            info!("{}: run [{:?}]", &mat.a, command);
             if let Err(err) = command
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .stdout(Stdio::piped())
                 .status()
             {
-                error!("{}: run {:?}, code {}", &mat.a, command, err);
+                error!("{}: run [{:?}], code {}", &mat.a, command, err);
             }
         };
 
@@ -98,9 +99,9 @@ pub fn execs_manager(
 
     let mut execs: ExecsMap = BTreeMap::new();
 
-    let timer = MessageTimer::new(action_tx);
+    let timer = MessageTimer::new(exec_tx);
 
-    while let Ok(mat) = action_rx.recv() {
+    while let Ok(mat) = exec_rx.recv() {
         match mat {
             ExecsManagerInput::Exec(mat) => {
                 let now = Local::now();
@@ -119,6 +120,7 @@ pub fn execs_manager(
             }
             #[allow(clippy::todo)]
             ExecsManagerInput::Flush(_mat) => todo!(),
+            ExecsManagerInput::Stop => break,
         }
     }
 

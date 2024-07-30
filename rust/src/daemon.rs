@@ -11,7 +11,12 @@ use std::{
 
 use log::{debug, error, info, Level};
 
-use crate::{config, execs::execs_manager, matches::matches_manager, utils::SimpleLogger};
+use crate::{
+    config,
+    execs::{execs_manager, ExecsManagerInput},
+    matches::{matches_manager, MatchManagerInput},
+    utils::SimpleLogger,
+};
 
 pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
     if let Err(err) = SimpleLogger::init(loglevel) {
@@ -37,34 +42,30 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
     let mut stream_process_child_handles = Vec::new();
     let mut stream_thread_handles = Vec::new();
 
-    {
-        let (match_tx, match_rx) = channel();
-        let (exec_tx, exec_rx) = channel();
+    let (match_tx, match_rx) = channel();
+    let (exec_tx, exec_rx) = channel();
 
-        let config_matches = config.clone();
-        let match_tx_matches = match_tx.clone();
-        let exec_tx_matches = exec_tx.clone();
-        stream_thread_handles.push(thread::spawn(move || {
-            matches_manager(config_matches, match_rx, match_tx_matches, exec_tx_matches)
-        }));
+    let config_matches = config.clone();
+    let match_tx_matches = match_tx.clone();
+    let exec_tx_matches = exec_tx.clone();
+    let matches_manager_thread_handle = thread::spawn(move || {
+        matches_manager(config_matches, match_rx, match_tx_matches, exec_tx_matches)
+    });
 
-        let config_execs = config.clone();
-        stream_thread_handles.push(thread::spawn(move || {
-            execs_manager(config_execs, exec_rx, exec_tx)
-        }));
+    let config_execs = config.clone();
+    let exec_tx_execs = exec_tx.clone();
+    let execs_manager_thread_handle =
+        thread::spawn(move || execs_manager(config_execs, exec_rx, exec_tx_execs));
 
-        // TODO execs manager
+    for stream in config.streams().values() {
+        let stream = stream.clone();
+        let match_tx = match_tx.clone();
+        let (child_tx, child_rx) = sync_channel(0);
 
-        for stream in config.streams().values() {
-            let stream = stream.clone();
-            let match_tx = match_tx.clone();
-            let (child_tx, child_rx) = sync_channel(0);
+        stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
 
-            stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
-
-            if let Ok(Some(child)) = child_rx.recv() {
-                stream_process_child_handles.push(child);
-            }
+        if let Ok(Some(child)) = child_rx.recv() {
+            stream_process_child_handles.push(child);
         }
     }
 
@@ -91,7 +92,11 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
         let _ = thread_handle.join();
     }
 
-    // TODO wait for actions to complete
+    match_tx.send(MatchManagerInput::Stop).unwrap();
+    let _ = matches_manager_thread_handle.join();
+
+    exec_tx.send(ExecsManagerInput::Stop).unwrap();
+    let _ = execs_manager_thread_handle.join();
 
     let stop_ok = config.stop();
 

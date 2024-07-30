@@ -53,8 +53,11 @@ struct Worker {
 impl Worker {
     fn new(receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
         let thread = spawn(move || loop {
-            let job = receiver.lock().unwrap().recv().unwrap();
-            job();
+            let received = receiver.lock().unwrap().recv();
+            match received {
+                Ok(job) => job(),
+                Err(_) => break,
+            }
         });
 
         Worker { thread }

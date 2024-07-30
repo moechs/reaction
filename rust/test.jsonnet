@@ -33,11 +33,11 @@
           retryperiod: '30s',
           actions: {
             damn: {
-              cmd: ['echo', '<num>'],
+              cmd: ['notify-send', 'first stream', 'ban <num>'],
             },
             undamn: {
-              cmd: ['echo', 'undamn', '<num>'],
-              after: '28s',
+              cmd: ['notify-send', 'first stream', 'unban <num>'],
+              after: '6s',
               onexit: true,
             },
           },
@@ -45,7 +45,7 @@
       },
     },
     tailDown2: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 1; echo found $i; done; sleep 3"],
+      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do sleep 3; echo found $i; done; sleep 3"],
       filters: {
         findIP: {
           regex: [
@@ -53,14 +53,14 @@
             '^found <letter>_<num>$',
           ],
           retry: 2,
-          retryperiod: '30s',
+          retryperiod: '2s',
           actions: {
             damn: {
-              cmd: ['echo', '<num>'],
+              cmd: ['notify-send', 'second stream', 'ban <num>'],
             },
             undamn: {
-              cmd: ['echo', 'undamn', '<num>'],
-              after: '28s',
+              cmd: ['notify-send', 'second stream', 'unban <num>'],
+              after: '4s',
               onexit: true,
             },
           },

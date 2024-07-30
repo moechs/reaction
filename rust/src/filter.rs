@@ -189,7 +189,7 @@ impl Filter {
             tx.send(ExecsManagerInput::Exec(MAT {
                 m: m.clone(),
                 a: action.name(),
-                t,
+                t: t + action.after_duration().unwrap_or_default(),
             }))
             .unwrap();
         }
