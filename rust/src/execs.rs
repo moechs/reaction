@@ -101,7 +101,7 @@ pub fn execs_manager(
 
     let timer = MessageTimer::new(exec_tx);
 
-    while let Ok(mat) = exec_rx.recv() {
+    for mat in exec_rx.iter() {
         match mat {
             ExecsManagerInput::Exec(mat) => {
                 let now = Local::now();

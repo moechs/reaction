@@ -28,6 +28,7 @@ mod matches;
 mod client;
 mod daemon;
 
+mod tests;
 mod utils;
 
 use client::{flush, show, test_regex};

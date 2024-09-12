@@ -200,7 +200,7 @@ impl Filter {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct FilterName {
     pub stream: String,
     pub filter: String,

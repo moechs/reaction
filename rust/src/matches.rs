@@ -62,7 +62,7 @@ pub fn matches_manager(
 
     let timer = MessageTimer::new(match_tx);
 
-    while let Ok(mft) = match_rx.recv() {
+    for mft in match_rx.iter() {
         match mft {
             MatchManagerInput::Match(mft) => {
                 let filter = config.get_filter(&mft.f.stream, &mft.f.filter).unwrap();
