@@ -20,6 +20,7 @@ mod pattern;
 mod stream;
 
 // important threads
+mod database;
 mod execs;
 mod matches;
 

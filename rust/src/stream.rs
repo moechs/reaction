@@ -22,8 +22,8 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub fn get_filter(&self, name: &str) -> Option<&Filter> {
-        self.filters.get(name)
+    pub fn filters(&self) -> &BTreeMap<String, Filter> {
+        &self.filters
     }
 
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {

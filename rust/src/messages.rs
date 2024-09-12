@@ -19,8 +19,10 @@ pub struct MAT {
     pub t: Time,
 }
 
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct LogEntry {
-    pub mft: MFT,
+    pub m: Match,
+    pub f: FilterName,
+    pub t: Time,
     pub exec: bool,
 }

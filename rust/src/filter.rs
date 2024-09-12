@@ -7,7 +7,7 @@ use std::{
 use chrono::TimeDelta;
 use log::info;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     action::Action,
@@ -59,6 +59,10 @@ impl Filter {
 
     pub fn retry_duration(&self) -> Option<TimeDelta> {
         self.retry_duration
+    }
+
+    pub fn longuest_action_duration(&self) -> TimeDelta {
+        self.longuest_action_duration
     }
 
     pub fn patterns(&self) -> &BTreeSet<Pattern> {
@@ -196,7 +200,7 @@ impl Filter {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct FilterName {
     pub stream: String,
     pub filter: String,

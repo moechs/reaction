@@ -9,7 +9,11 @@ use anyhow::{anyhow, Context, Result};
 use log::{error, info};
 use serde::Deserialize;
 
-use crate::{filter::Filter, pattern::Pattern, stream::Stream};
+use crate::{
+    filter::{Filter, FilterName},
+    pattern::Pattern,
+    stream::Stream,
+};
 
 pub type Patterns = BTreeMap<String, Pattern>;
 
@@ -39,7 +43,14 @@ impl Config {
     }
 
     pub fn get_filter(&self, stream: &str, filter: &str) -> Option<&Filter> {
-        self.streams.get(stream)?.get_filter(filter)
+        self.streams.get(stream)?.filters().get(filter)
+    }
+
+    pub fn filter_names(&self) -> Vec<FilterName> {
+        self.streams
+            .values()
+            .flat_map(|stream| stream.filters().values().map(|filter| filter.name()))
+            .collect()
     }
 
     pub fn setup(&mut self) -> Result<()> {
