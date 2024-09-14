@@ -1,11 +1,12 @@
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     fs::File,
+    io,
     path::Path,
     process::{Command, Stdio},
 };
 
-use anyhow::{anyhow, Context, Result};
 use log::{error, info};
 use serde::Deserialize;
 
@@ -14,6 +15,55 @@ use crate::{
     pattern::Pattern,
     stream::Stream,
 };
+
+#[derive(Debug)]
+pub struct ConfigError {
+    err: String,
+}
+
+impl From<String> for ConfigError {
+    fn from(value: String) -> Self {
+        ConfigError { err: value }
+    }
+}
+
+impl From<&str> for ConfigError {
+    fn from(value: &str) -> Self {
+        ConfigError {
+            err: value.to_string(),
+        }
+    }
+}
+
+impl From<io::Error> for ConfigError {
+    fn from(value: io::Error) -> Self {
+        ConfigError {
+            err: value.to_string(),
+        }
+    }
+}
+
+impl From<serde_json::Error> for ConfigError {
+    fn from(value: serde_json::Error) -> Self {
+        ConfigError {
+            err: value.to_string(),
+        }
+    }
+}
+
+impl From<serde_yaml::Error> for ConfigError {
+    fn from(value: serde_yaml::Error) -> Self {
+        ConfigError {
+            err: value.to_string(),
+        }
+    }
+}
+
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.err)
+    }
+}
 
 pub type Patterns = BTreeMap<String, Pattern>;
 
@@ -53,9 +103,10 @@ impl Config {
             .collect()
     }
 
-    pub fn setup(&mut self) -> Result<()> {
-        self._setup()
-            .map_err(|msg| anyhow!("Bad configuration: {}", msg))
+    pub fn setup(&mut self) -> Result<(), ConfigError> {
+        Ok(self
+            ._setup()
+            .map_err(|msg| format!("Bad configuration: {}", msg))?)
     }
 
     pub fn _setup(&mut self) -> Result<(), String> {
@@ -91,24 +142,26 @@ enum Format {
     Json,
     Jsonnet,
 }
-pub fn config_from_file(path: &Path) -> Result<Config> {
-    _config_from_file(path).with_context(|| anyhow!("Configuration file {}:", path.display()))
+pub fn config_from_file(path: &Path) -> Result<Config, ConfigError> {
+    Ok(_config_from_file(path)
+        .map_err(|msg| format!("Configuration file {}: {}", path.display(), msg.err))?)
 }
-fn _config_from_file(path: &Path) -> Result<Config> {
+fn _config_from_file(path: &Path) -> Result<Config, ConfigError> {
     let extension = path
         .extension()
         .and_then(|ex| ex.to_str())
-        .ok_or(anyhow!("no file extension"))?;
+        .ok_or("no file extension")?;
 
     let format = match extension {
         "yaml" | "yml" => Format::Yaml,
         "json" => Format::Json,
         "jsonnet" => Format::Jsonnet,
         _ => {
-            return Err(anyhow!(
+            return Err(format!(
                 "extension {} is not recognized. Must be json, jsonnet, yml or yaml.",
                 extension
-            ))
+            )
+            .into())
         }
     };
 
@@ -126,10 +179,11 @@ fn _config_from_file(path: &Path) -> Result<Config> {
 mod jsonnet {
     use std::path::Path;
 
-    use anyhow::{anyhow, Result};
     use jrsonnet_evaluator::{error::LocError, EvaluationState, FileImportResolver};
 
-    pub fn from_path(path: &Path) -> Result<String> {
+    use super::ConfigError;
+
+    pub fn from_path(path: &Path) -> Result<String, ConfigError> {
         let state = EvaluationState::default();
         state.with_stdlib();
         state.set_import_resolver(Box::<FileImportResolver>::default());
@@ -139,7 +193,7 @@ mod jsonnet {
 
         match evaluate(path, &state) {
             Ok(val) => Ok(val),
-            Err(err) => Err(anyhow!("{}", state.stringify_err(&err))),
+            Err(err) => Err(state.stringify_err(&err).into()),
         }
     }
     fn evaluate(path: &Path, state: &EvaluationState) -> Result<String, LocError> {
