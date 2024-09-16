@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeMap,
-    fmt::Display,
     fs::File,
     io,
     path::Path,
@@ -9,61 +8,13 @@ use std::{
 
 use log::{error, info};
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::{
     filter::{Filter, FilterName},
     pattern::Pattern,
     stream::Stream,
 };
-
-#[derive(Debug)]
-pub struct ConfigError {
-    err: String,
-}
-
-impl From<String> for ConfigError {
-    fn from(value: String) -> Self {
-        ConfigError { err: value }
-    }
-}
-
-impl From<&str> for ConfigError {
-    fn from(value: &str) -> Self {
-        ConfigError {
-            err: value.to_string(),
-        }
-    }
-}
-
-impl From<io::Error> for ConfigError {
-    fn from(value: io::Error) -> Self {
-        ConfigError {
-            err: value.to_string(),
-        }
-    }
-}
-
-impl From<serde_json::Error> for ConfigError {
-    fn from(value: serde_json::Error) -> Self {
-        ConfigError {
-            err: value.to_string(),
-        }
-    }
-}
-
-impl From<serde_yaml::Error> for ConfigError {
-    fn from(value: serde_yaml::Error) -> Self {
-        ConfigError {
-            err: value.to_string(),
-        }
-    }
-}
-
-impl Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.err)
-    }
-}
 
 pub type Patterns = BTreeMap<String, Pattern>;
 
@@ -103,13 +54,7 @@ impl Config {
             .collect()
     }
 
-    pub fn setup(&mut self) -> Result<(), ConfigError> {
-        Ok(self
-            ._setup()
-            .map_err(|msg| format!("Bad configuration: {}", msg))?)
-    }
-
-    pub fn _setup(&mut self) -> Result<(), String> {
+    pub fn setup(&mut self) -> Result<(), String> {
         if self.concurrency == 0 {
             self.concurrency = num_cpus::get();
         }
@@ -142,28 +87,42 @@ enum Format {
     Json,
     Jsonnet,
 }
-pub fn config_from_file(path: &Path) -> Result<Config, ConfigError> {
-    Ok(_config_from_file(path)
-        .map_err(|msg| format!("Configuration file {}: {}", path.display(), msg.err))?)
+
+#[derive(Error, Debug)]
+enum ConfigError {
+    #[error("{0}")]
+    Any(String),
+    #[error("Bad configuration: {0}")]
+    BadConfig(String),
+    #[error("{0}. Must be json, jsonnet, yml or yaml.")]
+    Extension(String),
+    #[error("{0}")]
+    IO(#[from] io::Error),
+    #[error("{0}")]
+    JSON(#[from] serde_json::Error),
+    #[error("{0}")]
+    YAML(#[from] serde_yaml::Error),
 }
+
+pub fn config_from_file(path: &Path) -> Result<Config, String> {
+    _config_from_file(path).map_err(|err| format!("Configuration file {}: {}", path.display(), err))
+}
+
 fn _config_from_file(path: &Path) -> Result<Config, ConfigError> {
     let extension = path
         .extension()
         .and_then(|ex| ex.to_str())
-        .ok_or("no file extension")?;
+        .ok_or(ConfigError::Extension("no file extension".into()))?;
 
     let format = match extension {
-        "yaml" | "yml" => Format::Yaml,
-        "json" => Format::Json,
-        "jsonnet" => Format::Jsonnet,
-        _ => {
-            return Err(format!(
-                "extension {} is not recognized. Must be json, jsonnet, yml or yaml.",
-                extension
-            )
-            .into())
-        }
-    };
+        "yaml" | "yml" => Ok(Format::Yaml),
+        "json" => Ok(Format::Json),
+        "jsonnet" => Ok(Format::Jsonnet),
+        _ => Err(ConfigError::Extension(format!(
+            "extension {} is not recognized",
+            extension
+        ))),
+    }?;
 
     let mut config: Config = match format {
         Format::Json => serde_json::from_reader(File::open(path)?)?,
@@ -171,7 +130,7 @@ fn _config_from_file(path: &Path) -> Result<Config, ConfigError> {
         Format::Jsonnet => serde_json::from_str(&jsonnet::from_path(path)?)?,
     };
 
-    config.setup()?;
+    config.setup().map_err(ConfigError::BadConfig)?;
 
     Ok(config)
 }
@@ -193,7 +152,7 @@ mod jsonnet {
 
         match evaluate(path, &state) {
             Ok(val) => Ok(val),
-            Err(err) => Err(state.stringify_err(&err).into()),
+            Err(err) => Err(ConfigError::Any(state.stringify_err(&err))),
         }
     }
     fn evaluate(path: &Path, state: &EvaluationState) -> Result<String, LocError> {

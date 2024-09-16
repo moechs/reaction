@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::{
     collections::BTreeMap,
-    fmt::Display,
     fs::{self, File},
     process::exit,
     sync::{
@@ -15,6 +14,7 @@ use chrono::{DateTime, Local, TimeDelta};
 use log::{debug, error, info, warn};
 use postcard::{from_io, to_io, Error};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     config::Config,
@@ -133,27 +133,14 @@ impl WriteDB {
     }
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 enum DBError {
+    #[error("invalid filter: {0}")]
     InvalidFilterError(String),
-    PostcardError(postcard::Error),
+    #[error("decode error: {0}")]
+    PostcardError(#[from] postcard::Error),
+    #[error("{0}")]
     Error(String),
-}
-
-impl From<postcard::Error> for DBError {
-    fn from(value: postcard::Error) -> Self {
-        DBError::PostcardError(value)
-    }
-}
-
-impl Display for DBError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DBError::InvalidFilterError(e) => write!(f, "invalid filter : {}", e),
-            DBError::PostcardError(e) => write!(f, "decode error: {}", e),
-            DBError::Error(e) => write!(f, "{}", e),
-        }
-    }
 }
 
 type DatabaseWriteHeader = BTreeMap<FilterName, u16>;
@@ -223,7 +210,6 @@ pub fn database_manager(
                     log_db.write(entry).unwrap();
                     cpt += 1;
                     if cpt == MAX_WRITES {
-                        info!("Rotating database...");
                         cpt = 0;
                         drop(log_db);
                         drop(flush_db);
@@ -237,7 +223,6 @@ pub fn database_manager(
                                 exit(1);
                             }
                         };
-                        info!("Rotated database");
                     }
                 }
             };
@@ -249,6 +234,7 @@ fn rotate_db(
     config: &Arc<Config>,
     matches_tx: Option<Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
+    info!("Rotating database...");
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME)? {
         Some(db) => db,
         None => {
@@ -299,6 +285,7 @@ fn rotate_db(
     }
 
     let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config);
+    info!("Rotated database");
     Ok((log_write_db, flush_write_db))
 }
 
