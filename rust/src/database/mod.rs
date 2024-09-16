@@ -11,7 +11,7 @@ use std::{
     thread,
 };
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeDelta};
 use log::{debug, error, info, warn};
 use postcard::{from_io, to_io, Error};
 use serde::{Deserialize, Serialize};
@@ -312,6 +312,8 @@ fn _rotate_db(
     let mut discarded_entries: BTreeMap<FilterName, usize> = BTreeMap::new();
     let mut discarded_count: usize = 0;
 
+    let mut millisecond_disambiguation_counter: u32 = 0;
+
     // Read flushes
     let mut flushes: BTreeMap<FilterName, BTreeMap<Match, Time>> = BTreeMap::new();
     for flush_entry in flush_read_db {
@@ -343,7 +345,7 @@ fn _rotate_db(
     // Read matches
     for log_entry in log_read_db {
         match log_entry {
-            Ok(entry) => {
+            Ok(mut entry) => {
                 // retrieve related stream & filter
                 let filter = match config.get_filter(&entry.f.stream, &entry.f.filter) {
                     Some(filter) => filter,
@@ -379,6 +381,11 @@ fn _rotate_db(
                 if (!entry.exec && entry.t + filter.retry_duration().unwrap_or_default() > now)
                     || (entry.exec && entry.t + filter.longuest_action_duration() > now)
                 {
+                    // We loose subsecond precision when storing times, so we add those fake
+                    // milliseconds to make sure each time is unique
+                    entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
+                    millisecond_disambiguation_counter += 1;
+
                     if let Some(tx) = &matches_tx {
                         tx.send(MatchManagerInput::Match(entry.clone().into()))
                             .unwrap();
