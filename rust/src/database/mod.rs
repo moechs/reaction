@@ -4,7 +4,11 @@ use std::{
     fmt::Display,
     fs::{self, File},
     process::exit,
-    sync::{mpsc::Receiver, Arc},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
+    thread,
 };
 
 use chrono::{DateTime, Local};
@@ -15,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     config::Config,
     filter::FilterName,
+    matches::MatchManagerInput,
     messages::{LogEntry, Match, Time},
 };
 
@@ -190,13 +195,18 @@ impl ComputedLogEntry {
 }
 
 #[derive(Clone)]
-pub enum DatabaseInput {
+pub enum DatabaseManagerInput {
     Log(LogEntry),
     Flush(LogEntry),
 }
 
-pub fn database_manager(config: Arc<Config>, log_rx: Receiver<DatabaseInput>) {
-    let (mut log_db, mut flush_db) = match rotate_db(&config, true) {
+/// First rotates the database, then spawns the database thread
+pub fn database_manager(
+    config: Arc<Config>,
+    log_rx: Receiver<DatabaseManagerInput>,
+    matches_tx: Sender<MatchManagerInput>,
+) -> thread::JoinHandle<()> {
+    let (mut log_db, mut flush_db) = match rotate_db(&config, Some(matches_tx)) {
         Ok(dbs) => dbs,
         Err(err) => {
             error!("while rotating databases on start: {}", err);
@@ -204,36 +214,41 @@ pub fn database_manager(config: Arc<Config>, log_rx: Receiver<DatabaseInput>) {
         }
     };
 
-    let mut cpt = 0;
-    while let Ok(order) = log_rx.recv() {
-        match order {
-            DatabaseInput::Flush(entry) => flush_db.write(entry).unwrap(),
-            DatabaseInput::Log(entry) => {
-                log_db.write(entry).unwrap();
-                cpt += 1;
-                if cpt == MAX_WRITES {
-                    info!("Rotating database...");
-                    cpt = 0;
-                    drop(log_db);
-                    drop(flush_db);
-                    (log_db, flush_db) = match rotate_db(&config, false) {
-                        Ok(dbs) => dbs,
-                        Err(err) => {
-                            error!(
-                                "while rotating databases after {} writes: {}",
-                                MAX_WRITES, err
-                            );
-                            exit(1);
-                        }
-                    };
-                    info!("Rotated database");
+    thread::spawn(move || {
+        let mut cpt = 0;
+        while let Ok(order) = log_rx.recv() {
+            match order {
+                DatabaseManagerInput::Flush(entry) => flush_db.write(entry).unwrap(),
+                DatabaseManagerInput::Log(entry) => {
+                    log_db.write(entry).unwrap();
+                    cpt += 1;
+                    if cpt == MAX_WRITES {
+                        info!("Rotating database...");
+                        cpt = 0;
+                        drop(log_db);
+                        drop(flush_db);
+                        (log_db, flush_db) = match rotate_db(&config, None) {
+                            Ok(dbs) => dbs,
+                            Err(err) => {
+                                error!(
+                                    "while rotating databases after {} writes: {}",
+                                    MAX_WRITES, err
+                                );
+                                exit(1);
+                            }
+                        };
+                        info!("Rotated database");
+                    }
                 }
-            }
-        };
-    }
+            };
+        }
+    })
 }
 
-fn rotate_db(config: &Arc<Config>, startup: bool) -> Result<(WriteDB, WriteDB), DBError> {
+fn rotate_db(
+    config: &Arc<Config>,
+    matches_tx: Option<Sender<MatchManagerInput>>,
+) -> Result<(WriteDB, WriteDB), DBError> {
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME)? {
         Some(db) => db,
         None => {
@@ -263,10 +278,10 @@ fn rotate_db(config: &Arc<Config>, startup: bool) -> Result<(WriteDB, WriteDB), 
 
     _rotate_db(
         config,
+        matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
         &mut log_write_db,
-        startup,
     );
 
     drop(log_read_db);
@@ -289,10 +304,10 @@ fn rotate_db(config: &Arc<Config>, startup: bool) -> Result<(WriteDB, WriteDB), 
 
 fn _rotate_db(
     config: &Arc<Config>,
+    matches_tx: Option<Sender<MatchManagerInput>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
-    startup: bool,
 ) {
     let mut discarded_entries: BTreeMap<FilterName, usize> = BTreeMap::new();
     let mut discarded_count: usize = 0;
@@ -361,21 +376,12 @@ fn _rotate_db(
                 }
 
                 // Store match & store in db
-                if !entry.exec {
-                    if entry.t + filter.retry_duration().unwrap_or_default() > now {
-                        if startup {
-                            // TODO send match
-                        }
-
-                        if let Err(err) = log_write_db.write(entry) {
-                            error!("Could not write to DB: {}", err);
-                            exit(1);
-                        }
-                    }
-                // Replay executions & store in db
-                } else if entry.t + filter.longuest_action_duration() > now {
-                    if startup {
-                        // TODO send flush
+                if (!entry.exec && entry.t + filter.retry_duration().unwrap_or_default() > now)
+                    || (entry.exec && entry.t + filter.longuest_action_duration() > now)
+                {
+                    if let Some(tx) = &matches_tx {
+                        tx.send(MatchManagerInput::Match(entry.clone().into()))
+                            .unwrap();
                     }
 
                     if let Err(err) = log_write_db.write(entry) {
@@ -389,6 +395,10 @@ fn _rotate_db(
                 discarded_count += 1;
             }
         }
+    }
+
+    if let Some(tx) = matches_tx {
+        tx.send(MatchManagerInput::EndOfStartup).unwrap();
     }
 
     // Warn about errors

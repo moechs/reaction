@@ -10,9 +10,10 @@ use timer::MessageTimer;
 
 use crate::{
     config::Config,
+    database::DatabaseManagerInput,
     execs::ExecsManagerInput,
     filter::FilterName,
-    messages::{Match, Time, MFT},
+    messages::{LogEntry, Match, Time, MFT},
 };
 
 #[derive(Clone)]
@@ -21,6 +22,7 @@ pub enum MatchManagerInput {
     Unmatch(MFT),
     #[allow(dead_code)]
     Flush(MFT),
+    EndOfStartup,
     Stop,
 }
 
@@ -57,13 +59,17 @@ pub fn matches_manager(
     match_rx: Receiver<MatchManagerInput>,
     match_tx: Sender<MatchManagerInput>,
     action_tx: Sender<ExecsManagerInput>,
+    log_tx: Sender<DatabaseManagerInput>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
     let timer = MessageTimer::new(match_tx);
 
+    let mut startup = true;
+
     for mft in match_rx.iter() {
         match mft {
+            MatchManagerInput::EndOfStartup => startup = false,
             MatchManagerInput::Match(mft) => {
                 let filter = config.get_filter(&mft.f.stream, &mft.f.filter).unwrap();
 
@@ -91,8 +97,16 @@ pub fn matches_manager(
                     filter.send_actions(&mft.m, mft.t, &action_tx);
                 }
 
-                // TODO send to DB
-                // log_tx.send(LogEntry { mft, exec });
+                if !startup {
+                    log_tx
+                        .send(DatabaseManagerInput::Log(LogEntry {
+                            exec,
+                            m: mft.m,
+                            f: mft.f,
+                            t: mft.t,
+                        }))
+                        .unwrap();
+                }
             }
             MatchManagerInput::Unmatch(mft) => matches.rm(&mft),
             #[allow(clippy::todo)]
