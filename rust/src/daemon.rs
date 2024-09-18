@@ -12,7 +12,7 @@ use std::{
 use log::{debug, error, info, Level};
 
 use crate::{
-    config,
+    config::Config,
     database::database_manager,
     execs::{execs_manager, ExecsManagerInput},
     matches::{matches_manager, MatchManagerInput},
@@ -27,7 +27,7 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
 
     debug!("daemon {config_path:?} {loglevel:?} {socket:?}");
 
-    let config = match config::config_from_file(config_path) {
+    let config = match Config::from_file(config_path) {
         Ok(config) => Arc::new(config),
         Err(err) => {
             error!("{err}");

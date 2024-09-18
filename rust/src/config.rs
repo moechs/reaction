@@ -80,6 +80,38 @@ impl Config {
     pub fn stop(&self) -> bool {
         run_commands(&self.stop, "stop")
     }
+
+    pub fn from_file(path: &Path) -> Result<Self, String> {
+        Config::_from_file(path)
+            .map_err(|err| format!("Configuration file {}: {}", path.display(), err))
+    }
+
+    fn _from_file(path: &Path) -> Result<Self, ConfigError> {
+        let extension = path
+            .extension()
+            .and_then(|ex| ex.to_str())
+            .ok_or(ConfigError::Extension("no file extension".into()))?;
+
+        let format = match extension {
+            "yaml" | "yml" => Ok(Format::Yaml),
+            "json" => Ok(Format::Json),
+            "jsonnet" => Ok(Format::Jsonnet),
+            _ => Err(ConfigError::Extension(format!(
+                "extension {} is not recognized",
+                extension
+            ))),
+        }?;
+
+        let mut config: Config = match format {
+            Format::Json => serde_json::from_reader(File::open(path)?)?,
+            Format::Yaml => serde_yaml::from_reader(File::open(path)?)?,
+            Format::Jsonnet => serde_json::from_str(&jsonnet::from_path(path)?)?,
+        };
+
+        config.setup().map_err(ConfigError::BadConfig)?;
+
+        Ok(config)
+    }
 }
 
 enum Format {
@@ -102,37 +134,6 @@ enum ConfigError {
     JSON(#[from] serde_json::Error),
     #[error("{0}")]
     YAML(#[from] serde_yaml::Error),
-}
-
-pub fn config_from_file(path: &Path) -> Result<Config, String> {
-    _config_from_file(path).map_err(|err| format!("Configuration file {}: {}", path.display(), err))
-}
-
-fn _config_from_file(path: &Path) -> Result<Config, ConfigError> {
-    let extension = path
-        .extension()
-        .and_then(|ex| ex.to_str())
-        .ok_or(ConfigError::Extension("no file extension".into()))?;
-
-    let format = match extension {
-        "yaml" | "yml" => Ok(Format::Yaml),
-        "json" => Ok(Format::Json),
-        "jsonnet" => Ok(Format::Jsonnet),
-        _ => Err(ConfigError::Extension(format!(
-            "extension {} is not recognized",
-            extension
-        ))),
-    }?;
-
-    let mut config: Config = match format {
-        Format::Json => serde_json::from_reader(File::open(path)?)?,
-        Format::Yaml => serde_yaml::from_reader(File::open(path)?)?,
-        Format::Jsonnet => serde_json::from_str(&jsonnet::from_path(path)?)?,
-    };
-
-    config.setup().map_err(ConfigError::BadConfig)?;
-
-    Ok(config)
 }
 
 mod jsonnet {
