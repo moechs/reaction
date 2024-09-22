@@ -1,7 +1,7 @@
-#![allow(dead_code)]
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, File},
+    io::{self, Write},
     process::exit,
     sync::{
         mpsc::{Receiver, Sender},
@@ -11,8 +11,8 @@ use std::{
 };
 
 use chrono::{DateTime, Local, TimeDelta};
-use log::{error, info, warn};
-use postcard::{from_io, to_io, Error};
+use log::{debug, error, info, warn};
+use postcard::{from_io, Error};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -31,9 +31,7 @@ const FLUSH_DB_NAME: &str = "./reaction-flushes.db";
 
 const MAX_WRITES: u32 = 500_000;
 
-// FIXME how to use postcard::from_io with a dynamic buffer?
-const HEADER_MAX_SIZE: usize = 1024 * 1024;
-const ENTRY_MAX_SIZE: usize = 1024 * 1024;
+const BUFFER_MAX_SIZE: usize = 10 * 1024 * 1024;
 
 struct ReadDB {
     f: File,
@@ -58,7 +56,7 @@ impl ReadDB {
             },
         };
 
-        let mut buf: [u8; HEADER_MAX_SIZE] = [0; HEADER_MAX_SIZE];
+        let mut buf: Vec<u8> = vec![0; BUFFER_MAX_SIZE];
         let (database_header, _) = from_io((&mut file, &mut buf))?;
 
         Ok(Some(ReadDB {
@@ -72,7 +70,7 @@ impl Iterator for ReadDB {
     type Item = Result<LogEntry, DBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut buf: [u8; ENTRY_MAX_SIZE] = [0; ENTRY_MAX_SIZE];
+        let mut buf: Vec<u8> = vec![0; BUFFER_MAX_SIZE];
         let result = from_io::<ComputedLogEntry, _>((&mut self.f, &mut buf));
         match result {
             // FIXME why we got a default item instead of an error or something?
@@ -95,11 +93,12 @@ impl Iterator for ReadDB {
 struct WriteDB {
     f: File,
     h: DatabaseWriteHeader,
+    buf: Vec<u8>,
 }
 
 impl WriteDB {
     fn create(path: &str, config: &Arc<Config>) -> Self {
-        let mut file = match File::create(path) {
+        let file = match File::create(path) {
             Ok(file) => file,
             Err(err) => {
                 error!("Failed to create DB: {}", err);
@@ -107,10 +106,16 @@ impl WriteDB {
             }
         };
 
+        let mut ret = WriteDB {
+            f: file,
+            h: BTreeMap::new(),
+            buf: vec![0; BUFFER_MAX_SIZE],
+        };
+
         let database_read_header: DatabaseReadHeader =
             config.filters().into_iter().enumerate().collect();
 
-        if let Err(err) = to_io(&database_read_header, &mut file) {
+        if let Err(err) = ret._write(&database_read_header) {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }
@@ -120,15 +125,23 @@ impl WriteDB {
             .map(|(i, name)| (name, i))
             .collect();
 
-        WriteDB {
-            f: file,
-            h: database_write_header,
-        }
+        ret.h = database_write_header;
+        ret
     }
 
     fn write(&mut self, entry: LogEntry) -> Result<(), DBError> {
         let computed = ComputedLogEntry::from(entry, &self.h)?;
-        to_io(&computed, &mut self.f)?;
+        self._write(computed)
+    }
+
+    fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
+        let encoded = postcard::to_slice(&data, &mut self.buf)?;
+        debug!("writing this: {:?}, {:?}", &data, &encoded);
+        self.f.write_all(encoded)?;
+        // clear
+        for i in 0..self.buf.len() {
+            self.buf[i] = 0;
+        }
         Ok(())
     }
 }
@@ -139,6 +152,8 @@ enum DBError {
     InvalidFilterError(String),
     #[error("decode error: {0}")]
     PostcardError(#[from] postcard::Error),
+    #[error("io error: {0}")]
+    IOError(#[from] io::Error),
     #[error("{0}")]
     Error(String),
 }
@@ -146,7 +161,7 @@ enum DBError {
 type DatabaseWriteHeader = BTreeMap<Arc<Filter>, usize>;
 type DatabaseReadHeader = BTreeMap<usize, Arc<Filter>>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ComputedLogEntry {
     pub m: Match,
     pub f: usize,
@@ -185,7 +200,18 @@ impl ComputedLogEntry {
 #[derive(Clone)]
 pub enum DatabaseManagerInput {
     Log(LogEntry),
+    #[allow(dead_code)]
     Flush(LogEntry),
+}
+
+// Just discovering macros, let me be useless
+macro_rules! write_or_die {
+    ($db:expr, $entry:expr) => {
+        if let Err(err) = $db.write($entry) {
+            error!("Could not write to DB: {}", err);
+            exit(1);
+        }
+    };
 }
 
 /// First rotates the database, then spawns the database thread
@@ -204,11 +230,11 @@ pub fn database_manager(
 
     thread::spawn(move || {
         let mut cpt = 0;
-        while let Ok(order) = log_rx.recv() {
+        for order in log_rx.iter() {
             match order {
-                DatabaseManagerInput::Flush(entry) => flush_db.write(entry).unwrap(),
+                DatabaseManagerInput::Flush(entry) => write_or_die!(flush_db, entry),
                 DatabaseManagerInput::Log(entry) => {
-                    log_db.write(entry).unwrap();
+                    write_or_die!(log_db, entry);
                     cpt += 1;
                     if cpt == MAX_WRITES {
                         cpt = 0;
@@ -236,6 +262,20 @@ fn rotate_db(
     matches_tx: Option<Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     info!("Rotating database...");
+    let res = _rotate_db(config, &matches_tx);
+
+    debug!("sending EOS: {}", matches_tx.is_some());
+    if let Some(tx) = matches_tx {
+        tx.send(MatchManagerInput::EndOfStartup).unwrap();
+    }
+
+    info!("Rotated database");
+    res
+}
+fn _rotate_db(
+    config: &Arc<Config>,
+    matches_tx: &Option<Sender<MatchManagerInput>>,
+) -> Result<(WriteDB, WriteDB), DBError> {
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME)? {
         Some(db) => db,
         None => {
@@ -263,7 +303,7 @@ fn rotate_db(
 
     let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config);
 
-    _rotate_db(
+    __rotate_db(
         matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
@@ -285,12 +325,11 @@ fn rotate_db(
     }
 
     let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config);
-    info!("Rotated database");
     Ok((log_write_db, flush_write_db))
 }
 
-fn _rotate_db(
-    matches_tx: Option<Sender<MatchManagerInput>>,
+fn __rotate_db(
+    matches_tx: &Option<Sender<MatchManagerInput>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
@@ -350,25 +389,18 @@ fn _rotate_db(
                     entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
                     millisecond_disambiguation_counter += 1;
 
-                    if let Some(tx) = &matches_tx {
+                    if let Some(tx) = matches_tx {
                         tx.send(MatchManagerInput::Match(entry.clone().into()))
                             .unwrap();
                     }
 
-                    if let Err(err) = log_write_db.write(entry) {
-                        error!("Could not write to DB: {}", err);
-                        exit(1);
-                    }
+                    write_or_die!(log_write_db, entry);
                 }
             }
             Err(err) => {
                 *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
             }
         }
-    }
-
-    if let Some(tx) = matches_tx {
-        tx.send(MatchManagerInput::EndOfStartup).unwrap();
     }
 
     // Warn about errors
