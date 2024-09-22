@@ -337,9 +337,7 @@ pub mod tests {
 
         // duration 120
         filter = ok_filter();
-        filter
-            .actions
-            .insert(two_minutes_str, two_minutes_action);
+        filter.actions.insert(two_minutes_str, two_minutes_action);
         filter.actions.insert(minute_str, minute_action);
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, two_minutes);

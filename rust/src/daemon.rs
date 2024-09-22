@@ -44,7 +44,7 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
 
     let (match_tx, match_rx) = channel();
     let (exec_tx, exec_rx) = channel();
-    let (log_tx, log_rx) = channel();
+    let (log_tx, log_rx) = sync_channel(1);
 
     let matches_manager_thread_handle = {
         let match_tx_matches = match_tx.clone();
@@ -109,8 +109,6 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
     let _ = database_manager_thread_handle.join();
 
     let stop_ok = config.stop();
-
-    // TODO flush DB
 
     // TODO remove socket
 

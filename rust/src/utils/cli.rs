@@ -131,6 +131,7 @@ impl fmt::Display for Format {
 
 // Structs
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct NamedRegex {
     pub regex: Regex,

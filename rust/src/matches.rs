@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
-        mpsc::{Receiver, Sender},
+        mpsc::{Receiver, Sender, SyncSender},
         Arc,
     },
 };
@@ -77,7 +77,7 @@ pub fn matches_manager(
     match_rx: Receiver<MatchManagerInput>,
     match_tx: Sender<MatchManagerInput>,
     action_tx: Sender<ExecsManagerInput>,
-    log_tx: Sender<DatabaseManagerInput>,
+    log_tx: SyncSender<DatabaseManagerInput>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
