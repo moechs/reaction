@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::Path,
     process::exit,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -9,7 +9,7 @@ use std::{
     thread,
 };
 
-use log::{debug, error, info, Level};
+use log::{error, info, Level};
 
 use crate::{
     config::Config,
@@ -19,13 +19,12 @@ use crate::{
     utils::SimpleLogger,
 };
 
-pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
+#[allow(unused_variables)]
+pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
     if let Err(err) = SimpleLogger::init(loglevel) {
         eprintln!("ERROR could not initialize logging: {err}");
         exit(1);
     }
-
-    debug!("daemon {config_path:?} {loglevel:?} {socket:?}");
 
     let config = match Config::from_file(config_path) {
         Ok(config) => Arc::new(config),
@@ -34,8 +33,6 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
             exit(1);
         }
     };
-
-    debug!("config: {:?}", config);
 
     if !config.start() {
         error!("a start command failed, exiting.");
@@ -50,18 +47,9 @@ pub fn daemon(config_path: &PathBuf, loglevel: Level, socket: &PathBuf) {
     let (log_tx, log_rx) = channel();
 
     let matches_manager_thread_handle = {
-        let config_matches = config.clone();
         let match_tx_matches = match_tx.clone();
         let exec_tx_matches = exec_tx.clone();
-        thread::spawn(move || {
-            matches_manager(
-                config_matches,
-                match_rx,
-                match_tx_matches,
-                exec_tx_matches,
-                log_tx,
-            )
-        })
+        thread::spawn(move || matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx))
     };
 
     let execs_manager_thread_handle = {

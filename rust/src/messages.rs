@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Local, TimeDelta};
 
-use crate::{action::ActionName, filter::FilterName};
+use crate::{action::Action, filter::Filter};
 
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
@@ -8,21 +10,21 @@ pub type Match = Vec<String>;
 #[derive(Clone)]
 pub struct MFT {
     pub m: Match,
-    pub f: FilterName,
+    pub f: Arc<Filter>,
     pub t: Time,
 }
 
 #[derive(Clone)]
 pub struct MAT {
     pub m: Match,
-    pub a: ActionName,
+    pub a: Arc<Action>,
     pub t: Time,
 }
 
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub m: Match,
-    pub f: FilterName,
+    pub f: Arc<Filter>,
     pub t: Time,
     pub exec: bool,
 }

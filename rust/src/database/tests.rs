@@ -5,8 +5,8 @@ use std::sync::Arc;
 use chrono::Local;
 
 use crate::database::ReadDB;
-use crate::{config::config_from_file, tests::Fixture};
-use crate::{filter::FilterName, messages::LogEntry};
+use crate::{config::Config, tests::Fixture};
+use crate::{filter::Filter, messages::LogEntry};
 
 use super::WriteDB;
 
@@ -40,17 +40,11 @@ fn write_and_read_db() {
         ",
     );
 
-    let config = Arc::new(config_from_file(&config_file).unwrap());
+    let config = Arc::new(Config::from_file(&config_file).unwrap());
 
-    let correct_filter_name = FilterName {
-        stream: "stream1".into(),
-        filter: "filter1".into(),
-    };
+    let correct_filter_name = Arc::new(Filter::from_name("stream1", "filter1"));
 
-    let incorrect_filter_name = FilterName {
-        stream: "stream0".into(),
-        filter: "filter1".into(),
-    };
+    let incorrect_filter_name = Arc::new(Filter::from_name("stream0", "filter1"));
 
     let correct_log_entry = LogEntry {
         m: vec!["match1".into()],

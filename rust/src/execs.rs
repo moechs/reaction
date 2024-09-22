@@ -12,7 +12,7 @@ use log::{error, info};
 use timer::MessageTimer;
 
 use crate::{
-    action::ActionName,
+    action::Action,
     config::Config,
     messages::{Match, MAT},
     utils::ThreadPool,
@@ -27,11 +27,11 @@ pub enum ExecsManagerInput {
     Stop,
 }
 
-type ExecsMap = BTreeMap<ActionName, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
+type ExecsMap = BTreeMap<Arc<Action>, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
 
 trait ExecsMapTrait {
-    fn add(&mut self, mft: &MAT);
-    fn rm(&mut self, mft: &MAT);
+    fn add(&mut self, mat: &MAT);
+    fn rm(&mut self, mat: &MAT);
 }
 impl ExecsMapTrait for ExecsMap {
     fn add(&mut self, mat: &MAT) {
@@ -68,23 +68,22 @@ pub fn execs_manager(
     };
 
     let exec_now = |mat: MAT| {
-        // Retrieve needed information from config
-        let filter = config.get_filter(&mat.a.stream, &mat.a.filter).unwrap();
-        let action = filter.get_action(&mat.a.action).unwrap();
-        let patterns = filter.patterns();
+        let mut closure = {
+            let action = mat.a;
 
-        // Construct command
-        let mut command = action.exec(&mat.m, patterns);
+            // Construct command
+            let mut command = action.exec(&mat.m);
 
-        let mut closure = move || {
-            info!("{}: run [{:?}]", &mat.a, command);
-            if let Err(err) = command
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
-                .stdout(Stdio::piped())
-                .status()
-            {
-                error!("{}: run [{:?}], code {}", &mat.a, command, err);
+            move || {
+                info!("{}: run [{:?}]", &action, command);
+                if let Err(err) = command
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .status()
+                {
+                    error!("{}: run [{:?}], code {}", &action, command, err);
+                }
             }
         };
 
@@ -121,19 +120,13 @@ pub fn execs_manager(
             #[allow(clippy::todo)]
             ExecsManagerInput::Flush(_mat) => todo!(),
             ExecsManagerInput::Stop => {
-                for (action_name, inner_map) in execs {
-                    if config
-                        .get_filter(&action_name.stream, &action_name.filter)
-                        .unwrap()
-                        .get_action(&action_name.action)
-                        .unwrap()
-                        .on_exit()
-                    {
+                for (action, inner_map) in execs {
+                    if action.on_exit() {
                         for (match_, inner_set) in inner_map {
                             for _ in inner_set {
                                 exec_now(MAT {
                                     m: match_.clone(),
-                                    a: action_name.clone(),
+                                    a: action.clone(),
                                     t: Local::now(),
                                 });
                             }

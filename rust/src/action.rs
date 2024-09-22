@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt::Display, process::Command};
+use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, process::Command, sync::Arc};
 
 use chrono::TimeDelta;
 
@@ -20,6 +20,8 @@ pub struct Action {
     on_exit: bool,
 
     #[serde(skip)]
+    patterns: Arc<BTreeSet<Arc<Pattern>>>,
+    #[serde(skip)]
     name: String,
     #[serde(skip)]
     filter_name: String,
@@ -32,14 +34,6 @@ fn set_false() -> bool {
 }
 
 impl Action {
-    pub fn name(&self) -> ActionName {
-        ActionName {
-            stream: self.stream_name.clone(),
-            filter: self.filter_name.clone(),
-            action: self.name.clone(),
-        }
-    }
-
     pub fn after_duration(&self) -> Option<TimeDelta> {
         self.after_duration
     }
@@ -53,14 +47,23 @@ impl Action {
         stream_name: &str,
         filter_name: &str,
         name: &str,
+        patterns: Arc<BTreeSet<Arc<Pattern>>>,
     ) -> Result<(), String> {
-        self._setup(stream_name, filter_name, name)
+        self._setup(stream_name, filter_name, name, patterns)
             .map_err(|msg| format!("action {}: {}", name, msg))
     }
-    fn _setup(&mut self, stream_name: &str, filter_name: &str, name: &str) -> Result<(), String> {
+    fn _setup(
+        &mut self,
+        stream_name: &str,
+        filter_name: &str,
+        name: &str,
+        patterns: Arc<BTreeSet<Arc<Pattern>>>,
+    ) -> Result<(), String> {
         self.stream_name = stream_name.to_string();
         self.filter_name = filter_name.to_string();
         self.name = name.to_string();
+
+        self.patterns = patterns;
 
         if self.name.is_empty() {
             return Err("action name is empty".into());
@@ -90,15 +93,15 @@ impl Action {
     }
 
     // TODO test
-    pub fn exec(&self, match_: &Match, patterns: &BTreeSet<Pattern>) -> Command {
-        let computed_command = if patterns.is_empty() {
+    pub fn exec(&self, match_: &Match) -> Command {
+        let computed_command = if self.patterns.is_empty() {
             self.cmd.clone()
         } else {
             self.cmd
                 .iter()
                 .map(|item| {
                     (0..match_.len())
-                        .zip(patterns)
+                        .zip(self.patterns.as_ref())
                         .fold(item.clone(), |acc, (i, pattern)| {
                             acc.replace(pattern.name_with_braces(), &match_[i])
                         })
@@ -111,15 +114,32 @@ impl Action {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ActionName {
-    pub stream: String,
-    pub filter: String,
-    pub action: String,
+impl PartialEq for Action {
+    fn eq(&self, other: &Self) -> bool {
+        self.stream_name == other.stream_name && self.name == other.name
+    }
 }
-impl Display for ActionName {
+impl Eq for Action {}
+impl Ord for Action {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.stream_name.cmp(&other.stream_name) {
+            Ordering::Equal => match self.filter_name.cmp(&other.filter_name) {
+                Ordering::Equal => self.name.cmp(&other.name),
+                o => o,
+            },
+            o => o,
+        }
+    }
+}
+impl PartialOrd for Action {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.stream, self.filter, self.action)
+        write!(f, "{}.{}.{}", self.stream_name, self.filter_name, self.name)
     }
 }
 
@@ -137,49 +157,53 @@ pub mod tests {
             after: None,
             after_duration: None,
             on_exit: false,
+            patterns: Arc::new(BTreeSet::default()),
         }
     }
 
-    pub fn ok_action() -> Action {
+    pub fn ok_action() -> Arc<Action> {
         let mut action = default_action();
         action.cmd = vec!["command".into()];
-        action
+        Arc::new(action)
     }
 
-    pub fn ok_action_with_after(d: String, name: &str) -> Action {
+    pub fn ok_action_with_after(d: String, name: &str) -> Arc<Action> {
         let mut action = default_action();
         action.cmd = vec!["command".into()];
         action.after = Some(d);
-        action.setup("", "", name).unwrap();
         action
+            .setup("", "", name, Arc::new(BTreeSet::default()))
+            .unwrap();
+        Arc::new(action)
     }
 
     #[test]
     fn missing_config() {
         let mut action;
         let name = "name".to_string();
+        let patterns = Arc::new(BTreeSet::default());
 
         // No command
         action = default_action();
-        assert!(action.setup(&name, &name, &name).is_err());
+        assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // No command
         action = default_action();
         action.cmd = vec!["".into()];
-        assert!(action.setup(&name, &name, &name).is_err());
+        assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // No command
         action = default_action();
         action.cmd = vec!["".into(), "arg1".into()];
-        assert!(action.setup(&name, &name, &name).is_err());
+        assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // command ok
-        action = ok_action();
-        assert!(action.setup(&name, &name, &name).is_ok());
+        action = ok_action().as_ref().clone();
+        assert!(action.setup(&name, &name, &name, patterns.clone()).is_ok());
 
         // command ok
-        action = ok_action();
+        action = ok_action().as_ref().clone();
         action.cmd.push("arg1".into());
-        assert!(action.setup(&name, &name, &name).is_ok());
+        assert!(action.setup(&name, &name, &name, patterns.clone()).is_ok());
     }
 }

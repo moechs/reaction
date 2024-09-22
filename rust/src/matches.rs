@@ -6,13 +6,13 @@ use std::{
     },
 };
 
+use log::debug;
 use timer::MessageTimer;
 
 use crate::{
-    config::Config,
     database::DatabaseManagerInput,
     execs::ExecsManagerInput,
-    filter::FilterName,
+    filter::Filter,
     messages::{LogEntry, Match, Time, MFT},
 };
 
@@ -26,11 +26,14 @@ pub enum MatchManagerInput {
     Stop,
 }
 
-type MatchesMap = BTreeMap<FilterName, BTreeMap<Match, BTreeSet<Time>>>;
+type MatchesMap = BTreeMap<Arc<Filter>, BTreeMap<Match, BTreeSet<Time>>>;
 
+// This trait is needed to permit to implement methods on an external type
 trait MatchesMapTrait {
     fn add(&mut self, mft: &MFT);
     fn rm(&mut self, mft: &MFT);
+    fn rm_times(&mut self, mft: &MFT);
+    fn get_times(&self, mft: &MFT) -> usize;
 }
 impl MatchesMapTrait for MatchesMap {
     fn add(&mut self, mft: &MFT) {
@@ -52,10 +55,25 @@ impl MatchesMapTrait for MatchesMap {
             }
         }
     }
+
+    fn rm_times(&mut self, mft: &MFT) {
+        if let Some(inner_map) = self.get_mut(&mft.f) {
+            inner_map.remove(&mft.m);
+            if inner_map.is_empty() {
+                self.remove(&mft.f);
+            }
+        }
+    }
+
+    fn get_times(&self, mft: &MFT) -> usize {
+        match self.get(&mft.f).and_then(|map| map.get(&mft.m)) {
+            Some(x) => x.len(),
+            None => 0,
+        }
+    }
 }
 
 pub fn matches_manager(
-    config: Arc<Config>,
     match_rx: Receiver<MatchManagerInput>,
     match_tx: Sender<MatchManagerInput>,
     action_tx: Sender<ExecsManagerInput>,
@@ -69,32 +87,35 @@ pub fn matches_manager(
 
     for mft in match_rx.iter() {
         match mft {
-            MatchManagerInput::EndOfStartup => startup = false,
+            MatchManagerInput::EndOfStartup => {
+                debug!("end of startup!");
+                startup = false;
+            }
             MatchManagerInput::Match(mft) => {
-                let filter = config.get_filter(&mft.f.stream, &mft.f.filter).unwrap();
-
-                let is_retry = filter.retry().is_some();
-
                 // Store matches
-                if is_retry {
-                    // Add new match
-                    matches.add(&mft);
-                    // Remove match when expired
-                    let guard = timer.schedule_with_delay(
-                        filter.retry_duration().unwrap(),
-                        MatchManagerInput::Unmatch(mft.clone()),
-                    );
-                    guard.ignore();
-                }
+                let exec = match mft.f.retry() {
+                    None => true,
+                    Some(retry) => {
+                        // Add new match
+                        matches.add(&mft);
+                        // Remove match when expired
+                        let guard = timer.schedule_with_delay(
+                            mft.f.retry_duration().unwrap(),
+                            MatchManagerInput::Unmatch(mft.clone()),
+                        );
+                        guard.ignore();
+
+                        matches.get_times(&mft) >= retry as usize
+                    }
+                };
 
                 // Executing actions
-                let exec = !is_retry || matches.get(&mft.f).map(|map| map.get(&mft.m)).is_some();
                 if exec {
                     // Delete matches only if storing them
-                    if is_retry {
-                        matches.get_mut(&mft.f).unwrap().remove(&mft.m);
+                    if mft.f.retry().is_some() {
+                        matches.rm_times(&mft);
                     }
-                    filter.send_actions(&mft.m, mft.t, &action_tx);
+                    mft.f.send_actions(&mft.m, mft.t, &action_tx);
                 }
 
                 if !startup {

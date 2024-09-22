@@ -4,19 +4,16 @@ use std::{
     io,
     path::Path,
     process::{Command, Stdio},
+    sync::Arc,
 };
 
 use log::{error, info};
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::{
-    filter::{Filter, FilterName},
-    pattern::Pattern,
-    stream::Stream,
-};
+use crate::{filter::Filter, pattern::Pattern, stream::Stream};
 
-pub type Patterns = BTreeMap<String, Pattern>;
+pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,14 +40,10 @@ impl Config {
         self.concurrency
     }
 
-    pub fn get_filter(&self, stream: &str, filter: &str) -> Option<&Filter> {
-        self.streams.get(stream)?.filters().get(filter)
-    }
-
-    pub fn filter_names(&self) -> Vec<FilterName> {
+    pub fn filters(&self) -> Vec<Arc<Filter>> {
         self.streams
             .values()
-            .flat_map(|stream| stream.filters().values().map(|filter| filter.name()))
+            .flat_map(|stream| stream.filters().values().cloned())
             .collect()
     }
 
@@ -59,9 +52,13 @@ impl Config {
             self.concurrency = num_cpus::get();
         }
 
-        for (key, value) in &mut self.patterns {
+        let mut new_patterns = BTreeMap::new();
+        for (key, value) in &self.patterns {
+            let mut value = value.as_ref().clone();
             value.setup(key)?;
+            new_patterns.insert(key.clone(), Arc::new(value));
         }
+        self.patterns = new_patterns;
 
         if self.streams.is_empty() {
             return Err("no streams configured".into());

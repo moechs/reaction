@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs::{self, File},
     process::exit,
     sync::{
@@ -11,14 +11,14 @@ use std::{
 };
 
 use chrono::{DateTime, Local, TimeDelta};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use postcard::{from_io, to_io, Error};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
     config::Config,
-    filter::FilterName,
+    filter::Filter,
     matches::MatchManagerInput,
     messages::{LogEntry, Match, Time},
 };
@@ -107,8 +107,8 @@ impl WriteDB {
             }
         };
 
-        let database_read_header: BTreeMap<usize, FilterName> =
-            config.filter_names().into_iter().enumerate().collect();
+        let database_read_header: DatabaseReadHeader =
+            config.filters().into_iter().enumerate().collect();
 
         if let Err(err) = to_io(&database_read_header, &mut file) {
             error!("Failed to write to DB: {}", err);
@@ -117,7 +117,7 @@ impl WriteDB {
 
         let database_write_header = database_read_header
             .into_iter()
-            .map(|(i, name)| (name, i as u16))
+            .map(|(i, name)| (name, i))
             .collect();
 
         WriteDB {
@@ -143,27 +143,28 @@ enum DBError {
     Error(String),
 }
 
-type DatabaseWriteHeader = BTreeMap<FilterName, u16>;
-type DatabaseReadHeader = BTreeMap<u16, FilterName>;
+type DatabaseWriteHeader = BTreeMap<Arc<Filter>, usize>;
+type DatabaseReadHeader = BTreeMap<usize, Arc<Filter>>;
 
 #[derive(Serialize, Deserialize)]
 struct ComputedLogEntry {
     pub m: Match,
-    pub f: u16,
+    pub f: usize,
     pub t: i64,
     pub exec: bool,
 }
 
 impl ComputedLogEntry {
     fn from(value: LogEntry, header: &DatabaseWriteHeader) -> Result<Self, DBError> {
-        match header.get(&value.f) {
+        let filter = value.f;
+        match header.get(&filter) {
             Some(f) => Ok(ComputedLogEntry {
                 m: value.m,
                 f: *f,
                 t: value.t.timestamp(),
                 exec: value.exec,
             }),
-            None => Err(DBError::InvalidFilterError(value.f.to_string())),
+            None => Err(DBError::InvalidFilterError(filter.to_string())),
         }
     }
     fn to(self, header: &DatabaseReadHeader) -> Result<LogEntry, DBError> {
@@ -263,7 +264,6 @@ fn rotate_db(
     let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config);
 
     _rotate_db(
-        config,
         matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
@@ -290,42 +290,29 @@ fn rotate_db(
 }
 
 fn _rotate_db(
-    config: &Arc<Config>,
     matches_tx: Option<Sender<MatchManagerInput>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
 ) {
-    let mut discarded_entries: BTreeMap<FilterName, usize> = BTreeMap::new();
-    let mut discarded_count: usize = 0;
+    let mut discarded_errors: HashMap<String, usize> = HashMap::new();
 
     let mut millisecond_disambiguation_counter: u32 = 0;
 
     // Read flushes
-    let mut flushes: BTreeMap<FilterName, BTreeMap<Match, Time>> = BTreeMap::new();
+    let mut flushes: BTreeMap<Arc<Filter>, BTreeMap<Match, Time>> = BTreeMap::new();
     for flush_entry in flush_read_db {
         match flush_entry {
             Ok(entry) => {
-                if config
-                    .get_filter(&entry.f.stream, &entry.f.filter)
-                    .is_some()
-                {
-                    let matches_map = flushes.entry(entry.f).or_default();
-                    matches_map.insert(entry.m, entry.t);
-                } else {
-                    *discarded_entries.entry(entry.f).or_insert(0) += 1;
-                }
+                let matches_map = flushes.entry(entry.f).or_default();
+                matches_map.insert(entry.m, entry.t);
             }
             Err(err) => {
-                debug!("while reading flush db: {}", err);
-                discarded_count += 1;
+                *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
             }
         }
     }
-    let global_flush_map = flushes.get(&FilterName {
-        stream: "".into(),
-        filter: "".into(),
-    });
+    let last_global_flush = flushes.get(&Filter::default());
 
     let now = Local::now();
 
@@ -333,23 +320,13 @@ fn _rotate_db(
     for log_entry in log_read_db {
         match log_entry {
             Ok(mut entry) => {
-                // retrieve related stream & filter
-                let filter = match config.get_filter(&entry.f.stream, &entry.f.filter) {
-                    Some(filter) => filter,
-                    None => {
-                        *discarded_entries.entry(entry.f).or_insert(0) += 1;
-                        continue;
-                    }
-                };
-
                 // Check if number of patterns is in sync
-                if entry.m.len() != filter.patterns().len() {
-                    *discarded_entries.entry(entry.f).or_insert(0) += 1;
+                if entry.m.len() != entry.f.patterns().len() {
                     continue;
                 }
 
                 // Check if hasn't been flushed
-                if let Some(map) = global_flush_map {
+                if let Some(map) = last_global_flush {
                     if let Some(time) = map.get(&entry.m) {
                         if time > &entry.t {
                             continue;
@@ -365,8 +342,8 @@ fn _rotate_db(
                 }
 
                 // Store match & store in db
-                if (!entry.exec && entry.t + filter.retry_duration().unwrap_or_default() > now)
-                    || (entry.exec && entry.t + filter.longuest_action_duration() > now)
+                if (!entry.exec && entry.t + entry.f.retry_duration().unwrap_or_default() > now)
+                    || (entry.exec && entry.t + entry.f.longuest_action_duration() > now)
                 {
                     // We loose subsecond precision when storing times, so we add those fake
                     // milliseconds to make sure each time is unique
@@ -385,8 +362,7 @@ fn _rotate_db(
                 }
             }
             Err(err) => {
-                debug!("while reading log db: {}", err);
-                discarded_count += 1;
+                *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
             }
         }
     }
@@ -396,14 +372,13 @@ fn _rotate_db(
     }
 
     // Warn about errors
-    discarded_entries.iter()
+    discarded_errors
+        .iter()
         .filter(|(_, &count)| count > 0)
-        .for_each(|(name, count)| warn!("{} entries discarded from the databases: stream/filter not found in configuration, or the patterns are not the same: {}", count, name));
-
-    if discarded_count > 0 {
-        error!(
-            "{} entries discarded from the databases (garbage while decoding)",
-            discarded_count
-        );
-    }
+        .for_each(|(name, count)| {
+            warn!(
+                "This problem was found {} times while rotating the database: {}",
+                count, name
+            )
+        });
 }

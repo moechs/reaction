@@ -1,7 +1,8 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
-    sync::mpsc::Sender,
+    sync::{mpsc::Sender, Arc},
 };
 
 use chrono::TimeDelta;
@@ -18,38 +19,45 @@ use crate::{
     utils::parse_duration,
 };
 
-#[derive(Clone, Debug, Deserialize)]
+// Only names are serialized
+// Only computed fields are not deserialized
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
-    actions: BTreeMap<String, Action>,
+    #[serde(skip_serializing)]
+    actions: BTreeMap<String, Arc<Action>>,
     #[serde(skip)]
     longuest_action_duration: TimeDelta,
 
+    #[serde(skip_serializing)]
     regex: Vec<String>,
     #[serde(skip)]
     compiled_regex: Vec<Regex>,
     // We want patterns to be ordered
     // This is necessary when using matches which contain multiple patterns
     #[serde(skip)]
-    patterns: BTreeSet<Pattern>,
+    patterns: Arc<BTreeSet<Arc<Pattern>>>,
 
+    #[serde(skip_serializing)]
     retry: Option<u32>,
-    #[serde(rename = "retryperiod")]
+    #[serde(skip_serializing, rename = "retryperiod")]
     retry_period: Option<String>,
     #[serde(skip)]
     retry_duration: Option<TimeDelta>,
 
-    #[serde(skip)]
+    #[serde(skip_deserializing)]
     name: String,
-    #[serde(skip)]
+    #[serde(skip_deserializing)]
     stream_name: String,
 }
 
 impl Filter {
-    pub fn name(&self) -> FilterName {
-        FilterName {
-            stream: self.stream_name.clone(),
-            filter: self.name.clone(),
+    #[cfg(test)]
+    pub fn from_name(stream_name: &str, filter_name: &str) -> Filter {
+        Filter {
+            stream_name: stream_name.into(),
+            name: filter_name.into(),
+            ..Filter::default()
         }
     }
 
@@ -65,25 +73,26 @@ impl Filter {
         self.longuest_action_duration
     }
 
-    pub fn patterns(&self) -> &BTreeSet<Pattern> {
+    pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
         &self.patterns
-    }
-
-    pub fn get_action(&self, name: &str) -> Option<&Action> {
-        self.actions.get(name)
     }
 
     pub fn setup(
         &mut self,
         stream_name: &str,
         name: &str,
-        patterns: &Patterns,
+        config_patterns: &Patterns,
     ) -> Result<(), String> {
-        self._setup(stream_name, name, patterns)
+        self._setup(stream_name, name, config_patterns)
             .map_err(|msg| format!("filter {}: {}", name, msg))
     }
 
-    fn _setup(&mut self, stream_name: &str, name: &str, patterns: &Patterns) -> Result<(), String> {
+    fn _setup(
+        &mut self,
+        stream_name: &str,
+        name: &str,
+        config_patterns: &Patterns,
+    ) -> Result<(), String> {
         self.stream_name = stream_name.to_string();
         self.name = name.to_string();
 
@@ -114,10 +123,11 @@ impl Filter {
             return Err("no regex configured".into());
         }
 
+        let mut new_patterns = BTreeSet::new();
         let mut first = true;
         for regex in &self.regex {
             let mut regex_buf = regex.clone();
-            for pattern in patterns.values() {
+            for pattern in config_patterns.values() {
                 if let Some(index) = regex.find(pattern.name_with_braces()) {
                     if regex.rfind(pattern.name_with_braces()).unwrap() != index {
                         return Err(format!(
@@ -126,14 +136,14 @@ impl Filter {
                         ));
                     }
                     if first {
-                        self.patterns.insert(pattern.clone());
-                    } else if !self.patterns.contains(pattern) {
+                        new_patterns.insert(pattern.clone());
+                    } else if !new_patterns.contains(pattern) {
                         return Err(format!(
                             "pattern {} is not present in the first regex but is present in a following regex. all regexes should contain the same set of regexes",
                             &pattern.name_with_braces()
                         ));
                     }
-                } else if !first && self.patterns.contains(pattern) {
+                } else if !first && new_patterns.contains(pattern) {
                     return Err(format!(
                             "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
                             &pattern.name_with_braces()
@@ -146,14 +156,19 @@ impl Filter {
             first = false;
         }
         self.regex.clear();
+        self.patterns = Arc::new(new_patterns);
 
         if self.actions.is_empty() {
             return Err("no actions configured".into());
         }
 
-        for (key, value) in &mut self.actions {
-            value.setup(stream_name, name, key)?;
+        let mut new_actions = BTreeMap::new();
+        for (key, action) in &self.actions {
+            let mut new_action = action.as_ref().clone();
+            new_action.setup(stream_name, name, key, self.patterns.clone())?;
+            new_actions.insert(key.clone(), Arc::new(new_action));
         }
+        self.actions = new_actions;
 
         self.longuest_action_duration =
             self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
@@ -169,18 +184,18 @@ impl Filter {
             if let Some(matches) = regex.captures(line) {
                 if !self.patterns.is_empty() {
                     let mut result = Match::new();
-                    for pattern in &self.patterns {
+                    for pattern in self.patterns.as_ref() {
                         let match_ = matches.name(pattern.name()).unwrap();
                         if pattern.not_an_ignore(match_.as_str()) {
                             result.push(match_.as_str().to_string());
                         }
                     }
                     if result.len() == self.patterns.len() {
-                        info!("{}: match {:?}", self.name(), result);
+                        info!("{}: match {:?}", self, result);
                         return Some(result);
                     }
                 } else {
-                    info!("{}: match []", self.name());
+                    info!("{}: match []", self);
                     return Some(vec![".".to_string()]);
                 }
             }
@@ -192,7 +207,7 @@ impl Filter {
         for action in self.actions.values() {
             tx.send(ExecsManagerInput::Exec(MAT {
                 m: m.clone(),
-                a: action.name(),
+                a: action.clone(),
                 t: t + action.after_duration().unwrap_or_default(),
             }))
             .unwrap();
@@ -200,20 +215,34 @@ impl Filter {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct FilterName {
-    pub stream: String,
-    pub filter: String,
-}
-impl Display for FilterName {
+impl Display for Filter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.stream, self.filter)
+        write!(f, "{}.{}", self.stream_name, self.name)
+    }
+}
+
+impl PartialEq for Filter {
+    fn eq(&self, other: &Self) -> bool {
+        self.stream_name == other.stream_name && self.name == other.name
+    }
+}
+impl Eq for Filter {}
+impl Ord for Filter {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.stream_name.cmp(&other.stream_name) {
+            Ordering::Equal => self.name.cmp(&other.name),
+            o => o,
+        }
+    }
+}
+impl PartialOrd for Filter {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-
     use crate::action::tests::{ok_action, ok_action_with_after};
     use crate::pattern::tests::{
         boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore,
@@ -221,23 +250,8 @@ pub mod tests {
 
     use super::*;
 
-    pub fn default_filter() -> Filter {
-        Filter {
-            name: "".into(),
-            stream_name: "".into(),
-            actions: BTreeMap::new(),
-            patterns: BTreeSet::new(),
-            regex: Vec::new(),
-            compiled_regex: Vec::new(),
-            retry: None,
-            retry_period: None,
-            retry_duration: None,
-            longuest_action_duration: TimeDelta::default(),
-        }
-    }
-
     pub fn ok_filter() -> Filter {
-        let mut filter = default_filter();
+        let mut filter = Filter::default();
         let name = "name".to_string();
         filter.regex = vec!["reg".into()];
         filter.actions.insert(name.clone(), ok_action());
@@ -323,7 +337,9 @@ pub mod tests {
 
         // duration 120
         filter = ok_filter();
-        filter.actions.insert(two_minutes_str, two_minutes_action);
+        filter
+            .actions
+            .insert(two_minutes_str, two_minutes_action);
         filter.actions.insert(minute_str, minute_action);
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, two_minutes);
@@ -340,21 +356,21 @@ pub mod tests {
         let mut pattern = default_pattern();
         pattern.regex = "[abc]".to_string();
         assert!(pattern.setup(&name).is_ok());
-        patterns.insert(name.clone(), pattern.clone());
+        patterns.insert(name.clone(), pattern.clone().into());
 
         let unused_name = "unused".to_string();
         let mut unused_pattern = default_pattern();
         unused_pattern.regex = "compile[error".to_string();
         assert!(unused_pattern.setup(&unused_name).is_err());
-        patterns.insert(unused_name.clone(), unused_pattern.clone());
+        patterns.insert(unused_name.clone(), unused_pattern.clone().into());
 
         let boubou_name = "boubou".to_string();
         let mut boubou = boubou_pattern_with_ignore();
         boubou.setup(&boubou_name).unwrap();
-        patterns.insert(boubou_name.clone(), boubou.clone());
+        patterns.insert(boubou_name.clone(), boubou.clone().into());
 
         // correct regex replacement
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
@@ -369,7 +385,7 @@ pub mod tests {
         assert_eq!(stored_pattern.regex, pattern.regex);
 
         // same pattern two times in regex
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
@@ -377,7 +393,7 @@ pub mod tests {
         assert!(filter.setup(&name, &name, &patterns).is_err());
 
         // two patterns in one regex
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
@@ -396,7 +412,7 @@ pub mod tests {
         assert_eq!(stored_pattern.regex, pattern.regex);
 
         // multiple regexes with same pattern
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
@@ -418,7 +434,7 @@ pub mod tests {
         assert_eq!(stored_pattern.regex, pattern.regex);
 
         // multiple regexes with same patterns
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
@@ -446,14 +462,14 @@ pub mod tests {
         assert_eq!(stored_pattern.regex, pattern.regex);
 
         // multiple regexes with different patterns 1
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <boubou> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_err());
 
         // multiple regexes with different patterns 2
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
@@ -462,7 +478,7 @@ pub mod tests {
         assert!(filter.setup(&name, &name, &patterns).is_err());
 
         // multiple regexes with different patterns 3
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("also add <boubou> there".to_string());
         filter
@@ -481,30 +497,30 @@ pub mod tests {
 
         let mut pattern = ok_pattern_with_ignore();
         pattern.setup(&name).unwrap();
-        patterns.insert(name.clone(), pattern.clone());
+        patterns.insert(name.clone(), pattern.clone().into());
 
         let boubou_name = "boubou".to_string();
         let mut boubou = boubou_pattern_with_ignore();
         boubou.setup(&boubou_name).unwrap();
-        patterns.insert(boubou_name.clone(), boubou.clone());
+        patterns.insert(boubou_name.clone(), boubou.clone().into());
 
         // one simple regex
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here$".to_string());
-        filter.setup(&name, &name, &patterns).unwrap();
+        assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
         assert_eq!(filter.get_match("insert a here"), None);
         assert_eq!(filter.get_match("youpi b youpi"), None);
         assert_eq!(filter.get_match("insert  here"), None);
 
         // two patterns in one regex
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
             .push("insert <name> here and <boubou> there".to_string());
-        filter.setup(&name, &name, &patterns).unwrap();
+        assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
             filter.get_match("insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))
@@ -513,18 +529,18 @@ pub mod tests {
         assert_eq!(filter.get_match("insert b here and boubou there"), None);
 
         // multiple regexes with same pattern
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
-        filter.setup(&name, &name, &patterns).unwrap();
+        assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(filter.get_match("insert a here"), None);
         assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
         assert_eq!(filter.get_match("also add a there"), None);
         assert_eq!(filter.get_match("also add b there"), Some(vec!("b".into())));
 
         // multiple regexes with same patterns
-        filter = default_filter();
+        filter = Filter::default();
         filter.actions.insert(name.clone(), ok_action());
         filter
             .regex
@@ -532,7 +548,7 @@ pub mod tests {
         filter
             .regex
             .push("also add <boubou> here and <name> there".to_string());
-        filter.setup(&name, &name, &patterns).unwrap();
+        assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
             filter.get_match("insert b here and bouboubou there"),
             Some(vec!("bouboubou".into(), "b".into()))

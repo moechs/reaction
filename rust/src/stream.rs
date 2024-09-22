@@ -2,11 +2,14 @@ use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
-    sync::mpsc::{Sender, SyncSender},
+    sync::{
+        mpsc::{Sender, SyncSender},
+        Arc,
+    },
 };
 
 use chrono::Local;
-use log::{debug, error, info};
+use log::{error, info};
 use serde::Deserialize;
 
 use crate::{config::Patterns, filter::Filter, matches::MatchManagerInput, messages::MFT};
@@ -15,14 +18,14 @@ use crate::{config::Patterns, filter::Filter, matches::MatchManagerInput, messag
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     cmd: Vec<String>,
-    filters: BTreeMap<String, Filter>,
+    filters: BTreeMap<String, Arc<Filter>>,
 
     #[serde(skip)]
     name: String,
 }
 
 impl Stream {
-    pub fn filters(&self) -> &BTreeMap<String, Filter> {
+    pub fn filters(&self) -> &BTreeMap<String, Arc<Filter>> {
         &self.filters
     }
 
@@ -52,9 +55,13 @@ impl Stream {
             return Err("no filters configured".into());
         }
 
-        for (key, value) in &mut self.filters {
-            value.setup(name, key, patterns)?;
+        let mut new_filters = BTreeMap::new();
+        for (key, filter) in &self.filters {
+            let mut new_filter = filter.as_ref().clone();
+            new_filter.setup(name, key, patterns)?;
+            new_filters.insert(key.clone(), Arc::new(new_filter));
         }
+        self.filters = new_filters;
 
         Ok(())
     }
@@ -81,33 +88,37 @@ impl Stream {
         };
 
         // keep stdout before sending/moving child to the main thread
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let stdout = BufReader::new(child.stdout.take().unwrap());
 
         // let main handle the child process
         let _ = child_tx.send(Some(child));
         drop(child_tx);
 
-        let mut line: String = "".into();
-        while let Ok(nb_chars) = stdout.read_line(&mut line) {
-            if nb_chars == 0 {
-                break;
-            }
-            line.pop(); // remove trailing newline
-            debug!("stream {} stdout: {}", self.name, line);
+        // let mut line: String = "".into();
+        // while let Ok(nb_chars) = stdout.read_line(&mut line) {
+        for line in stdout.lines() {
+            let line = match line {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+            // if nb_chars == 0 {
+            //     break;
+            // }
+            // line.pop(); // remove trailing newline
 
             for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
                     match_tx
                         .send(MatchManagerInput::Match(MFT {
                             m: match_,
-                            f: filter.name(),
+                            f: filter.clone(),
                             t: Local::now(),
                         }))
                         .unwrap();
                 }
             }
 
-            line.clear();
+            // line.clear();
         }
         info!("stream {} exited", self.name);
     }
@@ -131,7 +142,7 @@ pub mod tests {
         stream.cmd = vec!["command".into()];
         stream
             .filters
-            .insert("name".into(), crate::filter::tests::ok_filter());
+            .insert("name".into(), Arc::new(crate::filter::tests::ok_filter()));
         stream
     }
 

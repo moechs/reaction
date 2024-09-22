@@ -21,16 +21,15 @@
   ],
 
   streams: {
-    tailDown1: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do echo found $i; done"],
+    s1: {
+      cmd: ['sh', '-c', "seq 20 | tr ' ' '\n' | while read i; do echo found $((i % 5)); sleep 0.3; done"],
       filters: {
-        findIP: {
+        f1: {
           regex: [
-            '^found <num>_<letter>$',
-            '^found <letter>_<num>$',
+            '^found <num>$',
           ],
           retry: 2,
-          retryperiod: '30s',
+          retryperiod: '5s',
           actions: {
             damn: {
               cmd: ['notify-send', 'first stream', 'ban <num>'],
@@ -39,29 +38,6 @@
               cmd: ['notify-send', 'first stream', 'unban <num>'],
               after: '6s',
               onexit: true,
-            },
-          },
-        },
-      },
-    },
-    tailDown2: {
-      cmd: ['sh', '-c', "echo 1_abc 2_abc 3_abc abc_1 abc_2 abc_3 | tr ' ' '\n' | while read i; do echo found $i; done"],
-      filters: {
-        findIP: {
-          regex: [
-            '^found <num>_<letter>$',
-            '^found <letter>_<num>$',
-          ],
-          retry: 2,
-          retryperiod: '2s',
-          actions: {
-            damn: {
-              cmd: ['notify-send', 'second stream', 'ban <num>'],
-            },
-            undamn: {
-              cmd: ['notify-send', 'second stream', 'unban <num>'],
-              after: '4s',
-              // onexit: false,
             },
           },
         },
