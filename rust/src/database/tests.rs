@@ -69,7 +69,7 @@ fn write_and_read_db() {
 
     drop(write_db);
 
-    let read_db = ReadDB::open(db_path.to_str().unwrap());
+    let read_db = ReadDB::open(db_path.to_str().unwrap(), &config);
 
     assert!(read_db.is_ok());
     let read_db = read_db.unwrap();

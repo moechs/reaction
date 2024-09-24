@@ -29,6 +29,10 @@ impl Stream {
         &self.filters
     }
 
+    pub fn get_filter(&self, filter_name: &str) -> Option<&Arc<Filter>> {
+        self.filters.get(filter_name)
+    }
+
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
         self._setup(name, patterns)
             .map_err(|msg| format!("stream {}: {}", name, msg))
@@ -94,17 +98,11 @@ impl Stream {
         let _ = child_tx.send(Some(child));
         drop(child_tx);
 
-        // let mut line: String = "".into();
-        // while let Ok(nb_chars) = stdout.read_line(&mut line) {
         for line in stdout.lines() {
             let line = match line {
                 Ok(line) => line,
                 Err(_) => break,
             };
-            // if nb_chars == 0 {
-            //     break;
-            // }
-            // line.pop(); // remove trailing newline
 
             for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
@@ -117,10 +115,8 @@ impl Stream {
                         .unwrap();
                 }
             }
-
-            // line.clear();
         }
-        info!("stream {} exited", self.name);
+        error!("stream {} exited", self.name);
     }
 }
 

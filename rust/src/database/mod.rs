@@ -12,7 +12,6 @@ use std::{
 
 use chrono::{Local, TimeDelta};
 use log::{debug, error, info, warn};
-use postcard;
 use thiserror::Error;
 
 use crate::{
@@ -32,6 +31,7 @@ const LOG_DB_NEW_NAME: &str = "./reaction-matches.new.db";
 const FLUSH_DB_NAME: &str = "./reaction-flushes.db";
 
 const MAX_WRITES: u32 = 500_000;
+
 #[derive(Error, Debug)]
 pub enum DBError {
     #[error("invalid filter: {0}")]
@@ -43,6 +43,7 @@ pub enum DBError {
     #[error("{0}")]
     Error(String),
 }
+
 #[derive(Clone)]
 pub enum DatabaseManagerInput {
     Log(LogEntry),
@@ -135,7 +136,7 @@ fn _rotate_db(
     config: &Arc<Config>,
     matches_tx: &Option<Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
-    let mut log_read_db = match ReadDB::open(LOG_DB_NAME)? {
+    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
         Some(db) => db,
         None => {
             return Ok((
@@ -144,14 +145,14 @@ fn _rotate_db(
             ));
         }
     };
-    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME)? {
+    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config)? {
         Some(db) => db,
         None => {
             warn!(
                 "Strange! Found a {} but no {}, opening /dev/null instead",
                 LOG_DB_NAME, FLUSH_DB_NAME
             );
-            match ReadDB::open("/dev/null")? {
+            match ReadDB::open("/dev/null", config)? {
                 Some(db) => db,
                 None => {
                     return Err(DBError::Error("/dev/null is not accessible".into()));
@@ -198,6 +199,7 @@ fn __rotate_db(
     let mut millisecond_disambiguation_counter: u32 = 0;
 
     // Read flushes
+    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut flushes: BTreeMap<Arc<Filter>, BTreeMap<Match, Time>> = BTreeMap::new();
     for flush_entry in flush_read_db {
         match flush_entry {

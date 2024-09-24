@@ -47,6 +47,12 @@ impl Config {
             .collect()
     }
 
+    pub fn get_filter(&self, name: &(String, String)) -> Option<&Arc<Filter>> {
+        self.streams
+            .get(&name.0)
+            .and_then(|stream| stream.get_filter(&name.1))
+    }
+
     pub fn setup(&mut self) -> Result<(), String> {
         if self.concurrency == 0 {
             self.concurrency = num_cpus::get();

@@ -79,6 +79,7 @@ pub fn matches_manager(
     action_tx: Sender<ExecsManagerInput>,
     log_tx: SyncSender<DatabaseManagerInput>,
 ) {
+    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut matches: MatchesMap = BTreeMap::new();
 
     let timer = MessageTimer::new(match_tx);

@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::Debug,
     fs::File,
-    io::{self, BufWriter, Write},
+    io::{self, BufReader, BufWriter, Write},
     process::exit,
     sync::Arc,
 };
@@ -19,20 +19,25 @@ use crate::{
 
 use super::DBError;
 
-type DatabaseWriteHeader = BTreeMap<Arc<Filter>, usize>;
-type DatabaseReadHeader = BTreeMap<usize, Arc<Filter>>;
+// OPTIM Add a timestamp prefix to the header, to permit having
+// shorter timestamps?
+// It may permit to win 1-4 bytes per entry, don't know if it's worth it
+// FIXME put signature in the header?
+type DatabaseHeader = BTreeMap<usize, (String, String)>;
+type ReadHeader = BTreeMap<usize, Arc<Filter>>;
+type WriteHeader = BTreeMap<Arc<Filter>, usize>;
 
 const BUFFER_MAX_SIZE: usize = 10 * 1024 * 1024;
 const DB_SIGNATURE: &str = "reaction-db-v01";
 
 pub struct ReadDB {
-    f: File,
-    h: DatabaseReadHeader,
+    f: BufReader<File>,
+    h: ReadHeader,
     buf: Vec<u8>,
 }
 
 impl ReadDB {
-    pub fn open(path: &str) -> Result<Option<Self>, DBError> {
+    pub fn open(path: &str, config: &Arc<Config>) -> Result<Option<Self>, DBError> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(err) => match err.kind() {
@@ -50,7 +55,7 @@ impl ReadDB {
         };
 
         let mut ret = ReadDB {
-            f: file,
+            f: BufReader::new(file),
             h: BTreeMap::new(),
             buf: vec![0; BUFFER_MAX_SIZE],
         };
@@ -61,9 +66,14 @@ impl ReadDB {
             Err(err) => Err(DBError::Error(format!("reading database signature: {err}"))),
         }?;
 
-        ret.h = ret
-            .read()
+        let db_header = ret
+            .read::<DatabaseHeader>()
             .map_err(|err| DBError::Error(format!("while reading database header: {err}")))?;
+
+        ret.h = db_header
+            .iter()
+            .filter_map(|(key, name)| config.get_filter(name).map(|filter| (*key, filter.clone())))
+            .collect();
 
         Ok(Some(ret))
     }
@@ -82,13 +92,9 @@ impl Iterator for ReadDB {
         match self.read::<ComputedLogEntry>() {
             // FIXME why we got a default item instead of an error or something?
             // How do we really know we reached the end?
-            Ok(item) => {
-                if item.t == 0 {
-                    None
-                } else {
-                    Some(item.to(&self.h))
-                }
-            }
+            // For now, checking if time is 0
+            Ok(ComputedLogEntry { t: 0, .. }) => None,
+            Ok(item) => Some(item.to(&self.h)),
             Err(err) => match err {
                 postcard::Error::DeserializeUnexpectedEnd => None,
                 _ => Some(Err(err.into())),
@@ -99,7 +105,7 @@ impl Iterator for ReadDB {
 
 pub struct WriteDB {
     f: BufWriter<File>,
-    h: DatabaseWriteHeader,
+    h: WriteHeader,
     buf: Vec<u8>,
 }
 
@@ -124,20 +130,25 @@ impl WriteDB {
             exit(1);
         }
 
-        let database_read_header: DatabaseReadHeader =
-            config.filters().into_iter().enumerate().collect();
+        let database_header: DatabaseHeader = config
+            .filters()
+            .into_iter()
+            .map(|f| f.full_name())
+            .enumerate()
+            .collect();
 
-        if let Err(err) = ret._write(&database_read_header) {
+        if let Err(err) = ret._write(&database_header) {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }
 
-        let database_write_header = database_read_header
+        ret.h = config
+            .filters()
             .into_iter()
-            .map(|(i, name)| (name, i))
+            .enumerate()
+            .map(|(key, filter)| (filter, key))
             .collect();
 
-        ret.h = database_write_header;
         ret
     }
 
@@ -171,19 +182,19 @@ struct ComputedLogEntry {
 }
 
 impl ComputedLogEntry {
-    fn from(value: LogEntry, header: &DatabaseWriteHeader) -> Result<Self, DBError> {
-        let filter = value.f;
-        match header.get(&filter) {
+    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
+    fn from(value: LogEntry, header: &WriteHeader) -> Result<Self, DBError> {
+        match header.get(&value.f) {
             Some(f) => Ok(ComputedLogEntry {
                 m: value.m,
                 f: *f,
                 t: value.t.timestamp(),
                 exec: value.exec,
             }),
-            None => Err(DBError::InvalidFilterError(filter.to_string())),
+            None => Err(DBError::InvalidFilterError(value.f.to_string())),
         }
     }
-    fn to(self, header: &DatabaseReadHeader) -> Result<LogEntry, DBError> {
+    fn to(self, header: &ReadHeader) -> Result<LogEntry, DBError> {
         match header.get(&self.f) {
             Some(f) => Ok(LogEntry {
                 m: self.m,

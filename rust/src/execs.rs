@@ -96,6 +96,7 @@ pub fn execs_manager(
         }
     };
 
+    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut execs: ExecsMap = BTreeMap::new();
 
     let timer = MessageTimer::new(exec_tx);

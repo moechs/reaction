@@ -8,7 +8,7 @@ use std::{
 use chrono::TimeDelta;
 use log::info;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
     action::Action,
@@ -21,15 +21,13 @@ use crate::{
 
 // Only names are serialized
 // Only computed fields are not deserialized
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
-    #[serde(skip_serializing)]
     actions: BTreeMap<String, Arc<Action>>,
     #[serde(skip)]
     longuest_action_duration: TimeDelta,
 
-    #[serde(skip_serializing)]
     regex: Vec<String>,
     #[serde(skip)]
     compiled_regex: Vec<Regex>,
@@ -38,16 +36,15 @@ pub struct Filter {
     #[serde(skip)]
     patterns: Arc<BTreeSet<Arc<Pattern>>>,
 
-    #[serde(skip_serializing)]
     retry: Option<u32>,
-    #[serde(skip_serializing, rename = "retryperiod")]
+    #[serde(rename = "retryperiod")]
     retry_period: Option<String>,
     #[serde(skip)]
     retry_duration: Option<TimeDelta>,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip)]
     name: String,
-    #[serde(skip_deserializing)]
+    #[serde(skip)]
     stream_name: String,
 }
 
@@ -59,6 +56,10 @@ impl Filter {
             name: filter_name.into(),
             ..Filter::default()
         }
+    }
+
+    pub fn full_name(&self) -> (String, String) {
+        (self.stream_name.clone(), self.name.clone())
     }
 
     pub fn retry(&self) -> Option<u32> {
@@ -73,6 +74,7 @@ impl Filter {
         self.longuest_action_duration
     }
 
+    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
         &self.patterns
     }
@@ -123,6 +125,7 @@ impl Filter {
             return Err("no regex configured".into());
         }
 
+        #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
         let mut new_patterns = BTreeSet::new();
         let mut first = true;
         for regex in &self.regex {
