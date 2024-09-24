@@ -24,7 +24,7 @@ use crate::{
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
-    actions: BTreeMap<String, Arc<Action>>,
+    actions: BTreeMap<String, Action>,
     #[serde(skip)]
     longuest_action_duration: TimeDelta,
 
@@ -165,13 +165,9 @@ impl Filter {
             return Err("no actions configured".into());
         }
 
-        let mut new_actions = BTreeMap::new();
-        for (key, action) in &self.actions {
-            let mut new_action = action.as_ref().clone();
-            new_action.setup(stream_name, name, key, self.patterns.clone())?;
-            new_actions.insert(key.clone(), Arc::new(new_action));
+        for (key, action) in &mut self.actions {
+            action.setup(stream_name, name, key, self.patterns.clone())?;
         }
-        self.actions = new_actions;
 
         self.longuest_action_duration =
             self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
@@ -206,11 +202,11 @@ impl Filter {
         None
     }
 
-    pub fn send_actions(&self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
+    pub fn send_actions(&'static self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
         for action in self.actions.values() {
             tx.send(ExecsManagerInput::Exec(MAT {
                 m: m.clone(),
-                a: action.clone(),
+                a: action,
                 t: t + action.after_duration().unwrap_or_default(),
             }))
             .unwrap();

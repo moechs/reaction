@@ -161,20 +161,20 @@ pub mod tests {
         }
     }
 
-    pub fn ok_action() -> Arc<Action> {
+    pub fn ok_action() -> Action {
         let mut action = default_action();
         action.cmd = vec!["command".into()];
-        Arc::new(action)
+        action
     }
 
-    pub fn ok_action_with_after(d: String, name: &str) -> Arc<Action> {
+    pub fn ok_action_with_after(d: String, name: &str) -> Action {
         let mut action = default_action();
         action.cmd = vec!["command".into()];
         action.after = Some(d);
         action
             .setup("", "", name, Arc::new(BTreeSet::default()))
             .unwrap();
-        Arc::new(action)
+        action
     }
 
     #[test]
@@ -198,11 +198,11 @@ pub mod tests {
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // command ok
-        action = ok_action().as_ref().clone();
+        action = ok_action();
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_ok());
 
         // command ok
-        action = ok_action().as_ref().clone();
+        action = ok_action();
         action.cmd.push("arg1".into());
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_ok());
     }

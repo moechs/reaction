@@ -40,14 +40,14 @@ impl Config {
         self.concurrency
     }
 
-    pub fn filters(&self) -> Vec<Arc<Filter>> {
+    pub fn filters(&self) -> Vec<&Filter> {
         self.streams
             .values()
-            .flat_map(|stream| stream.filters().values().cloned())
+            .flat_map(|stream| stream.filters().values())
             .collect()
     }
 
-    pub fn get_filter(&self, name: &(String, String)) -> Option<&Arc<Filter>> {
+    pub fn get_filter(&self, name: &(String, String)) -> Option<&Filter> {
         self.streams
             .get(&name.0)
             .and_then(|stream| stream.get_filter(&name.1))

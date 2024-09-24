@@ -1,7 +1,5 @@
 #![cfg(test)]
 
-use std::sync::Arc;
-
 use chrono::Local;
 
 use crate::database::ReadDB;
@@ -40,36 +38,36 @@ fn write_and_read_db() {
         ",
     );
 
-    let config = Arc::new(Config::from_file(&config_file).unwrap());
+    let config = Box::leak(Box::new(Config::from_file(&config_file).unwrap()));
 
-    let correct_filter_name = Arc::new(Filter::from_name("stream1", "filter1"));
+    let correct_filter_name = Box::leak(Box::new(Filter::from_name("stream1", "filter1")));
 
-    let incorrect_filter_name = Arc::new(Filter::from_name("stream0", "filter1"));
+    let incorrect_filter_name = Box::leak(Box::new(Filter::from_name("stream0", "filter1")));
 
     let correct_log_entry = LogEntry {
         m: vec!["match1".into()],
-        f: correct_filter_name.clone(),
+        f: correct_filter_name,
         t: Local::now(),
         exec: false,
     };
 
     let incorrect_log_entry = LogEntry {
         m: vec!["match1".into()],
-        f: incorrect_filter_name.clone(),
+        f: incorrect_filter_name,
         t: Local::now(),
         exec: false,
     };
 
     let db_path = Fixture::empty("matches.db");
 
-    let mut write_db = WriteDB::create(db_path.to_str().unwrap(), &config);
+    let mut write_db = WriteDB::create(db_path.to_str().unwrap(), config);
 
     assert!(write_db.write(correct_log_entry.clone()).is_ok());
     assert!(write_db.write(incorrect_log_entry).is_err());
 
     drop(write_db);
 
-    let read_db = ReadDB::open(db_path.to_str().unwrap(), &config);
+    let read_db = ReadDB::open(db_path.to_str().unwrap(), config);
 
     assert!(read_db.is_ok());
     let read_db = read_db.unwrap();

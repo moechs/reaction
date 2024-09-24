@@ -3,10 +3,7 @@ use std::{
     fmt::Debug,
     fs, io,
     process::exit,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
+    sync::mpsc::{Receiver, Sender},
     thread,
 };
 
@@ -71,11 +68,11 @@ macro_rules! flush_or_die {
 
 /// First rotates the database, then spawns the database thread
 pub fn database_manager(
-    config: Arc<Config>,
+    config: &'static Config,
     log_rx: Receiver<DatabaseManagerInput>,
     matches_tx: Sender<MatchManagerInput>,
 ) -> thread::JoinHandle<()> {
-    let (mut log_db, mut flush_db) = match rotate_db(&config, Some(matches_tx)) {
+    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
         Ok(dbs) => dbs,
         Err(err) => {
             error!("while rotating databases on start: {}", err);
@@ -97,7 +94,7 @@ pub fn database_manager(
                         flush_or_die!(flush_db);
                         drop(log_db);
                         drop(flush_db);
-                        (log_db, flush_db) = match rotate_db(&config, None) {
+                        (log_db, flush_db) = match rotate_db(config, None) {
                             Ok(dbs) => dbs,
                             Err(err) => {
                                 error!(
@@ -117,7 +114,7 @@ pub fn database_manager(
 }
 
 fn rotate_db(
-    config: &Arc<Config>,
+    config: &'static Config,
     matches_tx: Option<Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     info!("Rotating database...");
@@ -133,7 +130,7 @@ fn rotate_db(
 }
 
 fn _rotate_db(
-    config: &Arc<Config>,
+    config: &'static Config,
     matches_tx: &Option<Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
@@ -200,7 +197,7 @@ fn __rotate_db(
 
     // Read flushes
     #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
-    let mut flushes: BTreeMap<Arc<Filter>, BTreeMap<Match, Time>> = BTreeMap::new();
+    let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
     for flush_entry in flush_read_db {
         match flush_entry {
             Ok(entry) => {

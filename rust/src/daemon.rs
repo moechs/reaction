@@ -26,8 +26,8 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
         exit(1);
     }
 
-    let config = match Config::from_file(config_path) {
-        Ok(config) => Arc::new(config),
+    let config: &'static Config = match Config::from_file(config_path) {
+        Ok(config) => Box::leak(Box::new(config)),
         Err(err) => {
             error!("{err}");
             exit(1);
@@ -53,20 +53,17 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
     };
 
     let execs_manager_thread_handle = {
-        let config_execs = config.clone();
         let exec_tx_execs = exec_tx.clone();
-        thread::spawn(move || execs_manager(config_execs, exec_rx, exec_tx_execs))
+        thread::spawn(move || execs_manager(config, exec_rx, exec_tx_execs))
     };
 
     let database_manager_thread_handle = {
-        let config_database = config.clone();
         let match_tx_database = match_tx.clone();
         // The `thread::spawn` is done in the function, after database rotation is finished
-        database_manager(config_database, log_rx, match_tx_database)
+        database_manager(config, log_rx, match_tx_database)
     };
 
     for stream in config.streams().values() {
-        let stream = stream.clone();
         let match_tx = match_tx.clone();
         let (child_tx, child_rx) = sync_channel(0);
 

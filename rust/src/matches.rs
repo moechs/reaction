@@ -1,9 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        mpsc::{Receiver, Sender, SyncSender},
-        Arc,
-    },
+    sync::mpsc::{Receiver, Sender, SyncSender},
 };
 
 use log::debug;
@@ -26,7 +23,7 @@ pub enum MatchManagerInput {
     Stop,
 }
 
-type MatchesMap = BTreeMap<Arc<Filter>, BTreeMap<Match, BTreeSet<Time>>>;
+type MatchesMap = BTreeMap<&'static Filter, BTreeMap<Match, BTreeSet<Time>>>;
 
 // This trait is needed to permit to implement methods on an external type
 trait MatchesMapTrait {
@@ -37,7 +34,7 @@ trait MatchesMapTrait {
 }
 impl MatchesMapTrait for MatchesMap {
     fn add(&mut self, mft: &MFT) {
-        let inner_map = self.entry(mft.f.clone()).or_default();
+        let inner_map = self.entry(mft.f).or_default();
         let inner_set = inner_map.entry(mft.m.clone()).or_default();
         inner_set.insert(mft.t);
     }

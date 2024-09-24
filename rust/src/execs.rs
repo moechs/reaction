@@ -1,10 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     process::Stdio,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
+    sync::mpsc::{Receiver, Sender},
 };
 
 use chrono::{DateTime, Local};
@@ -27,7 +24,7 @@ pub enum ExecsManagerInput {
     Stop,
 }
 
-type ExecsMap = BTreeMap<Arc<Action>, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
+type ExecsMap = BTreeMap<&'static Action, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
 
 trait ExecsMapTrait {
     fn add(&mut self, mat: &MAT);
@@ -35,7 +32,7 @@ trait ExecsMapTrait {
 }
 impl ExecsMapTrait for ExecsMap {
     fn add(&mut self, mat: &MAT) {
-        let inner_map = self.entry(mat.a.clone()).or_default();
+        let inner_map = self.entry(mat.a).or_default();
         let inner_set = inner_map.entry(mat.m.clone()).or_default();
         inner_set.insert(mat.t);
     }
@@ -56,7 +53,7 @@ impl ExecsMapTrait for ExecsMap {
 }
 
 pub fn execs_manager(
-    config: Arc<Config>,
+    config: &'static Config,
     exec_rx: Receiver<ExecsManagerInput>,
     exec_tx: Sender<ExecsManagerInput>,
 ) {
@@ -127,7 +124,7 @@ pub fn execs_manager(
                             for _ in inner_set {
                                 exec_now(MAT {
                                     m: match_.clone(),
-                                    a: action.clone(),
+                                    a: action,
                                     t: Local::now(),
                                 });
                             }

@@ -2,10 +2,7 @@ use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
-    sync::{
-        mpsc::{Sender, SyncSender},
-        Arc,
-    },
+    sync::mpsc::{Sender, SyncSender},
 };
 
 use chrono::Local;
@@ -18,18 +15,18 @@ use crate::{config::Patterns, filter::Filter, matches::MatchManagerInput, messag
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     cmd: Vec<String>,
-    filters: BTreeMap<String, Arc<Filter>>,
+    filters: BTreeMap<String, Filter>,
 
     #[serde(skip)]
     name: String,
 }
 
 impl Stream {
-    pub fn filters(&self) -> &BTreeMap<String, Arc<Filter>> {
+    pub fn filters(&self) -> &BTreeMap<String, Filter> {
         &self.filters
     }
 
-    pub fn get_filter(&self, filter_name: &str) -> Option<&Arc<Filter>> {
+    pub fn get_filter(&self, filter_name: &str) -> Option<&Filter> {
         self.filters.get(filter_name)
     }
 
@@ -59,19 +56,15 @@ impl Stream {
             return Err("no filters configured".into());
         }
 
-        let mut new_filters = BTreeMap::new();
-        for (key, filter) in &self.filters {
-            let mut new_filter = filter.as_ref().clone();
-            new_filter.setup(name, key, patterns)?;
-            new_filters.insert(key.clone(), Arc::new(new_filter));
+        for (key, filter) in &mut self.filters {
+            filter.setup(name, key, patterns)?;
         }
-        self.filters = new_filters;
 
         Ok(())
     }
 
     pub fn manager(
-        &self,
+        &'static self,
         child_tx: SyncSender<Option<Child>>,
         match_tx: Sender<MatchManagerInput>,
     ) {
@@ -109,7 +102,7 @@ impl Stream {
                     match_tx
                         .send(MatchManagerInput::Match(MFT {
                             m: match_,
-                            f: filter.clone(),
+                            f: filter,
                             t: Local::now(),
                         }))
                         .unwrap();
@@ -138,7 +131,7 @@ pub mod tests {
         stream.cmd = vec!["command".into()];
         stream
             .filters
-            .insert("name".into(), Arc::new(crate::filter::tests::ok_filter()));
+            .insert("name".into(), crate::filter::tests::ok_filter());
         stream
     }
 

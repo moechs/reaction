@@ -4,7 +4,6 @@ use std::{
     fs::File,
     io::{self, BufReader, BufWriter, Write},
     process::exit,
-    sync::Arc,
 };
 
 use chrono::{DateTime, Local};
@@ -24,8 +23,8 @@ use super::DBError;
 // It may permit to win 1-4 bytes per entry, don't know if it's worth it
 // FIXME put signature in the header?
 type DatabaseHeader = BTreeMap<usize, (String, String)>;
-type ReadHeader = BTreeMap<usize, Arc<Filter>>;
-type WriteHeader = BTreeMap<Arc<Filter>, usize>;
+type ReadHeader = BTreeMap<usize, &'static Filter>;
+type WriteHeader = BTreeMap<&'static Filter, usize>;
 
 const BUFFER_MAX_SIZE: usize = 10 * 1024 * 1024;
 const DB_SIGNATURE: &str = "reaction-db-v01";
@@ -37,7 +36,7 @@ pub struct ReadDB {
 }
 
 impl ReadDB {
-    pub fn open(path: &str, config: &Arc<Config>) -> Result<Option<Self>, DBError> {
+    pub fn open(path: &str, config: &'static Config) -> Result<Option<Self>, DBError> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(err) => match err.kind() {
@@ -72,7 +71,7 @@ impl ReadDB {
 
         ret.h = db_header
             .iter()
-            .filter_map(|(key, name)| config.get_filter(name).map(|filter| (*key, filter.clone())))
+            .filter_map(|(key, name)| config.get_filter(name).map(|filter| (*key, filter)))
             .collect();
 
         Ok(Some(ret))
@@ -110,7 +109,7 @@ pub struct WriteDB {
 }
 
 impl WriteDB {
-    pub fn create(path: &str, config: &Arc<Config>) -> Self {
+    pub fn create(path: &str, config: &'static Config) -> Self {
         let file = match File::create(path) {
             Ok(file) => file,
             Err(err) => {
@@ -198,7 +197,7 @@ impl ComputedLogEntry {
         match header.get(&self.f) {
             Some(f) => Ok(LogEntry {
                 m: self.m,
-                f: f.clone(),
+                f,
                 t: DateTime::from_timestamp(self.t, 0)
                     .unwrap()
                     .with_timezone(&Local),
