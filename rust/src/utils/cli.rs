@@ -48,7 +48,7 @@ pub enum Command {
         socket: PathBuf,
 
         /// how to format output: json or yaml.
-        #[clap(short = 's', long, default_value_t = Format::YAML)]
+        #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
         /// only show items related to this STREAM[.FILTER]
@@ -75,7 +75,7 @@ Then prints the flushed matches and actions."
         socket: PathBuf,
 
         /// how to format output: json or yaml.
-        #[clap(short = 's', long, default_value_t = Format::YAML)]
+        #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
         /// only show items related to this STREAM[.FILTER]
