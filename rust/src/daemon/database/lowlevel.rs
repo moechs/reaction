@@ -6,9 +6,10 @@ use std::{
     process::exit,
 };
 
+use bincode::Options;
 use chrono::{DateTime, Local};
 use log::{debug, error, warn};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::concepts::{Config, Filter, LogEntry, Match};
 
@@ -22,13 +23,20 @@ type DatabaseHeader = BTreeMap<usize, (String, String)>;
 type ReadHeader = BTreeMap<usize, &'static Filter>;
 type WriteHeader = BTreeMap<&'static Filter, usize>;
 
-const BUFFER_MAX_SIZE: usize = 10 * 1024 * 1024;
+type BinOptions = bincode::config::WithOtherIntEncoding<
+    bincode::config::DefaultOptions,
+    bincode::config::VarintEncoding,
+>;
+fn bin_options() -> BinOptions {
+    bincode::DefaultOptions::new().with_varint_encoding()
+}
+
 const DB_SIGNATURE: &str = "reaction-db-v01";
 
 pub struct ReadDB {
     f: BufReader<File>,
     h: ReadHeader,
-    buf: Vec<u8>,
+    bin: BinOptions,
 }
 
 impl ReadDB {
@@ -51,13 +59,18 @@ impl ReadDB {
 
         let mut ret = ReadDB {
             f: BufReader::new(file),
-            h: BTreeMap::new(),
-            buf: vec![0; BUFFER_MAX_SIZE],
+            h: BTreeMap::default(),
+            bin: bin_options(),
         };
 
-        match ret.read::<&str>() {
-            Ok(DB_SIGNATURE) => Ok(()),
-            Ok(_) => Err(DBError::Error("database is not a reaction database".into())),
+        match ret.read::<String>() {
+            Ok(signature) => {
+                if DB_SIGNATURE == &signature {
+                    Ok(())
+                } else {
+                    Err(DBError::Error("database is not a reaction database".into()))
+                }
+            }
             Err(err) => Err(DBError::Error(format!("reading database signature: {err}"))),
         }?;
 
@@ -73,8 +86,8 @@ impl ReadDB {
         Ok(Some(ret))
     }
 
-    fn read<'a, T: Deserialize<'a> + Debug>(&'a mut self) -> Result<T, postcard::Error> {
-        let (decoded, _) = postcard::from_io::<T, _>((&mut self.f, &mut self.buf))?;
+    fn read<T: DeserializeOwned + Debug>(&mut self) -> Result<T, bincode::Error> {
+        let decoded = self.bin.deserialize_from::<_, T>(&mut self.f)?;
         debug!("reading this: {:?}", &decoded);
         Ok(decoded)
     }
@@ -84,14 +97,15 @@ impl Iterator for ReadDB {
     type Item = Result<LogEntry, DBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.read::<ComputedLogEntry>() {
-            // FIXME why we got a default item instead of an error or something?
-            // How do we really know we reached the end?
-            // For now, checking if time is 0
-            Ok(ComputedLogEntry { t: 0, .. }) => None,
+        let res = self.read::<ComputedLogEntry>();
+        debug!("{res:?}");
+        match res {
             Ok(item) => Some(item.to(&self.h)),
-            Err(err) => match err {
-                postcard::Error::DeserializeUnexpectedEnd => None,
+            Err(err) => match *err {
+                bincode::ErrorKind::Io(err) => match err.kind() {
+                    io::ErrorKind::UnexpectedEof => None,
+                    _ => Some(Err(err.into())),
+                },
                 _ => Some(Err(err.into())),
             },
         }
@@ -101,7 +115,7 @@ impl Iterator for ReadDB {
 pub struct WriteDB {
     f: BufWriter<File>,
     h: WriteHeader,
-    buf: Vec<u8>,
+    bin: BinOptions,
 }
 
 impl WriteDB {
@@ -116,8 +130,8 @@ impl WriteDB {
 
         let mut ret = WriteDB {
             f: BufWriter::new(file),
-            h: BTreeMap::new(),
-            buf: vec![0; BUFFER_MAX_SIZE],
+            h: BTreeMap::default(),
+            bin: bin_options(),
         };
 
         if let Err(err) = ret._write(DB_SIGNATURE) {
@@ -153,13 +167,9 @@ impl WriteDB {
     }
 
     fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
-        let encoded = postcard::to_slice(&data, &mut self.buf)?;
+        let encoded = self.bin.serialize(&data)?;
         debug!("writing this: {:?}, {:?}", &data, &encoded);
-        self.f.write_all(encoded)?;
-        // clear
-        // for i in 0..self.buf.len() {
-        //     self.buf[i] = 0;
-        // }
+        self.f.write_all(&encoded)?;
         Ok(())
     }
 

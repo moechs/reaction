@@ -30,7 +30,7 @@ pub enum DBError {
     #[error("invalid filter: {0}")]
     InvalidFilterError(String),
     #[error("decode error: {0}")]
-    PostcardError(#[from] postcard::Error),
+    BincodeError(#[from] bincode::Error),
     #[error("io error: {0}")]
     IOError(#[from] io::Error),
     #[error("{0}")]
