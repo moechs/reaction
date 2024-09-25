@@ -9,7 +9,8 @@ use chrono::Local;
 use log::{error, info};
 use serde::Deserialize;
 
-use crate::{config::Patterns, filter::Filter, matches::MatchManagerInput, messages::MFT};
+use super::{Filter, Patterns, MFT};
+use crate::daemon::MatchManagerInput;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,6 +86,8 @@ impl Stream {
         };
 
         // keep stdout before sending/moving child to the main thread
+        #[allow(clippy::unwrap_used)]
+        // we know there is an stdout because we asked for Stdio::piped()
         let stdout = BufReader::new(child.stdout.take().unwrap());
 
         // let main handle the child process
@@ -99,6 +102,7 @@ impl Stream {
 
             for filter in self.filters.values() {
                 if let Some(match_) = filter.get_match(&line) {
+                    #[allow(clippy::unwrap_used)] // propagating panics is ok
                     match_tx
                         .send(MatchManagerInput::Match(MFT {
                             m: match_,
@@ -117,6 +121,7 @@ impl Stream {
 pub mod tests {
 
     use super::*;
+    use crate::concepts::filter::tests::ok_filter;
 
     fn default_stream() -> Stream {
         Stream {
@@ -129,9 +134,7 @@ pub mod tests {
     pub fn ok_stream() -> Stream {
         let mut stream = default_stream();
         stream.cmd = vec!["command".into()];
-        stream
-            .filters
-            .insert("name".into(), crate::filter::tests::ok_filter());
+        stream.filters.insert("name".into(), ok_filter());
         stream
     }
 

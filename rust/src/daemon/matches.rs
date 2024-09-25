@@ -6,11 +6,10 @@ use std::{
 use log::debug;
 use timer::MessageTimer;
 
+use super::{database::DatabaseManagerInput, ExecsManagerInput};
 use crate::{
-    database::DatabaseManagerInput,
-    execs::ExecsManagerInput,
-    filter::Filter,
-    messages::{LogEntry, Match, Time, MFT},
+    concepts::Filter,
+    concepts::{LogEntry, Match, Time, MFT},
 };
 
 #[derive(Clone)]
@@ -98,6 +97,8 @@ pub fn matches_manager(
                         matches.add(&mft);
                         // Remove match when expired
                         let guard = timer.schedule_with_delay(
+                            // retry_duration is always Some() after filter's setup
+                            #[allow(clippy::unwrap_used)]
                             mft.f.retry_duration().unwrap(),
                             MatchManagerInput::Unmatch(mft.clone()),
                         );
@@ -117,6 +118,7 @@ pub fn matches_manager(
                 }
 
                 if !startup {
+                    #[allow(clippy::unwrap_used)] // propagating panics is ok
                     log_tx
                         .send(DatabaseManagerInput::Log(LogEntry {
                             exec,

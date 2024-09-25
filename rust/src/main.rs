@@ -1,9 +1,9 @@
 #![warn(
     missing_docs,
     clippy::panic,
-    clippy::unimplemented,
     clippy::todo,
-    clippy::undocumented_unsafe_blocks
+    clippy::unimplemented,
+    clippy::unwrap_used,
 )]
 #![allow(clippy::upper_case_acronyms)]
 #![forbid(unsafe_code)]
@@ -11,21 +11,8 @@
 //! TODO document a bit
 use clap::Parser;
 
-// structs and concepts
-mod action;
-mod config;
-mod filter;
-mod messages;
-mod pattern;
-mod stream;
-
-// important threads
-mod database;
-mod execs;
-mod matches;
-
-// top-level
 mod client;
+mod concepts;
 mod daemon;
 
 mod tests;

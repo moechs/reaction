@@ -11,7 +11,7 @@ use log::{error, info};
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::{filter::Filter, pattern::Pattern, stream::Stream};
+use super::{Filter, Pattern, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 

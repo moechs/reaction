@@ -10,11 +10,7 @@ use chrono::{DateTime, Local};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    config::Config,
-    filter::Filter,
-    messages::{LogEntry, Match},
-};
+use crate::concepts::{Config, Filter, LogEntry, Match};
 
 use super::DBError;
 
@@ -195,6 +191,9 @@ impl ComputedLogEntry {
     }
     fn to(self, header: &ReadHeader) -> Result<LogEntry, DBError> {
         match header.get(&self.f) {
+            // a timestamp will cause a panic in 300_000_000 years
+            // you & me will both be dead so why bother? /o/
+            #[allow(clippy::unwrap_used)]
             Some(f) => Ok(LogEntry {
                 m: self.m,
                 f,

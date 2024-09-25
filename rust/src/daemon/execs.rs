@@ -9,9 +9,7 @@ use log::{error, info};
 use timer::MessageTimer;
 
 use crate::{
-    action::Action,
-    config::Config,
-    messages::{Match, MAT},
+    concepts::{Action, Config, Match, MAT},
     utils::ThreadPool,
 };
 

@@ -35,12 +35,14 @@ impl ThreadPool {
     {
         let job = Box::new(f);
 
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
         self.sender.send(job).unwrap();
     }
 
     pub fn join(self) {
         drop(self.sender);
         for worker in self.workers {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
             worker.thread.join().unwrap();
         }
     }
@@ -53,6 +55,7 @@ struct Worker {
 impl Worker {
     fn new(receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
         let thread = spawn(move || loop {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
             let received = receiver.lock().unwrap().recv();
             match received {
                 Ok(job) => job(),

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, TimeDelta};
 
-use crate::{action::Action, filter::Filter};
+use super::{Action, Filter};
 
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
@@ -28,6 +28,7 @@ pub struct LogEntry {
 }
 
 impl PartialEq for LogEntry {
+    #[allow(clippy::unwrap_used)] // 1 second is obviously less seconds than i64::MAX
     fn eq(&self, other: &Self) -> bool {
         self.exec == other.exec
             && self.m == other.m

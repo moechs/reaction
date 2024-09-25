@@ -4,7 +4,8 @@ use chrono::TimeDelta;
 
 use serde::Deserialize;
 
-use crate::{messages::Match, pattern::Pattern, utils::parse_duration};
+use super::{Match, Pattern};
+use crate::utils::parse_duration;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -143,6 +144,7 @@ impl Display for Action {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {
 

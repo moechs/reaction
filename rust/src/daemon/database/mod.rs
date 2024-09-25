@@ -8,15 +8,11 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use thiserror::Error;
 
-use crate::{
-    config::Config,
-    filter::Filter,
-    matches::MatchManagerInput,
-    messages::{LogEntry, Match, Time},
-};
+use super::MatchManagerInput;
+use crate::concepts::{Config, Filter, LogEntry, Match, Time};
 
 mod lowlevel;
 mod tests;
@@ -120,8 +116,8 @@ fn rotate_db(
     info!("Rotating database...");
     let res = _rotate_db(config, &matches_tx);
 
-    debug!("sending EOS: {}", matches_tx.is_some());
     if let Some(tx) = matches_tx {
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
         tx.send(MatchManagerInput::EndOfStartup).unwrap();
     }
 
@@ -239,15 +235,18 @@ fn __rotate_db(
                 }
 
                 // Store match & store in db
+                #[allow(clippy::unwrap_used)] // 0 second is obviously less seconds than i64::MAX
                 if (!entry.exec && entry.t + entry.f.retry_duration().unwrap_or_default() > now)
                     || (entry.exec && entry.t + entry.f.longuest_action_duration() > now)
                 {
                     // We loose subsecond precision when storing times, so we add those fake
                     // milliseconds to make sure each time is unique
+
                     entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
                     millisecond_disambiguation_counter += 1;
 
                     if let Some(tx) = matches_tx {
+                        #[allow(clippy::unwrap_used)] // propagating panics is ok
                         tx.send(MatchManagerInput::Match(entry.clone().into()))
                             .unwrap();
                     }

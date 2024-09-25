@@ -11,13 +11,17 @@ use std::{
 
 use log::{error, info, Level};
 
-use crate::{
-    config::Config,
-    database::database_manager,
-    execs::{execs_manager, ExecsManagerInput},
-    matches::{matches_manager, MatchManagerInput},
-    utils::SimpleLogger,
-};
+use crate::{concepts::Config, utils::SimpleLogger};
+use database::database_manager;
+use execs::execs_manager;
+use matches::matches_manager;
+
+pub use execs::ExecsManagerInput;
+pub use matches::MatchManagerInput;
+
+mod database;
+mod execs;
+mod matches;
 
 #[allow(unused_variables)]
 pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
@@ -42,6 +46,9 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
     let mut stream_process_child_handles = Vec::new();
     let mut stream_thread_handles = Vec::new();
 
+    // FIXME replace those channel() by sync_channel(1)
+    // Unbounded channels can eat a lot of RAM
+    // Is there a timer::MessageTimer implementation for sync_channel?
     let (match_tx, match_rx) = channel();
     let (exec_tx, exec_rx) = channel();
     let (log_tx, log_rx) = sync_channel(1);
@@ -97,9 +104,11 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
         let _ = thread_handle.join();
     }
 
+    #[allow(clippy::unwrap_used)] // propagating panics is ok
     match_tx.send(MatchManagerInput::Stop).unwrap();
     let _ = matches_manager_thread_handle.join();
 
+    #[allow(clippy::unwrap_used)] // propagating panics is ok
     exec_tx.send(ExecsManagerInput::Stop).unwrap();
     let _ = execs_manager_thread_handle.join();
 

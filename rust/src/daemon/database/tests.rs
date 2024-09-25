@@ -1,12 +1,13 @@
+#![allow(clippy::unwrap_used)]
 #![cfg(test)]
 
 use chrono::Local;
 
-use crate::database::ReadDB;
-use crate::{config::Config, tests::Fixture};
-use crate::{filter::Filter, messages::LogEntry};
-
-use super::WriteDB;
+use super::{ReadDB, WriteDB};
+use crate::{
+    concepts::{Config, Filter, LogEntry},
+    tests::Fixture,
+};
 
 #[test]
 fn write_and_read_db() {

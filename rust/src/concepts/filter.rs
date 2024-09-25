@@ -10,14 +10,11 @@ use log::info;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::{
-    action::Action,
-    config::Patterns,
-    execs::ExecsManagerInput,
+use super::{
     messages::{Match, Time, MAT},
-    pattern::Pattern,
-    utils::parse_duration,
+    Action, Pattern, Patterns,
 };
+use crate::{daemon::ExecsManagerInput, utils::parse_duration};
 
 // Only names are serialized
 // Only computed fields are not deserialized
@@ -132,6 +129,8 @@ impl Filter {
             let mut regex_buf = regex.clone();
             for pattern in config_patterns.values() {
                 if let Some(index) = regex.find(pattern.name_with_braces()) {
+                    // we already `find` it, so we must be able to `rfind` it
+                    #[allow(clippy::unwrap_used)]
                     if regex.rfind(pattern.name_with_braces()).unwrap() != index {
                         return Err(format!(
                             "pattern {} present multiple times in regex",
@@ -184,9 +183,12 @@ impl Filter {
                 if !self.patterns.is_empty() {
                     let mut result = Match::new();
                     for pattern in self.patterns.as_ref() {
-                        let match_ = matches.name(pattern.name()).unwrap();
-                        if pattern.not_an_ignore(match_.as_str()) {
-                            result.push(match_.as_str().to_string());
+                        // if the pattern is in an optional part of the regex, there may be no
+                        // captured group for it.
+                        if let Some(match_) = matches.name(pattern.name()) {
+                            if pattern.not_an_ignore(match_.as_str()) {
+                                result.push(match_.as_str().to_string());
+                            }
                         }
                     }
                     if result.len() == self.patterns.len() {
@@ -204,6 +206,7 @@ impl Filter {
 
     pub fn send_actions(&'static self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
         for action in self.actions.values() {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
             tx.send(ExecsManagerInput::Exec(MAT {
                 m: m.clone(),
                 a: action,
@@ -240,10 +243,11 @@ impl PartialOrd for Filter {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {
-    use crate::action::tests::{ok_action, ok_action_with_after};
-    use crate::pattern::tests::{
+    use crate::concepts::action::tests::{ok_action, ok_action_with_after};
+    use crate::concepts::pattern::tests::{
         boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore,
     };
 
