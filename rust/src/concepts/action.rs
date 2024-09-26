@@ -43,6 +43,14 @@ impl Action {
         self.on_exit
     }
 
+    pub fn full_name(&self) -> (String, String, String) {
+        (
+            self.stream_name.clone(),
+            self.filter_name.clone(),
+            self.name.clone(),
+        )
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,

@@ -1,15 +1,15 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     process::Stdio,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, SyncSender},
 };
 
-use chrono::{DateTime, Local};
+use chrono::Local;
 use log::{error, info};
 use timer::MessageTimer;
 
 use crate::{
-    concepts::{Action, Config, Match, MAT},
+    concepts::{Action, Config, Match, Time, MAT},
     utils::ThreadPool,
 };
 
@@ -17,16 +17,17 @@ use crate::{
 pub enum ExecsManagerInput {
     Exec(MAT),
     ExecPending(MAT),
-    #[allow(dead_code)]
     Flush(MAT),
+    Gimme(SyncSender<ExecsMap>),
     Stop,
 }
 
-type ExecsMap = BTreeMap<&'static Action, BTreeMap<Match, BTreeSet<DateTime<Local>>>>;
+type ExecsMap = BTreeMap<&'static Action, BTreeMap<Match, BTreeSet<Time>>>;
 
 trait ExecsMapTrait {
     fn add(&mut self, mat: &MAT);
-    fn rm(&mut self, mat: &MAT);
+    fn rm(&mut self, mat: &MAT) -> bool;
+    fn rm_times(&mut self, mat: &MAT) -> Option<BTreeSet<Time>>;
 }
 impl ExecsMapTrait for ExecsMap {
     fn add(&mut self, mat: &MAT) {
@@ -35,10 +36,12 @@ impl ExecsMapTrait for ExecsMap {
         inner_set.insert(mat.t);
     }
 
-    fn rm(&mut self, mat: &MAT) {
+    fn rm(&mut self, mat: &MAT) -> bool {
+        let mut removed = false;
         if let Some(inner_map) = self.get_mut(&mat.a) {
             if let Some(inner_set) = inner_map.get_mut(&mat.m) {
                 inner_set.remove(&mat.t);
+                removed = true;
                 if inner_set.is_empty() {
                     inner_map.remove(&mat.m);
                 }
@@ -47,6 +50,18 @@ impl ExecsMapTrait for ExecsMap {
                 self.remove(&mat.a);
             }
         }
+        removed
+    }
+
+    fn rm_times(&mut self, mat: &MAT) -> Option<BTreeSet<Time>> {
+        let mut set = None;
+        if let Some(inner_map) = self.get_mut(&mat.a) {
+            set = inner_map.remove(&mat.m);
+            if inner_map.is_empty() {
+                self.remove(&mat.a);
+            }
+        }
+        set
     }
 }
 
@@ -91,7 +106,6 @@ pub fn execs_manager(
         }
     };
 
-    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut execs: ExecsMap = BTreeMap::new();
 
     let timer = MessageTimer::new(exec_tx);
@@ -110,11 +124,19 @@ pub fn execs_manager(
                 }
             }
             ExecsManagerInput::ExecPending(mat) => {
-                execs.rm(&mat);
-                exec_now(mat);
+                if execs.rm(&mat) {
+                    exec_now(mat);
+                }
             }
-            #[allow(clippy::todo)]
-            ExecsManagerInput::Flush(_mat) => todo!(),
+            ExecsManagerInput::Flush(mat) => {
+                if let Some(set) = execs.rm_times(&mat) {
+                    for _ in set {
+                        exec_now(mat.clone());
+                    }
+                }
+            }
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
+            ExecsManagerInput::Gimme(tx) => tx.send(execs.clone()).unwrap(),
             ExecsManagerInput::Stop => {
                 for (action, inner_map) in execs {
                     if action.on_exit() {

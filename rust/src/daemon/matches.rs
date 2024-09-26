@@ -16,8 +16,8 @@ use crate::{
 pub enum MatchManagerInput {
     Match(MFT),
     Unmatch(MFT),
-    #[allow(dead_code)]
     Flush(MFT),
+    Gimme(SyncSender<MatchesMap>),
     EndOfStartup,
     Stop,
 }
@@ -75,7 +75,6 @@ pub fn matches_manager(
     action_tx: Sender<ExecsManagerInput>,
     log_tx: SyncSender<DatabaseManagerInput>,
 ) {
-    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut matches: MatchesMap = BTreeMap::new();
 
     let timer = MessageTimer::new(match_tx);
@@ -114,7 +113,7 @@ pub fn matches_manager(
                     if mft.f.retry().is_some() {
                         matches.rm_times(&mft);
                     }
-                    mft.f.send_actions(&mft.m, mft.t, &action_tx);
+                    mft.f.send_actions(&mft.m, mft.t, &action_tx, true);
                 }
 
                 if !startup {
@@ -131,7 +130,22 @@ pub fn matches_manager(
             }
             MatchManagerInput::Unmatch(mft) => matches.rm(&mft),
             #[allow(clippy::todo)]
-            MatchManagerInput::Flush(_) => todo!(), // TODO handle flushes
+            MatchManagerInput::Flush(mft) => {
+                // remove from matches
+                matches.rm_times(&mft);
+                // send to DB
+                #[allow(clippy::unwrap_used)] // propagating panics is ok
+                log_tx
+                    .send(DatabaseManagerInput::Flush(LogEntry {
+                        exec: false,
+                        m: mft.m,
+                        f: mft.f,
+                        t: mft.t,
+                    }))
+                    .unwrap();
+            }
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
+            MatchManagerInput::Gimme(tx) => tx.send(matches.clone()).unwrap(),
             MatchManagerInput::Stop => break,
         }
     }

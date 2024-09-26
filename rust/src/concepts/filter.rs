@@ -71,7 +71,6 @@ impl Filter {
         self.longuest_action_duration
     }
 
-    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
         &self.patterns
     }
@@ -122,7 +121,6 @@ impl Filter {
             return Err("no regex configured".into());
         }
 
-        #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
         let mut new_patterns = BTreeSet::new();
         let mut first = true;
         for regex in &self.regex {
@@ -204,14 +202,25 @@ impl Filter {
         None
     }
 
-    pub fn send_actions(&'static self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
+    pub fn send_actions(
+        &'static self,
+        m: &Match,
+        t: Time,
+        tx: &Sender<ExecsManagerInput>,
+        exec: bool,
+    ) {
         for action in self.actions.values() {
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            tx.send(ExecsManagerInput::Exec(MAT {
+            let mat = MAT {
                 m: m.clone(),
                 a: action,
                 t: t + action.after_duration().unwrap_or_default(),
-            }))
+            };
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
+            tx.send(if exec {
+                ExecsManagerInput::Exec(mat)
+            } else {
+                ExecsManagerInput::Flush(mat)
+            })
             .unwrap();
         }
     }

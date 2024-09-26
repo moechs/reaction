@@ -11,7 +11,10 @@ use chrono::{DateTime, Local};
 use log::{debug, error, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::concepts::{Config, Filter, LogEntry, Match};
+use crate::{
+    concepts::{Config, Filter, LogEntry, Match},
+    utils::{bincode_options, BincodeOptions},
+};
 
 use super::DBError;
 
@@ -23,20 +26,12 @@ type DatabaseHeader = BTreeMap<usize, (String, String)>;
 type ReadHeader = BTreeMap<usize, &'static Filter>;
 type WriteHeader = BTreeMap<&'static Filter, usize>;
 
-type BinOptions = bincode::config::WithOtherIntEncoding<
-    bincode::config::DefaultOptions,
-    bincode::config::VarintEncoding,
->;
-fn bin_options() -> BinOptions {
-    bincode::DefaultOptions::new().with_varint_encoding()
-}
-
 const DB_SIGNATURE: &str = "reaction-db-v01";
 
 pub struct ReadDB {
     f: BufReader<File>,
     h: ReadHeader,
-    bin: BinOptions,
+    bin: BincodeOptions,
 }
 
 impl ReadDB {
@@ -60,12 +55,12 @@ impl ReadDB {
         let mut ret = ReadDB {
             f: BufReader::new(file),
             h: BTreeMap::default(),
-            bin: bin_options(),
+            bin: bincode_options(),
         };
 
         match ret.read::<String>() {
             Ok(signature) => {
-                if DB_SIGNATURE == &signature {
+                if DB_SIGNATURE == signature {
                     Ok(())
                 } else {
                     Err(DBError::Error("database is not a reaction database".into()))
@@ -115,7 +110,7 @@ impl Iterator for ReadDB {
 pub struct WriteDB {
     f: BufWriter<File>,
     h: WriteHeader,
-    bin: BinOptions,
+    bin: BincodeOptions,
 }
 
 impl WriteDB {
@@ -131,7 +126,7 @@ impl WriteDB {
         let mut ret = WriteDB {
             f: BufWriter::new(file),
             h: BTreeMap::default(),
-            bin: bin_options(),
+            bin: bincode_options(),
         };
 
         if let Err(err) = ret._write(DB_SIGNATURE) {
@@ -187,7 +182,6 @@ struct ComputedLogEntry {
 }
 
 impl ComputedLogEntry {
-    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     fn from(value: LogEntry, header: &WriteHeader) -> Result<Self, DBError> {
         match header.get(&value.f) {
             Some(f) => Ok(ComputedLogEntry {

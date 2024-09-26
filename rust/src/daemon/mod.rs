@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::Path,
     process::exit,
     sync::{
@@ -10,6 +11,7 @@ use std::{
 };
 
 use log::{error, info, Level};
+use socket::socket_manager;
 
 use crate::{concepts::Config, utils::SimpleLogger};
 use database::database_manager;
@@ -22,6 +24,7 @@ pub use matches::MatchManagerInput;
 mod database;
 mod execs;
 mod matches;
+mod socket;
 
 #[allow(unused_variables)]
 pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
@@ -70,6 +73,13 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
         database_manager(config, log_rx, match_tx_database)
     };
 
+    {
+        let match_tx_socket = match_tx.clone();
+        let exec_tx_socket = exec_tx.clone();
+        let socket = socket.to_owned();
+        thread::spawn(move || socket_manager(config, socket, match_tx_socket, exec_tx_socket));
+    }
+
     for stream in config.streams().values() {
         let match_tx = match_tx.clone();
         let (child_tx, child_rx) = sync_channel(0);
@@ -116,7 +126,10 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
 
     let stop_ok = config.stop();
 
-    // TODO remove socket
+    // not waiting for the socket_manager to finish, sorry
+    if let Err(err) = fs::remove_file(socket) {
+        error!("failed to remove socket: {}", err);
+    }
 
     exit(match !signal_received.load(Ordering::SeqCst) && stop_ok {
         true => 0,

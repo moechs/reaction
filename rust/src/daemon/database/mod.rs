@@ -40,7 +40,6 @@ pub enum DBError {
 #[derive(Clone)]
 pub enum DatabaseManagerInput {
     Log(LogEntry),
-    #[allow(dead_code)]
     Flush(LogEntry),
 }
 
@@ -192,7 +191,6 @@ fn __rotate_db(
     let mut millisecond_disambiguation_counter: u32 = 0;
 
     // Read flushes
-    #[allow(clippy::mutable_key_type)] // Interior mutability of Arc is not used
     let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
     for flush_entry in flush_read_db {
         match flush_entry {
