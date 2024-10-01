@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use super::{
     messages::{Match, Time, MAT},
-    Action, Pattern, Patterns,
+    Action, ActionFilter, Pattern, Patterns,
 };
 use crate::{daemon::ExecsManagerInput, utils::parse_duration};
 
@@ -45,6 +45,16 @@ pub struct Filter {
     stream_name: String,
 }
 
+impl ActionFilter for Filter {
+    fn full_name<'a>(&'a self) -> (&'a str, &'a str, &'a str) {
+        (self.stream_name.as_ref(), self.name.as_ref(), "")
+    }
+
+    fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
+        &self.patterns
+    }
+}
+
 impl Filter {
     #[cfg(test)]
     pub fn from_name(stream_name: &str, filter_name: &str) -> Filter {
@@ -53,10 +63,6 @@ impl Filter {
             name: filter_name.into(),
             ..Filter::default()
         }
-    }
-
-    pub fn full_name(&self) -> (String, String) {
-        (self.stream_name.clone(), self.name.clone())
     }
 
     pub fn retry(&self) -> Option<u32> {
@@ -69,10 +75,6 @@ impl Filter {
 
     pub fn longuest_action_duration(&self) -> TimeDelta {
         self.longuest_action_duration
-    }
-
-    pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
-        &self.patterns
     }
 
     pub fn setup(
@@ -202,26 +204,15 @@ impl Filter {
         None
     }
 
-    pub fn send_actions(
-        &'static self,
-        m: &Match,
-        t: Time,
-        tx: &Sender<ExecsManagerInput>,
-        exec: bool,
-    ) {
+    pub fn send_actions(&'static self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
         for action in self.actions.values() {
             let mat = MAT {
                 m: m.clone(),
-                a: action,
+                o: action,
                 t: t + action.after_duration().unwrap_or_default(),
             };
             #[allow(clippy::unwrap_used)] // propagating panics is ok
-            tx.send(if exec {
-                ExecsManagerInput::Exec(mat)
-            } else {
-                ExecsManagerInput::Flush(mat)
-            })
-            .unwrap();
+            tx.send(ExecsManagerInput::Exec(mat)).unwrap();
         }
     }
 }

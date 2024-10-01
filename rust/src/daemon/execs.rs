@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     process::Stdio,
     sync::mpsc::{Receiver, Sender, SyncSender},
 };
@@ -9,66 +9,30 @@ use log::{error, info};
 use timer::MessageTimer;
 
 use crate::{
-    concepts::{Action, Config, Match, Time, MAT},
+    concepts::{Action, ActionFilter, Config, LogEntry, Order, MAT},
     utils::ThreadPool,
+};
+
+use super::{
+    database::DatabaseManagerInput,
+    statemap::{FilterOptions, StateMap, StateMapTrait},
 };
 
 #[derive(Clone)]
 pub enum ExecsManagerInput {
     Exec(MAT),
     ExecPending(MAT),
-    Flush(MAT),
-    Gimme(SyncSender<ExecsMap>),
+    Order(Order, FilterOptions, SyncSender<ExecsMap>),
     Stop,
 }
 
-type ExecsMap = BTreeMap<&'static Action, BTreeMap<Match, BTreeSet<Time>>>;
-
-trait ExecsMapTrait {
-    fn add(&mut self, mat: &MAT);
-    fn rm(&mut self, mat: &MAT) -> bool;
-    fn rm_times(&mut self, mat: &MAT) -> Option<BTreeSet<Time>>;
-}
-impl ExecsMapTrait for ExecsMap {
-    fn add(&mut self, mat: &MAT) {
-        let inner_map = self.entry(mat.a).or_default();
-        let inner_set = inner_map.entry(mat.m.clone()).or_default();
-        inner_set.insert(mat.t);
-    }
-
-    fn rm(&mut self, mat: &MAT) -> bool {
-        let mut removed = false;
-        if let Some(inner_map) = self.get_mut(&mat.a) {
-            if let Some(inner_set) = inner_map.get_mut(&mat.m) {
-                inner_set.remove(&mat.t);
-                removed = true;
-                if inner_set.is_empty() {
-                    inner_map.remove(&mat.m);
-                }
-            }
-            if inner_map.is_empty() {
-                self.remove(&mat.a);
-            }
-        }
-        removed
-    }
-
-    fn rm_times(&mut self, mat: &MAT) -> Option<BTreeSet<Time>> {
-        let mut set = None;
-        if let Some(inner_map) = self.get_mut(&mat.a) {
-            set = inner_map.remove(&mat.m);
-            if inner_map.is_empty() {
-                self.remove(&mat.a);
-            }
-        }
-        set
-    }
-}
+type ExecsMap = StateMap<Action>;
 
 pub fn execs_manager(
     config: &'static Config,
     exec_rx: Receiver<ExecsManagerInput>,
     exec_tx: Sender<ExecsManagerInput>,
+    log_tx: SyncSender<DatabaseManagerInput>,
 ) {
     // Initialize a ThreadPool only when concurrency hasn't been disabled
     let thread_pool = if config.concurrency() > 1 {
@@ -79,7 +43,7 @@ pub fn execs_manager(
 
     let exec_now = |mat: MAT| {
         let mut closure = {
-            let action = mat.a;
+            let action = mat.o;
 
             // Construct command
             let mut command = action.exec(&mat.m);
@@ -128,15 +92,50 @@ pub fn execs_manager(
                     exec_now(mat);
                 }
             }
-            ExecsManagerInput::Flush(mat) => {
-                if let Some(set) = execs.rm_times(&mat) {
-                    for _ in set {
-                        exec_now(mat.clone());
+            ExecsManagerInput::Order(order, options, tx) => {
+                let filtered = execs.filtered(options);
+
+                if let Order::Flush = order {
+                    let now = Local::now();
+                    // filter the state_map according to provided options
+                    for (action, inner_map) in &filtered {
+                        // get filter (required for LogEntry, FIXME optimize this)
+                        let filter = {
+                            let name = action.full_name();
+                            #[allow(clippy::unwrap_used)]
+                            // We're pretty confident our action has a filter
+                            config
+                                .get_filter(&(name.0.to_string(), name.1.to_string()))
+                                .unwrap()
+                        };
+
+                        for (match_, _) in inner_map {
+                            let mat = MAT {
+                                m: match_.clone(),
+                                o: action,
+                                t: now,
+                            };
+                            // delete them from state and execute them
+                            if let Some(set) = execs.rm_times(&mat) {
+                                for _ in set {
+                                    exec_now(mat.clone());
+                                }
+                            }
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            log_tx
+                                .send(DatabaseManagerInput::Flush(LogEntry {
+                                    exec: false,
+                                    m: mat.m,
+                                    f: filter,
+                                    t: mat.t,
+                                }))
+                                .unwrap();
+                        }
                     }
                 }
+                #[allow(clippy::unwrap_used)] // propagating panics is ok
+                tx.send(filtered).unwrap();
             }
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            ExecsManagerInput::Gimme(tx) => tx.send(execs.clone()).unwrap(),
             ExecsManagerInput::Stop => {
                 for (action, inner_map) in execs {
                     if action.on_exit() {
@@ -144,7 +143,7 @@ pub fn execs_manager(
                             for _ in inner_set {
                                 exec_now(MAT {
                                     m: match_.clone(),
-                                    a: action,
+                                    o: action,
                                     t: Local::now(),
                                 });
                             }

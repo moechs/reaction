@@ -4,7 +4,7 @@ use chrono::TimeDelta;
 
 use serde::Deserialize;
 
-use super::{Match, Pattern};
+use super::{ActionFilter, Match, Pattern};
 use crate::utils::parse_duration;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -34,6 +34,20 @@ fn set_false() -> bool {
     false
 }
 
+impl ActionFilter for Action {
+    fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
+        &self.patterns
+    }
+
+    fn full_name<'a>(&'a self) -> (&'a str, &'a str, &'a str) {
+        (
+            &self.stream_name,
+            &self.filter_name,
+            &self.name,
+        )
+    }
+}
+
 impl Action {
     pub fn after_duration(&self) -> Option<TimeDelta> {
         self.after_duration
@@ -41,14 +55,6 @@ impl Action {
 
     pub fn on_exit(&self) -> bool {
         self.on_exit
-    }
-
-    pub fn full_name(&self) -> (String, String, String) {
-        (
-            self.stream_name.clone(),
-            self.filter_name.clone(),
-            self.name.clone(),
-        )
     }
 
     pub fn setup(

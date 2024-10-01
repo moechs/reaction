@@ -36,6 +36,10 @@ impl Config {
         &self.streams
     }
 
+    pub fn patterns(&self) -> &Patterns {
+        &self.patterns
+    }
+
     pub fn concurrency(&self) -> usize {
         self.concurrency
     }

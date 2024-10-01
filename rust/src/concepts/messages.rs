@@ -1,23 +1,33 @@
 use chrono::{DateTime, Local, TimeDelta};
 
-use super::{Action, Filter};
+use super::{Action, ActionFilter, Filter};
 
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
 
 #[derive(Clone)]
-pub struct MFT {
+pub struct MT<T: ActionFilter + 'static> {
     pub m: Match,
-    pub f: &'static Filter,
+    pub o: &'static T,
     pub t: Time,
 }
 
-#[derive(Clone)]
-pub struct MAT {
-    pub m: Match,
-    pub a: &'static Action,
-    pub t: Time,
-}
+pub type MFT = MT<Filter>;
+pub type MAT = MT<Action>;
+
+// #[derive(Clone)]
+// pub struct MFT {
+//     pub m: Match,
+//     pub f: &'static Filter,
+//     pub t: Time,
+// }
+
+// #[derive(Clone)]
+// pub struct MAT {
+//     pub m: Match,
+//     pub a: &'static Action,
+//     pub t: Time,
+// }
 
 #[derive(Clone, Debug)]
 pub struct LogEntry {
@@ -42,7 +52,7 @@ impl From<LogEntry> for MFT {
     fn from(value: LogEntry) -> Self {
         MFT {
             m: value.m,
-            f: value.f,
+            o: value.f,
             t: value.t,
         }
     }

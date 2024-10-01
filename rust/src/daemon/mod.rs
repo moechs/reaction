@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::Path,
+    path::PathBuf,
     process::exit,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -25,15 +25,16 @@ mod database;
 mod execs;
 mod matches;
 mod socket;
+mod statemap;
 
 #[allow(unused_variables)]
-pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
+pub fn daemon(config_path: PathBuf, loglevel: Level, socket: PathBuf) {
     if let Err(err) = SimpleLogger::init(loglevel) {
         eprintln!("ERROR could not initialize logging: {err}");
         exit(1);
     }
 
-    let config: &'static Config = match Config::from_file(config_path) {
+    let config: &'static Config = match Config::from_file(&config_path) {
         Ok(config) => Box::leak(Box::new(config)),
         Err(err) => {
             error!("{err}");
@@ -59,12 +60,15 @@ pub fn daemon(config_path: &Path, loglevel: Level, socket: &Path) {
     let matches_manager_thread_handle = {
         let match_tx_matches = match_tx.clone();
         let exec_tx_matches = exec_tx.clone();
-        thread::spawn(move || matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx))
+        let log_tx_matches = log_tx.clone();
+        thread::spawn(move || {
+            matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx_matches)
+        })
     };
 
     let execs_manager_thread_handle = {
         let exec_tx_execs = exec_tx.clone();
-        thread::spawn(move || execs_manager(config, exec_rx, exec_tx_execs))
+        thread::spawn(move || execs_manager(config, exec_rx, exec_tx_execs, log_tx))
     };
 
     let database_manager_thread_handle = {

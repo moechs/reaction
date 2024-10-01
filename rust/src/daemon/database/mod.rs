@@ -12,7 +12,7 @@ use log::{error, info, warn};
 use thiserror::Error;
 
 use super::MatchManagerInput;
-use crate::concepts::{Config, Filter, LogEntry, Match, Time};
+use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time};
 
 mod lowlevel;
 mod tests;

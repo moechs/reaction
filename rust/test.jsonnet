@@ -22,21 +22,21 @@
 
   streams: {
     s1: {
-      cmd: ['sh', '-c', "seq 20 | tr ' ' '\n' | while read i; do echo found $((i % 5)); sleep 0.3; done"],
+      cmd: ['sh', '-c', "seq 20 | tr ' ' '\n' | while read i; do echo found $((i % 5)); sleep 3; done"],
       filters: {
         f1: {
           regex: [
             '^found <num>$',
           ],
           retry: 2,
-          retryperiod: '5s',
+          retryperiod: '60s',
           actions: {
             damn: {
               cmd: ['notify-send', 'first stream', 'ban <num>'],
             },
             undamn: {
               cmd: ['notify-send', 'first stream', 'unban <num>'],
-              after: '6s',
+              after: '20s',
               onexit: true,
             },
           },

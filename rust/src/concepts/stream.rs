@@ -106,7 +106,7 @@ impl Stream {
                     match_tx
                         .send(MatchManagerInput::Match(MFT {
                             m: match_,
-                            f: filter,
+                            o: filter,
                             t: Local::now(),
                         }))
                         .unwrap();

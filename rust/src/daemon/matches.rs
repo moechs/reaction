@@ -1,73 +1,29 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::mpsc::{Receiver, Sender, SyncSender},
 };
 
+use chrono::Local;
 use log::debug;
 use timer::MessageTimer;
 
-use super::{database::DatabaseManagerInput, ExecsManagerInput};
-use crate::{
-    concepts::Filter,
-    concepts::{LogEntry, Match, Time, MFT},
+use super::{
+    database::DatabaseManagerInput,
+    statemap::{FilterOptions, StateMap, StateMapTrait},
+    ExecsManagerInput,
 };
+use crate::concepts::{ActionFilter, Filter, LogEntry, Order, MFT};
 
 #[derive(Clone)]
 pub enum MatchManagerInput {
     Match(MFT),
     Unmatch(MFT),
-    Flush(MFT),
-    Gimme(SyncSender<MatchesMap>),
+    Order(Order, FilterOptions, SyncSender<MatchesMap>),
     EndOfStartup,
     Stop,
 }
 
-type MatchesMap = BTreeMap<&'static Filter, BTreeMap<Match, BTreeSet<Time>>>;
-
-// This trait is needed to permit to implement methods on an external type
-trait MatchesMapTrait {
-    fn add(&mut self, mft: &MFT);
-    fn rm(&mut self, mft: &MFT);
-    fn rm_times(&mut self, mft: &MFT);
-    fn get_times(&self, mft: &MFT) -> usize;
-}
-impl MatchesMapTrait for MatchesMap {
-    fn add(&mut self, mft: &MFT) {
-        let inner_map = self.entry(mft.f).or_default();
-        let inner_set = inner_map.entry(mft.m.clone()).or_default();
-        inner_set.insert(mft.t);
-    }
-
-    fn rm(&mut self, mft: &MFT) {
-        if let Some(inner_map) = self.get_mut(&mft.f) {
-            if let Some(inner_set) = inner_map.get_mut(&mft.m) {
-                inner_set.remove(&mft.t);
-                if inner_set.is_empty() {
-                    inner_map.remove(&mft.m);
-                }
-            }
-            if inner_map.is_empty() {
-                self.remove(&mft.f);
-            }
-        }
-    }
-
-    fn rm_times(&mut self, mft: &MFT) {
-        if let Some(inner_map) = self.get_mut(&mft.f) {
-            inner_map.remove(&mft.m);
-            if inner_map.is_empty() {
-                self.remove(&mft.f);
-            }
-        }
-    }
-
-    fn get_times(&self, mft: &MFT) -> usize {
-        match self.get(&mft.f).and_then(|map| map.get(&mft.m)) {
-            Some(x) => x.len(),
-            None => 0,
-        }
-    }
-}
+pub type MatchesMap = StateMap<Filter>;
 
 pub fn matches_manager(
     match_rx: Receiver<MatchManagerInput>,
@@ -82,6 +38,9 @@ pub fn matches_manager(
     let mut startup = true;
 
     for mft in match_rx.iter() {
+        for (filter, map) in matches.iter() {
+            debug!("MATCHES {:?} {:?}", filter.full_name(), map.keys());
+        }
         match mft {
             MatchManagerInput::EndOfStartup => {
                 debug!("end of startup!");
@@ -89,7 +48,7 @@ pub fn matches_manager(
             }
             MatchManagerInput::Match(mft) => {
                 // Store matches
-                let exec = match mft.f.retry() {
+                let exec = match mft.o.retry() {
                     None => true,
                     Some(retry) => {
                         // Add new match
@@ -98,7 +57,7 @@ pub fn matches_manager(
                         let guard = timer.schedule_with_delay(
                             // retry_duration is always Some() after filter's setup
                             #[allow(clippy::unwrap_used)]
-                            mft.f.retry_duration().unwrap(),
+                            mft.o.retry_duration().unwrap(),
                             MatchManagerInput::Unmatch(mft.clone()),
                         );
                         guard.ignore();
@@ -110,10 +69,10 @@ pub fn matches_manager(
                 // Executing actions
                 if exec {
                     // Delete matches only if storing them
-                    if mft.f.retry().is_some() {
+                    if mft.o.retry().is_some() {
                         matches.rm_times(&mft);
                     }
-                    mft.f.send_actions(&mft.m, mft.t, &action_tx, true);
+                    mft.o.send_actions(&mft.m, mft.t, &action_tx);
                 }
 
                 if !startup {
@@ -122,30 +81,48 @@ pub fn matches_manager(
                         .send(DatabaseManagerInput::Log(LogEntry {
                             exec,
                             m: mft.m,
-                            f: mft.f,
+                            f: mft.o,
                             t: mft.t,
                         }))
                         .unwrap();
                 }
             }
-            MatchManagerInput::Unmatch(mft) => matches.rm(&mft),
-            #[allow(clippy::todo)]
-            MatchManagerInput::Flush(mft) => {
-                // remove from matches
-                matches.rm_times(&mft);
-                // send to DB
+            MatchManagerInput::Unmatch(mft) => {
+                matches.rm(&mft);
+            }
+            MatchManagerInput::Order(order, options, tx) => {
+                let filtered = matches.filtered(options);
+
+                if let Order::Flush = order {
+                    let now = Local::now();
+                    // filter the state_map according to provided options
+                    for (filter, inner_map) in &filtered {
+                        for (match_, _) in inner_map {
+                            let mft = MFT {
+                                m: match_.clone(),
+                                o: filter,
+                                t: now,
+                            };
+                            // delete them from state
+                            matches.rm_times(&mft);
+                            // send them to DB
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            log_tx
+                                .send(DatabaseManagerInput::Flush(LogEntry {
+                                    exec: false,
+                                    m: mft.m,
+                                    f: mft.o,
+                                    t: mft.t,
+                                }))
+                                .unwrap();
+                        }
+                    }
+                }
+
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
-                log_tx
-                    .send(DatabaseManagerInput::Flush(LogEntry {
-                        exec: false,
-                        m: mft.m,
-                        f: mft.f,
-                        t: mft.t,
-                    }))
-                    .unwrap();
+                tx.send(filtered).unwrap();
             }
             #[allow(clippy::unwrap_used)] // propagating panics is ok
-            MatchManagerInput::Gimme(tx) => tx.send(matches.clone()).unwrap(),
             MatchManagerInput::Stop => break,
         }
     }

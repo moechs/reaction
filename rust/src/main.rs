@@ -18,7 +18,8 @@ mod daemon;
 mod tests;
 mod utils;
 
-use client::{flush, show, test_regex};
+use client::{request, test_regex};
+use concepts::Order;
 use daemon::daemon;
 use utils::cli::{Cli, Command};
 
@@ -44,26 +45,24 @@ fn main() {
             loglevel,
             socket,
         } => {
-            daemon(&config, loglevel, &socket);
+            daemon(config, loglevel, socket);
         }
         Command::Show {
             socket,
             format,
             limit,
-            pattern,
             patterns,
-        } => show(&socket, format, &limit, &pattern, &patterns),
+        } => request(socket, format, limit, patterns, Order::Show),
         Command::Flush {
             socket,
             format,
             limit,
-            pattern,
             patterns,
-        } => flush(&socket, format, &limit, &pattern, &patterns),
+        } => request(socket, format, limit, patterns, Order::Flush),
         Command::TestRegex {
             config,
             regex,
             line,
-        } => test_regex(&config, &regex, &line),
+        } => test_regex(config, regex, line),
     }
 }

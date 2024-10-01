@@ -12,7 +12,7 @@ use log::{debug, error, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    concepts::{Config, Filter, LogEntry, Match},
+    concepts::{ActionFilter, Config, Filter, LogEntry, Match},
     utils::{bincode_options, BincodeOptions},
 };
 
@@ -137,7 +137,10 @@ impl WriteDB {
         let database_header: DatabaseHeader = config
             .filters()
             .into_iter()
-            .map(|f| f.full_name())
+            .map(|f| {
+                let names = f.full_name();
+                (names.0.to_owned(), names.1.to_owned())
+            })
             .enumerate()
             .collect();
 
@@ -163,7 +166,7 @@ impl WriteDB {
 
     fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
         let encoded = self.bin.serialize(&data)?;
-        debug!("writing this: {:?}, {:?}", &data, &encoded);
+        // debug!("writing this: {:?}, {:?}", &data, &encoded);
         self.f.write_all(&encoded)?;
         Ok(())
     }

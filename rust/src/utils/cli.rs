@@ -55,13 +55,9 @@ pub enum Command {
         #[clap(short = 'l', long, value_name = "STREAM[.FILTER]")]
         limit: Option<String>,
 
-        /// only show items matching PATTERN regex
-        #[clap(short = 'p', long, value_name = "PATTERN")]
-        pattern: Option<Regex>,
-
         /// only show items matching name=PATTERN regex
         #[clap(value_parser = parse_named_regex, value_name = "NAME=PATTERN")]
-        patterns: Vec<NamedRegex>,
+        patterns: Vec<(String, String)>,
     },
 
     /// Remove a target from reaction (e.g. unban)
@@ -82,13 +78,9 @@ Then prints the flushed matches and actions."
         #[clap(short = 'l', long, value_name = "STREAM[.FILTER]")]
         limit: Option<String>,
 
-        /// only show items matching PATTERN regex
-        #[clap(short = 'p', long, value_name = "PATTERN")]
-        pattern: Option<Regex>,
-
         /// only show items matching name=PATTERN regex
         #[clap(value_parser = parse_named_regex, value_name = "NAME=PATTERN")]
-        patterns: Vec<NamedRegex>,
+        patterns: Vec<(String, String)>,
     },
 
     /// Test a regex
@@ -129,24 +121,15 @@ impl fmt::Display for Format {
     }
 }
 
-// Structs
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub struct NamedRegex {
-    pub regex: Regex,
-    pub name: String,
-}
-
-fn parse_named_regex(s: &str) -> Result<NamedRegex, String> {
+fn parse_named_regex(s: &str) -> Result<(String, String), String> {
     let (name, v) = s
         .split_once('=')
         .ok_or("When given as a positional argument, a pattern must be prefixed with a name, ex: ip=192.168.0.1")?;
-    let regex = Regex::new(v).map_err(|err| format!("{}", err))?;
-    Ok(NamedRegex {
-        regex,
-        name: name.to_string(),
-    })
+    let _ = Regex::new(v).map_err(|err| format!("{}", err))?;
+    Ok((
+        name.to_string(),
+        v.to_string(),
+    ))
 }
 
 fn parse_log_level(s: &str) -> Result<log::Level, String> {
