@@ -113,7 +113,7 @@ impl Stream {
                 }
             }
         }
-        error!("stream {} exited", self.name);
+        error!("stream {} exited: its command returned.", self.name);
     }
 }
 
