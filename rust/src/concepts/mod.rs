@@ -8,15 +8,15 @@ mod stream;
 
 use std::{collections::BTreeSet, fmt::Display, sync::Arc};
 
-pub use action::*;
-pub use config::*;
-pub use filter::*;
+pub use action::Action;
+pub use config::{Config, Patterns};
+pub use filter::Filter;
 pub use messages::*;
-pub use pattern::*;
+pub use pattern::Pattern;
 pub use socket_messages::*;
-pub use stream::*;
+pub use stream::Stream;
 
 pub trait ActionFilter: Clone + Display + PartialEq + Eq + PartialOrd + Ord {
     fn patterns(&self) -> &BTreeSet<Arc<Pattern>>;
-    fn full_name<'a>(&'a self) -> (&'a str, &'a str, &'a str);
+    fn full_name(&self) -> (&str, &str, &str);
 }

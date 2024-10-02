@@ -40,10 +40,11 @@ fn send_retrieve(socket: &PathBuf, req: &ClientRequest) -> DaemonResponse {
 }
 
 fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {
-    Ok(match format {
+    match format {
         Format::JSON => serde_json::to_writer(stdout().lock(), &cs)?,
         Format::YAML => serde_yaml::to_writer(stdout().lock(), &cs)?,
-    })
+    }
+    Ok(())
 }
 
 pub fn request(
@@ -124,7 +125,7 @@ pub fn test_regex(config_path: PathBuf, mut regex: String, line: Option<String>)
         let mut ignored = false;
         if let Some(matches) = compiled.captures(&line) {
             let mut result = Vec::new();
-            if used_patterns.len() != 0 {
+            if !used_patterns.is_empty() {
                 for pattern in used_patterns.iter() {
                     if let Some(match_) = matches.name(pattern.name()) {
                         result.push(match_.as_str().to_string());

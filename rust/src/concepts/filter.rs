@@ -46,7 +46,7 @@ pub struct Filter {
 }
 
 impl ActionFilter for Filter {
-    fn full_name<'a>(&'a self) -> (&'a str, &'a str, &'a str) {
+    fn full_name(&self) -> (&str, &str, &str) {
         (self.stream_name.as_ref(), self.name.as_ref(), "")
     }
 

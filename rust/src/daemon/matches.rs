@@ -97,7 +97,7 @@ pub fn matches_manager(
                     let now = Local::now();
                     // filter the state_map according to provided options
                     for (filter, inner_map) in &filtered {
-                        for (match_, _) in inner_map {
+                        for match_ in inner_map.keys() {
                             let mft = MFT {
                                 m: match_.clone(),
                                 o: filter,

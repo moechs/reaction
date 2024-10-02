@@ -88,7 +88,7 @@ impl<T: ActionFilter> StateMapTrait<T> for StateMap<T> {
                         }
                     }
                 }
-                return true;
+                true
             })
             // pattern filtering
             .filter(|(object, _)| {
@@ -102,17 +102,16 @@ impl<T: ActionFilter> StateMapTrait<T> for StateMap<T> {
                     .iter()
                     .filter(|(match_, _)| {
                         match_
-                            .into_iter()
+                            .iter()
                             .zip(object.patterns())
-                            .filter_map(|(a_match, pattern)| match patterns.get(pattern.as_ref()) {
-                                Some(regex) => Some((a_match, regex)),
-                                None => None,
+                            .filter_map(|(a_match, pattern)| {
+                                patterns.get(pattern.as_ref()).map(|regex| (a_match, regex))
                             })
                             .all(|(a_match, regex)| regex.is_match(a_match))
                     })
                     .map(|(a, b)| (a.clone(), b.clone()))
                     .collect();
-                if map.len() > 0 {
+                if !map.is_empty() {
                     Some((*object, map))
                 } else {
                     None

@@ -1,27 +1,9 @@
-#![warn(
-    missing_docs,
-    clippy::panic,
-    clippy::todo,
-    clippy::unimplemented,
-    clippy::unwrap_used
-)]
-#![allow(clippy::upper_case_acronyms, clippy::mutable_key_type)]
-#![forbid(unsafe_code)]
-
-//! TODO document a bit
 use clap::Parser;
 
-mod client;
-mod concepts;
-mod daemon;
-
-mod tests;
-mod utils;
-
-use client::{request, test_regex};
-use concepts::Order;
-use daemon::daemon;
-use utils::cli::{Cli, Command};
+use reaction::client::{request, test_regex};
+use reaction::concepts::Order;
+use reaction::daemon::daemon;
+use reaction::utils::cli::{Cli, Command};
 
 fn main() {
     // Show a nice message when reaction panics

@@ -15,7 +15,9 @@ use log::{error, warn};
 use regex::Regex;
 
 use crate::{
-    concepts::{ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Pattern, PatternStatus},
+    concepts::{
+        ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Pattern, PatternStatus,
+    },
     utils::bincode_options,
 };
 

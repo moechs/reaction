@@ -39,12 +39,8 @@ impl ActionFilter for Action {
         &self.patterns
     }
 
-    fn full_name<'a>(&'a self) -> (&'a str, &'a str, &'a str) {
-        (
-            &self.stream_name,
-            &self.filter_name,
-            &self.name,
-        )
+    fn full_name(&self) -> (&str, &str, &str) {
+        (&self.stream_name, &self.filter_name, &self.name)
     }
 }
 

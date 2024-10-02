@@ -55,7 +55,7 @@ impl Serialize for PatternStatus {
         // This means we're printing for user, not exchanging it over a socket
         let state = if serializer.is_human_readable() {
             let ser_matches = self.matches != 0;
-            let ser_actions = self.actions.len() != 0;
+            let ser_actions = !self.actions.is_empty();
             let mut state = serializer
                 .serialize_struct("PatternStatus", ser_matches as usize + ser_actions as usize)?;
             if ser_matches {

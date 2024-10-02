@@ -126,10 +126,7 @@ fn parse_named_regex(s: &str) -> Result<(String, String), String> {
         .split_once('=')
         .ok_or("When given as a positional argument, a pattern must be prefixed with a name, ex: ip=192.168.0.1")?;
     let _ = Regex::new(v).map_err(|err| format!("{}", err))?;
-    Ok((
-        name.to_string(),
-        v.to_string(),
-    ))
+    Ok((name.to_string(), v.to_string()))
 }
 
 fn parse_log_level(s: &str) -> Result<log::Level, String> {

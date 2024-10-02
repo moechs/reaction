@@ -109,7 +109,7 @@ pub fn execs_manager(
                                 .unwrap()
                         };
 
-                        for (match_, _) in inner_map {
+                        for match_ in inner_map.keys() {
                             let mat = MAT {
                                 m: match_.clone(),
                                 o: action,
