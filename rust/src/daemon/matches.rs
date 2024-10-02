@@ -54,10 +54,10 @@ pub fn matches_manager(
                         // Add new match
                         matches.add(&mft);
                         // Remove match when expired
+                        // retry_duration is always Some() after filter's setup
+                        #[allow(clippy::unwrap_used)]
                         let guard = timer.schedule_with_delay(
-                            // retry_duration is always Some() after filter's setup
-                            #[allow(clippy::unwrap_used)]
-                            mft.o.retry_duration().unwrap(),
+                            mft.t - Local::now() + mft.o.retry_duration().unwrap(),
                             MatchManagerInput::Unmatch(mft.clone()),
                         );
                         guard.ignore();
