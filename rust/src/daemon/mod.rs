@@ -10,10 +10,10 @@ use std::{
     thread,
 };
 
-use log::{error, info, Level};
+use log::{error, info};
 use socket::socket_manager;
 
-use crate::{concepts::Config, utils::SimpleLogger};
+use crate::concepts::Config;
 use database::database_manager;
 use execs::execs_manager;
 use matches::matches_manager;
@@ -28,12 +28,7 @@ mod socket;
 mod statemap;
 
 #[allow(unused_variables)]
-pub fn daemon(config_path: PathBuf, loglevel: Level, socket: PathBuf) {
-    if let Err(err) = SimpleLogger::init(loglevel) {
-        eprintln!("ERROR could not initialize logging: {err}");
-        exit(1);
-    }
-
+pub fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
     let config: &'static Config = match Config::from_file(&config_path) {
         Ok(config) => Box::leak(Box::new(config)),
         Err(err) => {
@@ -108,8 +103,16 @@ pub fn daemon(config_path: PathBuf, loglevel: Level, socket: PathBuf) {
                 let _ = child_handle.kill();
             }
         }) {
-            error!("impossible to launch a signal-catching thread, exiting: {err}");
-            exit(1);
+            match err {
+                // Would only happen in tests as this is the only place in the code
+                // where we put an handler. Sorry that there is test-specific code!
+                ctrlc::Error::MultipleHandlers => {}
+                // Real error
+                _ => {
+                    error!("impossible to launch a signal-catching thread, exiting: {err}");
+                    exit(1);
+                }
+            }
         }
     }
 
@@ -135,8 +138,5 @@ pub fn daemon(config_path: PathBuf, loglevel: Level, socket: PathBuf) {
         error!("failed to remove socket: {}", err);
     }
 
-    exit(match !signal_received.load(Ordering::SeqCst) && stop_ok {
-        true => 0,
-        false => 1,
-    });
+    !signal_received.load(Ordering::SeqCst) && stop_ok
 }

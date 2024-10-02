@@ -9,12 +9,12 @@ use std::{
 };
 
 use bincode::Options;
-use log::{error, info, Level};
+use log::{error, info};
 use regex::Regex;
 
 use crate::{
     concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
-    utils::{bincode_options, cli::Format, SimpleLogger},
+    utils::{bincode_options, cli::Format},
 };
 macro_rules! or_quit {
     ($msg:expr, $expression:expr) => {
@@ -54,11 +54,6 @@ pub fn request(
     patterns: Vec<(String, String)>,
     order: Order,
 ) {
-    if let Err(err) = SimpleLogger::init(Level::Debug) {
-        eprintln!("ERROR could not initialize logging: {err}");
-        exit(1);
-    }
-
     let response = send_retrieve(
         &socket,
         &ClientRequest {
@@ -82,11 +77,6 @@ pub fn request(
 }
 
 pub fn test_regex(config_path: PathBuf, mut regex: String, line: Option<String>) {
-    if let Err(err) = SimpleLogger::init(Level::Debug) {
-        eprintln!("ERROR could not initialize logging: {err}");
-        exit(1);
-    }
-
     let config: Config = match Config::from_file(&config_path) {
         Ok(config) => config,
         Err(err) => {

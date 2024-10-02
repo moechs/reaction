@@ -93,7 +93,6 @@ impl Iterator for ReadDB {
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = self.read::<ComputedLogEntry>();
-        debug!("{res:?}");
         match res {
             Ok(item) => Some(item.to(&self.h)),
             Err(err) => match *err {

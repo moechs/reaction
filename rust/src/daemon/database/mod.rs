@@ -8,7 +8,7 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use thiserror::Error;
 
 use super::MatchManagerInput;
@@ -220,6 +220,7 @@ fn __rotate_db(
                 if let Some(map) = last_global_flush {
                     if let Some(time) = map.get(&entry.m) {
                         if time > &entry.t {
+                            debug!("DB ignoring global match: {:?}", entry.m);
                             continue;
                         }
                     }
@@ -227,6 +228,7 @@ fn __rotate_db(
                 if let Some(map) = flushes.get(&entry.f) {
                     if let Some(time) = map.get(&entry.m) {
                         if time > &entry.t {
+                            debug!("DB ignoring local match: {:?}", entry.m);
                             continue;
                         }
                     }
@@ -244,6 +246,7 @@ fn __rotate_db(
                     millisecond_disambiguation_counter += 1;
 
                     if let Some(tx) = matches_tx {
+                        debug!("DB sending match from DB: {:?}", entry.m);
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         tx.send(MatchManagerInput::Match(entry.clone().into()))
                             .unwrap();

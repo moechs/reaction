@@ -1,9 +1,13 @@
+use std::process::exit;
+
 use clap::Parser;
 
+use log::Level;
 use reaction::client::{request, test_regex};
 use reaction::concepts::Order;
 use reaction::daemon::daemon;
 use reaction::utils::cli::{Cli, Command};
+use reaction::utils::SimpleLogger;
 
 fn main() {
     // Show a nice message when reaction panics
@@ -21,13 +25,34 @@ fn main() {
 
     let cli = Cli::parse();
 
+    {
+        // Set log level
+        let level = if let Command::Start {
+            loglevel,
+            config: _,
+            socket: _,
+        } = cli.command
+        {
+            loglevel
+        } else {
+            Level::Debug
+        };
+        if let Err(err) = SimpleLogger::init(level) {
+            eprintln!("ERROR could not initialize logging: {err}");
+            exit(1);
+        }
+    }
+
     match cli.command {
         Command::Start {
             config,
-            loglevel,
+            loglevel: _,
             socket,
         } => {
-            daemon(config, loglevel, socket);
+            exit(match daemon(config, socket) {
+                true => 0,
+                false => 1,
+            });
         }
         Command::Show {
             socket,

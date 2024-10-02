@@ -1,0 +1,165 @@
+use std::{
+    env,
+    fs::File,
+    io::{Read, Write},
+    thread,
+    time::Duration,
+};
+
+use log::Level;
+use tempfile::TempDir;
+
+use reaction::{
+    client::request,
+    concepts::Order,
+    daemon::daemon,
+    utils::{cli::Format, SimpleLogger},
+};
+
+fn file_with_contents(path: &str, contents: &str) {
+    let mut file = File::create(path).unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
+}
+
+fn config_with_cmd(config_path: &str, cmd: &str) {
+    file_with_contents(
+        config_path,
+        &("
+{
+    concurrency: 0,
+    patterns: {
+        num: { regex: '[0-9]+' },
+    },
+    streams: {
+        stream1: {
+            cmd: ['sh', '-c', '"
+            .to_owned()
+            + cmd
+            + "'],
+            filters: {
+                filter1: {
+                    regex: ['here is <num>'],
+                    retry: 2,
+                    retryperiod: '20s',
+                    actions: {
+                        // Don't mix code and data at home!
+                        // You may permit arbitrary execution from vilains,
+                        // if your regex is permissive enough.
+                        // This is OK only for testing purposes.
+                        action1: {
+                            cmd: ['sh', '-c', 'echo <num> >> ./out.txt'],
+                        },
+                        action2: {
+                            cmd: ['sh', '-c', 'echo del <num> >> ./out.txt'],
+                            after: '3min',
+                            onexit: false,
+                        },
+                    }
+                }
+            }
+        }
+    }
+}"),
+    );
+}
+
+fn get_file_content(path: &str) -> String {
+    let mut out_txt = File::open(path).unwrap();
+    let mut contents = String::new();
+    out_txt.read_to_string(&mut contents).unwrap();
+    contents
+}
+
+#[test]
+fn simple() {
+    let dir = TempDir::new().unwrap();
+    env::set_current_dir(&dir).unwrap();
+
+    let config_path = "config.jsonnet";
+    let out_path = "./out.txt";
+    let socket_path = "./reaction.sock";
+
+    config_with_cmd(
+        config_path,
+        "for i in 12 24 36 24 36 12 12 24 56 67; do echo here is $i; sleep 0.1; done; sleep 2",
+    );
+
+    file_with_contents(out_path, "");
+
+    // Set the logger before running any code from the crate
+    SimpleLogger::init(Level::Debug).unwrap();
+
+    // Run the daemon
+    let handle = thread::spawn(move || {
+        assert!(daemon(config_path.into(), socket_path.into()));
+    });
+
+    // Run the flushes
+
+    // We sleep for the time the echoes are finished + 1 second
+    // This ensures that the subsecond precision lost from de/serialization
+    // never causes the flush to be interpreted as anterior to the match
+
+    let handle2 = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(2500));
+        request(
+            socket_path.into(),
+            Format::JSON,
+            None,
+            vec![("num".into(), "24".into())],
+            Order::Flush,
+        );
+    });
+
+    let handle3 = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(2500));
+        request(
+            socket_path.into(),
+            Format::JSON,
+            None,
+            vec![("num".into(), "56".into())],
+            Order::Flush,
+        );
+    });
+
+    handle.join().unwrap();
+    handle2.join().unwrap();
+    handle3.join().unwrap();
+
+    assert_eq!(
+        // 24 is encountered for the second time, then
+        // 36 is encountered for the second time, then
+        // 12 is encountered for the second time, then
+        // 24 is flushed
+        get_file_content(out_path).trim(),
+        "24\n36\n12\ndel 24".to_owned().trim()
+    );
+
+    // Second part of the test
+    // We test that persistence worked as intended
+    // Both for matches and for flushes
+
+    config_with_cmd(
+        config_path,
+        "for i in 12 24 36 56 67; do echo here is $i; sleep 0.1; done",
+    );
+
+    file_with_contents(out_path, "");
+
+    assert!(daemon(config_path.into(), socket_path.into()));
+
+    // 36 from DB
+    // 12 from DB
+    // 12 from DB + new match
+    // 67 from DB + new match
+    let content = get_file_content(out_path).trim().to_owned();
+    let scenario1 = "36\n12\n12\n67".trim().to_owned();
+    let scenario2 = "12\n36\n12\n67".trim().to_owned();
+    assert!(
+        content == scenario1 || content == scenario2,
+        "content: {}\nscenario1: {}\nscenario2: {}",
+        content,
+        scenario1,
+        scenario2
+    );
+}
