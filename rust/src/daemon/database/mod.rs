@@ -235,15 +235,14 @@ fn __rotate_db(
                 }
 
                 // Store match & store in db
-                #[allow(clippy::unwrap_used)] // 0 second is obviously less seconds than i64::MAX
-                if (!entry.exec && entry.t + entry.f.retry_duration().unwrap_or_default() > now)
-                    || (entry.exec && entry.t + entry.f.longuest_action_duration() > now)
-                {
-                    // We loose subsecond precision when storing times, so we add those fake
-                    // milliseconds to make sure each time is unique
-
-                    entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
-                    millisecond_disambiguation_counter += 1;
+                if !Filter::is_outdated(&entry, &now) {
+                    #[allow(clippy::unwrap_used)] // 0 second is obviously less than i64::MAX
+                    {
+                        // We loose subsecond precision when storing times, so we add those fake
+                        // milliseconds to make sure each time is unique
+                        entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
+                        millisecond_disambiguation_counter += 1;
+                    }
 
                     if let Some(tx) = matches_tx {
                         debug!("DB sending match from DB: {:?}", entry.m);

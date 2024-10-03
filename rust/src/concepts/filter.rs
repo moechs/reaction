@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use super::{
     messages::{Match, Time, MAT},
-    Action, ActionFilter, Pattern, Patterns,
+    Action, ActionFilter, LogEntry, Pattern, Patterns,
 };
 use crate::{daemon::ExecsManagerInput, utils::parse_duration};
 
@@ -71,10 +71,6 @@ impl Filter {
 
     pub fn retry_duration(&self) -> Option<TimeDelta> {
         self.retry_duration
-    }
-
-    pub fn longuest_action_duration(&self) -> TimeDelta {
-        self.longuest_action_duration
     }
 
     pub fn setup(
@@ -213,6 +209,14 @@ impl Filter {
             };
             #[allow(clippy::unwrap_used)] // propagating panics is ok
             tx.send(ExecsManagerInput::Exec(mat)).unwrap();
+        }
+    }
+
+    pub fn is_outdated(entry: &LogEntry, now: &Time) -> bool {
+        if entry.exec {
+            entry.t + entry.f.longuest_action_duration < *now
+        } else {
+            entry.t + entry.f.retry_duration.unwrap_or_default() < *now
         }
     }
 }
