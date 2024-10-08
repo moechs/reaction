@@ -1,13 +1,11 @@
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader},
-    process::{Child, Command, Stdio},
-    sync::mpsc::{Sender, SyncSender},
-};
+use std::collections::BTreeMap;
 
+use async_process::{Child, Command, Stdio};
 use chrono::Local;
+use futures::{io::BufReader, AsyncBufReadExt, StreamExt};
 use log::{error, info};
 use serde::Deserialize;
+use tokio::sync::{mpsc, oneshot};
 
 use super::{Filter, Patterns, MFT};
 use crate::daemon::MatchManagerInput;
@@ -64,10 +62,10 @@ impl Stream {
         Ok(())
     }
 
-    pub fn manager(
+    pub async fn manager(
         &'static self,
-        child_tx: SyncSender<Option<Child>>,
-        match_tx: Sender<MatchManagerInput>,
+        child_tx: oneshot::Sender<Option<Child>>,
+        match_tx: mpsc::Sender<MatchManagerInput>,
     ) {
         info!("{}: start {:?}", self.name, self.cmd);
         let mut child = match Command::new(&self.cmd[0])
@@ -88,13 +86,12 @@ impl Stream {
         // keep stdout before sending/moving child to the main thread
         #[allow(clippy::unwrap_used)]
         // we know there is an stdout because we asked for Stdio::piped()
-        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
 
         // let main handle the child process
         let _ = child_tx.send(Some(child));
-        drop(child_tx);
 
-        for line in stdout.lines() {
+        while let Some(line) = lines.next().await {
             let line = match line {
                 Ok(line) => line,
                 Err(_) => break,
@@ -109,6 +106,7 @@ impl Stream {
                             o: filter,
                             t: Local::now(),
                         }))
+                        .await
                         .unwrap();
                 }
             }

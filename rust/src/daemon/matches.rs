@@ -1,11 +1,11 @@
-use std::{
-    collections::BTreeMap,
-    sync::mpsc::{Receiver, Sender, SyncSender},
-};
+use std::collections::BTreeMap;
 
 use chrono::Local;
 use log::debug;
-use timer::MessageTimer;
+use tokio::{
+    sync::{mpsc, oneshot},
+    time,
+};
 
 use super::{
     database::DatabaseManagerInput,
@@ -14,30 +14,28 @@ use super::{
 };
 use crate::concepts::{ActionFilter, Filter, LogEntry, Order, MFT};
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub enum MatchManagerInput {
     Match(MFT),
     Unmatch(MFT),
-    Order(Order, FilterOptions, SyncSender<MatchesMap>),
+    Order(Order, FilterOptions, oneshot::Sender<MatchesMap>),
     EndOfStartup,
     Stop,
 }
 
 pub type MatchesMap = StateMap<Filter>;
 
-pub fn matches_manager(
-    match_rx: Receiver<MatchManagerInput>,
-    match_tx: Sender<MatchManagerInput>,
-    action_tx: Sender<ExecsManagerInput>,
-    log_tx: SyncSender<DatabaseManagerInput>,
+pub async fn matches_manager(
+    mut match_rx: mpsc::Receiver<MatchManagerInput>,
+    match_tx: mpsc::Sender<MatchManagerInput>,
+    action_tx: mpsc::Sender<ExecsManagerInput>,
+    log_tx: mpsc::Sender<DatabaseManagerInput>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
-    let timer = MessageTimer::new(match_tx);
-
     let mut startup = true;
 
-    for mft in match_rx.iter() {
+    while let Some(mft) = match_rx.recv().await {
         for (filter, map) in matches.iter() {
             debug!("MATCHES {:?} {:?}", filter.full_name(), map.keys());
         }
@@ -54,13 +52,21 @@ pub fn matches_manager(
                         // Add new match
                         matches.add(&mft);
                         // Remove match when expired
-                        // retry_duration is always Some() after filter's setup
-                        #[allow(clippy::unwrap_used)]
-                        let guard = timer.schedule_with_delay(
-                            mft.t - Local::now() + mft.o.retry_duration().unwrap(),
-                            MatchManagerInput::Unmatch(mft.clone()),
-                        );
-                        guard.ignore();
+                        {
+                            let mft = mft.clone();
+                            let match_tx = match_tx.clone();
+                            tokio::spawn(async move {
+                                #[allow(clippy::unwrap_used)]
+                                // retry_duration is always Some() after filter's setup
+                                let dur = mft.t - Local::now() + mft.o.retry_duration().unwrap();
+                                time::sleep(dur.to_std().unwrap()).await;
+                                #[allow(clippy::unwrap_used)] // propagating panics is ok
+                                match_tx
+                                    .send(MatchManagerInput::Unmatch(mft))
+                                    .await
+                                    .unwrap();
+                            });
+                        }
 
                         matches.get_times(&mft) >= retry as usize
                     }
@@ -72,7 +78,7 @@ pub fn matches_manager(
                     if mft.o.retry().is_some() {
                         matches.rm_times(&mft);
                     }
-                    mft.o.send_actions(&mft.m, mft.t, &action_tx);
+                    mft.o.send_actions(&mft.m, mft.t, &action_tx).await;
                 }
 
                 if !startup {
@@ -84,6 +90,7 @@ pub fn matches_manager(
                             f: mft.o,
                             t: mft.t,
                         }))
+                        .await
                         .unwrap();
                 }
             }
@@ -114,6 +121,7 @@ pub fn matches_manager(
                                     f: mft.o,
                                     t: mft.t,
                                 }))
+                                .await
                                 .unwrap();
                         }
                     }

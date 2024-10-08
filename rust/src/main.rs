@@ -49,7 +49,9 @@ fn main() {
             loglevel: _,
             socket,
         } => {
-            exit(match daemon(config, socket) {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let daemon_exit = runtime.block_on(async move { daemon(config, socket).await });
+            exit(match daemon_exit {
                 true => 0,
                 false => 1,
             });

@@ -1,18 +1,18 @@
-use std::{
-    collections::BTreeMap,
-    fs, io,
-    os::unix::net::{UnixListener, UnixStream},
-    path::PathBuf,
-    process::exit,
-    sync::{
-        mpsc::{sync_channel, Sender},
-        Arc,
-    },
-};
+use std::{collections::BTreeMap, fs, io, path::PathBuf, process::exit, sync::Arc};
 
 use bincode::Options;
+use futures::{SinkExt, StreamExt};
 use log::{error, warn};
 use regex::Regex;
+use tokio::{
+    join,
+    net::UnixListener,
+    sync::{mpsc, oneshot},
+};
+use tokio_util::{
+    bytes::Bytes,
+    codec::{Framed, LengthDelimitedCodec},
+};
 
 use crate::{
     concepts::{
@@ -54,10 +54,10 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     err_str!(UnixListener::bind(path))
 }
 
-fn answer_order(
+async fn answer_order(
     config: &'static Config,
-    match_tx: &Sender<MatchManagerInput>,
-    exec_tx: &Sender<ExecsManagerInput>,
+    match_tx: &mpsc::Sender<MatchManagerInput>,
+    exec_tx: &mpsc::Sender<ExecsManagerInput>,
     options: ClientRequest,
 ) -> Result<ClientStatus, String> {
     // Compute options
@@ -98,25 +98,27 @@ fn answer_order(
     };
 
     // ask for matches clone
-    let matches = {
-        let (m_tx, m_rx) = sync_channel(0);
+    let filtering_options2 = filtering_options.clone();
+    let matches = async move {
+        let (m_tx, m_rx) = oneshot::channel();
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         match_tx
             .send(MatchManagerInput::Order(
                 options.order,
-                filtering_options.clone(),
+                filtering_options2,
                 m_tx,
             ))
+            .await
             .unwrap();
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        m_rx.recv().unwrap()
+        m_rx.await.unwrap()
     };
 
     // ask for execs clone
-    let execs = {
-        let (e_tx, e_rx) = sync_channel(0);
+    let execs = async move {
+        let (e_tx, e_rx) = oneshot::channel();
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         exec_tx
@@ -125,11 +127,14 @@ fn answer_order(
                 filtering_options,
                 e_tx,
             ))
+            .await
             .unwrap();
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        e_rx.recv().unwrap()
+        e_rx.await.unwrap()
     };
+
+    let (matches, execs) = join!(matches, execs);
 
     // Transform matches and execs into a ClientStatus
     let cs: ClientStatus = matches
@@ -191,11 +196,11 @@ macro_rules! or_next {
     };
 }
 
-pub fn socket_manager(
+pub async fn socket_manager(
     config: &'static Config,
     socket: PathBuf,
-    match_tx: Sender<MatchManagerInput>,
-    exec_tx: Sender<ExecsManagerInput>,
+    match_tx: mpsc::Sender<MatchManagerInput>,
+    exec_tx: mpsc::Sender<ExecsManagerInput>,
 ) {
     let listener = match open_socket(socket) {
         Ok(l) => l,
@@ -206,22 +211,35 @@ pub fn socket_manager(
     };
 
     let bin = bincode_options();
-    for try_conn in listener.incoming() {
+    loop {
+        let try_conn = listener.accept().await;
         match try_conn {
-            Ok(conn) => {
-                let conn2 = or_next!("failed to clone stream", conn.try_clone());
-                // read request
+            Ok((conn, _)) => {
+                let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+                // Decode
+                let received = transport.next().await;
+                let encoded_request = match received {
+                    Some(r) => or_next!("while reading request", r),
+                    None => {
+                        error!("failed to answer client: client sent no request");
+                        continue;
+                    }
+                };
                 let request = or_next!(
-                    "invalid message received: ",
-                    bin.deserialize_from::<UnixStream, ClientRequest>(conn)
+                    "failed to decode request",
+                    bin.deserialize(&encoded_request)
                 );
-                let response = answer_order(config, &match_tx, &exec_tx, request);
+                // Process
+                let response = match answer_order(config, &match_tx, &exec_tx, request).await {
+                    Ok(res) => DaemonResponse::Order(res),
+                    Err(err) => DaemonResponse::Err(err),
+                };
+                // Encode
+                let encoded_response =
+                    or_next!("failed to serialize response", bin.serialize(&response));
                 or_next!(
                     "failed to send response:",
-                    match response {
-                        Ok(res) => bin.serialize_into(conn2, &DaemonResponse::Order(res)),
-                        Err(err) => bin.serialize_into(conn2, &DaemonResponse::Err(err)),
-                    }
+                    transport.send(Bytes::from(encoded_response)).await
                 );
             }
             Err(err) => error!("failed to open connection from cli: {err}"),

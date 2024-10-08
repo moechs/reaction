@@ -2,13 +2,14 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
-    sync::{mpsc::Sender, Arc},
+    sync::Arc,
 };
 
 use chrono::TimeDelta;
 use log::info;
 use regex::Regex;
 use serde::Deserialize;
+use tokio::sync::mpsc;
 
 use super::{
     messages::{Match, Time, MAT},
@@ -200,7 +201,12 @@ impl Filter {
         None
     }
 
-    pub fn send_actions(&'static self, m: &Match, t: Time, tx: &Sender<ExecsManagerInput>) {
+    pub async fn send_actions(
+        &'static self,
+        m: &Match,
+        t: Time,
+        tx: &mpsc::Sender<ExecsManagerInput>,
+    ) {
         for action in self.actions.values() {
             let mat = MAT {
                 m: m.clone(),
@@ -208,7 +214,7 @@ impl Filter {
                 t: t + action.after_duration().unwrap_or_default(),
             };
             #[allow(clippy::unwrap_used)] // propagating panics is ok
-            tx.send(ExecsManagerInput::Exec(mat)).unwrap();
+            tx.send(ExecsManagerInput::Exec(mat)).await.unwrap();
         }
     }
 

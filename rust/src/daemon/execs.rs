@@ -1,80 +1,72 @@
-use std::{
-    collections::BTreeMap,
-    process::Stdio,
-    sync::mpsc::{Receiver, Sender, SyncSender},
-};
+use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
 use chrono::Local;
 use log::{error, info};
-use timer::MessageTimer;
-
-use crate::{
-    concepts::{Action, ActionFilter, Config, LogEntry, Order, MAT},
-    utils::ThreadPool,
+use tokio::{
+    sync::{mpsc, oneshot, Semaphore},
+    time,
 };
+
+use crate::concepts::{Action, ActionFilter, Config, LogEntry, Order, MAT};
 
 use super::{
     database::DatabaseManagerInput,
     statemap::{FilterOptions, StateMap, StateMapTrait},
 };
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub enum ExecsManagerInput {
     Exec(MAT),
     ExecPending(MAT),
-    Order(Order, FilterOptions, SyncSender<ExecsMap>),
+    Order(Order, FilterOptions, oneshot::Sender<ExecsMap>),
     Stop,
 }
 
 type ExecsMap = StateMap<Action>;
 
-pub fn execs_manager(
+pub async fn execs_manager(
     config: &'static Config,
-    exec_rx: Receiver<ExecsManagerInput>,
-    exec_tx: Sender<ExecsManagerInput>,
-    log_tx: SyncSender<DatabaseManagerInput>,
+    mut exec_rx: mpsc::Receiver<ExecsManagerInput>,
+    exec_tx: mpsc::Sender<ExecsManagerInput>,
+    log_tx: mpsc::Sender<DatabaseManagerInput>,
 ) {
-    // Initialize a ThreadPool only when concurrency hasn't been disabled
-    let thread_pool = if config.concurrency() > 1 {
-        Some(ThreadPool::new(config.concurrency()))
+    // FIXME replace with TryStreamExt::try_for_each_concurrent?
+    let semaphore = if config.concurrency() > 0 {
+        Some(Arc::new(Semaphore::new(config.concurrency())))
     } else {
         None
     };
 
     let exec_now = |mat: MAT| {
-        let mut closure = {
+        let semaphore = semaphore.clone();
+        tokio::spawn(async move {
             let action = mat.o;
+
+            // Wait for semaphore's permission, if it is Some
+            let _permit = match semaphore {
+                Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
+                None => None,
+            };
 
             // Construct command
             let mut command = action.exec(&mat.m);
 
-            move || {
-                info!("{}: run [{:?}]", &action, command);
-                if let Err(err) = command
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .status()
-                {
-                    error!("{}: run [{:?}], code {}", &action, command, err);
-                }
+            info!("{}: run [{:?}]", &action, command);
+            if let Err(err) = command
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .stdout(Stdio::piped())
+                .status()
+                .await
+            {
+                error!("{}: run [{:?}], code {}", &action, command, err);
             }
-        };
-
-        // Execute command either in the ThreadPool or directly
-        match &thread_pool {
-            Some(thread_pool) => {
-                thread_pool.execute(closure);
-            }
-            None => closure(),
-        }
+        });
     };
 
     let mut execs: ExecsMap = BTreeMap::new();
 
-    let timer = MessageTimer::new(exec_tx);
-
-    for mat in exec_rx.iter() {
+    while let Some(mat) = exec_rx.recv().await {
         match mat {
             ExecsManagerInput::Exec(mat) => {
                 let now = Local::now();
@@ -82,9 +74,19 @@ pub fn execs_manager(
                     exec_now(mat);
                 } else {
                     execs.add(&mat);
-                    let guard = timer
-                        .schedule_with_date(mat.t, ExecsManagerInput::ExecPending(mat.clone()));
-                    guard.ignore();
+                    {
+                        let mat = mat.clone();
+                        let exec_tx = exec_tx.clone();
+                        tokio::spawn(async move {
+                            let dur = mat.t - Local::now();
+                            time::sleep(dur.to_std().unwrap()).await;
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            exec_tx
+                                .send(ExecsManagerInput::ExecPending(mat.clone()))
+                                .await
+                                .unwrap();
+                        });
+                    }
                 }
             }
             ExecsManagerInput::ExecPending(mat) => {
@@ -129,6 +131,7 @@ pub fn execs_manager(
                                     f: filter,
                                     t: mat.t,
                                 }))
+                                .await
                                 .unwrap();
                         }
                     }
@@ -153,9 +156,5 @@ pub fn execs_manager(
                 break;
             }
         }
-    }
-
-    if let Some(thread_pool) = thread_pool {
-        thread_pool.join();
     }
 }

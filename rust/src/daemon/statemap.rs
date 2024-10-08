@@ -7,7 +7,7 @@ use regex::Regex;
 
 use crate::concepts::{ActionFilter, Match, Pattern, Time, MT};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FilterOptions {
     pub stream_name: Option<String>,
     pub filter_name: Option<String>,

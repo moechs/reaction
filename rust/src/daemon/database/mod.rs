@@ -1,15 +1,14 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
-    fs, io,
+    fs,
     process::exit,
-    sync::mpsc::{Receiver, Sender},
-    thread,
 };
 
 use chrono::{Local, TimeDelta};
 use log::{debug, error, info, warn};
 use thiserror::Error;
+use tokio::{sync::mpsc, task};
 
 use super::MatchManagerInput;
 use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time};
@@ -32,7 +31,7 @@ pub enum DBError {
     #[error("decode error: {0}")]
     BincodeError(#[from] bincode::Error),
     #[error("io error: {0}")]
-    IOError(#[from] io::Error),
+    IOError(#[from] tokio::io::Error),
     #[error("{0}")]
     Error(String),
 }
@@ -46,7 +45,7 @@ pub enum DatabaseManagerInput {
 // Just discovering macros, let me be useless
 macro_rules! write_or_die {
     ($db:expr, $entry:expr) => {
-        if let Err(err) = $db.write($entry) {
+        if let Err(err) = $db.write($entry).await {
             error!("Could not write to DB: {}", err);
             exit(1);
         }
@@ -54,20 +53,20 @@ macro_rules! write_or_die {
 }
 macro_rules! flush_or_die {
     ($db:expr) => {
-        if let Err(err) = $db.flush() {
-            error!("Could not write to DB: {}", err);
+        if let Err(err) = $db.flush().await {
+            error!("Could not flush DB: {}", err);
             exit(1);
         }
     };
 }
 
 /// First rotates the database, then spawns the database thread
-pub fn database_manager(
+pub async fn database_manager(
     config: &'static Config,
-    log_rx: Receiver<DatabaseManagerInput>,
-    matches_tx: Sender<MatchManagerInput>,
-) -> thread::JoinHandle<()> {
-    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
+    mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
+    matches_tx: mpsc::Sender<MatchManagerInput>,
+) -> task::JoinHandle<()> {
+    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)).await {
         Ok(dbs) => dbs,
         Err(err) => {
             error!("while rotating databases on start: {}", err);
@@ -75,9 +74,9 @@ pub fn database_manager(
         }
     };
 
-    thread::spawn(move || {
+    task::spawn(async move {
         let mut cpt = 0;
-        for order in log_rx.iter() {
+        while let Some(order) = log_rx.recv().await {
             match order {
                 DatabaseManagerInput::Flush(entry) => write_or_die!(flush_db, entry),
                 DatabaseManagerInput::Log(entry) => {
@@ -89,7 +88,7 @@ pub fn database_manager(
                         flush_or_die!(flush_db);
                         drop(log_db);
                         drop(flush_db);
-                        (log_db, flush_db) = match rotate_db(config, None) {
+                        (log_db, flush_db) = match rotate_db(config, None).await {
                             Ok(dbs) => dbs,
                             Err(err) => {
                                 error!(
@@ -108,43 +107,44 @@ pub fn database_manager(
     })
 }
 
-fn rotate_db(
+async fn rotate_db(
     config: &'static Config,
-    matches_tx: Option<Sender<MatchManagerInput>>,
+    matches_tx: Option<mpsc::Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     info!("Rotating database...");
-    let res = _rotate_db(config, &matches_tx);
+    let res = _rotate_db(config, &matches_tx).await;
 
     if let Some(tx) = matches_tx {
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        tx.send(MatchManagerInput::EndOfStartup).unwrap();
+        tx.send(MatchManagerInput::EndOfStartup).await.unwrap();
     }
 
     info!("Rotated database");
     res
 }
 
-fn _rotate_db(
+async fn _rotate_db(
     config: &'static Config,
-    matches_tx: &Option<Sender<MatchManagerInput>>,
+    matches_tx: &Option<mpsc::Sender<MatchManagerInput>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
-    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
+    // TODO asyncify this
+    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config).await? {
         Some(db) => db,
         None => {
-            return Ok((
+            return Ok(tokio::join!(
                 WriteDB::create(LOG_DB_NAME, config),
                 WriteDB::create(FLUSH_DB_NAME, config),
             ));
         }
     };
-    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config)? {
+    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config).await? {
         Some(db) => db,
         None => {
             warn!(
                 "Strange! Found a {} but no {}, opening /dev/null instead",
                 LOG_DB_NAME, FLUSH_DB_NAME
             );
-            match ReadDB::open("/dev/null", config)? {
+            match ReadDB::open("/dev/null", config).await? {
                 Some(db) => db,
                 None => {
                     return Err(DBError::Error("/dev/null is not accessible".into()));
@@ -153,14 +153,15 @@ fn _rotate_db(
         }
     };
 
-    let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config);
+    let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config).await;
 
     __rotate_db(
         matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
         &mut log_write_db,
-    );
+    )
+    .await;
 
     drop(log_read_db);
     drop(flush_read_db);
@@ -176,12 +177,12 @@ fn _rotate_db(
         return Err(DBError::Error(format!("Failed to delete old DB: {}", err)));
     }
 
-    let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config);
+    let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config).await;
     Ok((log_write_db, flush_write_db))
 }
 
-fn __rotate_db(
-    matches_tx: &Option<Sender<MatchManagerInput>>,
+async fn __rotate_db(
+    matches_tx: &Option<mpsc::Sender<MatchManagerInput>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
@@ -192,7 +193,7 @@ fn __rotate_db(
 
     // Read flushes
     let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
-    for flush_entry in flush_read_db {
+    while let Some(flush_entry) = flush_read_db.next().await {
         match flush_entry {
             Ok(entry) => {
                 let matches_map = flushes.entry(entry.f).or_default();
@@ -208,7 +209,7 @@ fn __rotate_db(
     let now = Local::now();
 
     // Read matches
-    for log_entry in log_read_db {
+    while let Some(log_entry) = log_read_db.next().await {
         match log_entry {
             Ok(mut entry) => {
                 // Check if number of patterns is in sync
@@ -248,6 +249,7 @@ fn __rotate_db(
                         debug!("DB sending match from DB: {:?}", entry.m);
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         tx.send(MatchManagerInput::Match(entry.clone().into()))
+                            .await
                             .unwrap();
                     }
 

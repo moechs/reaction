@@ -5,7 +5,7 @@ use super::{Action, ActionFilter, Filter};
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MT<T: ActionFilter + 'static> {
     pub m: Match,
     pub o: &'static T,

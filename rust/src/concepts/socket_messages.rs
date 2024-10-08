@@ -7,7 +7,7 @@ use serde::{ser::SerializeStruct, Deserialize, Serialize};
 // We don't need protocol versionning here because
 // client and daemon are the same binary
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Order {
     Show,
     Flush,

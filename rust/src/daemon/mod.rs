@@ -4,14 +4,13 @@ use std::{
     process::exit,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{channel, sync_channel},
         Arc,
     },
-    thread,
 };
 
 use log::{error, info};
 use socket::socket_manager;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::concepts::Config;
 use database::database_manager;
@@ -27,8 +26,7 @@ mod matches;
 mod socket;
 mod statemap;
 
-#[allow(unused_variables)]
-pub fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
+pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
     let config: &'static Config = match Config::from_file(&config_path) {
         Ok(config) => Box::leak(Box::new(config)),
         Err(err) => {
@@ -43,53 +41,58 @@ pub fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
     }
 
     let mut stream_process_child_handles = Vec::new();
-    let mut stream_thread_handles = Vec::new();
+    let mut stream_task_handles = Vec::new();
 
-    // FIXME replace those channel() by sync_channel(1)
-    // Unbounded channels can eat a lot of RAM
-    // Is there a timer::MessageTimer implementation for sync_channel?
-    let (match_tx, match_rx) = channel();
-    let (exec_tx, exec_rx) = channel();
-    let (log_tx, log_rx) = sync_channel(1);
+    let (match_tx, match_rx) = mpsc::channel(10);
+    let (exec_tx, exec_rx) = mpsc::channel(10);
+    let (log_tx, log_rx) = mpsc::channel(10);
 
-    let matches_manager_thread_handle = {
+    // TODO use this for a more idiomatic shutdown signal
+    // let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let matches_manager_task_handle = {
         let match_tx_matches = match_tx.clone();
         let exec_tx_matches = exec_tx.clone();
         let log_tx_matches = log_tx.clone();
-        thread::spawn(move || {
-            matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx_matches)
+        tokio::spawn(async move {
+            matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx_matches).await
         })
     };
 
-    let execs_manager_thread_handle = {
+    let execs_manager_task_handle = {
         let exec_tx_execs = exec_tx.clone();
-        thread::spawn(move || execs_manager(config, exec_rx, exec_tx_execs, log_tx))
+        tokio::spawn(async move { execs_manager(config, exec_rx, exec_tx_execs, log_tx).await })
     };
 
-    let database_manager_thread_handle = {
+    let database_manager_task_handle = {
         let match_tx_database = match_tx.clone();
-        // The `thread::spawn` is done in the function, after database rotation is finished
-        database_manager(config, log_rx, match_tx_database)
+        // The `task::spawn` is done in the function, after database rotation is finished
+        database_manager(config, log_rx, match_tx_database).await
     };
 
     {
         let match_tx_socket = match_tx.clone();
         let exec_tx_socket = exec_tx.clone();
         let socket = socket.to_owned();
-        thread::spawn(move || socket_manager(config, socket, match_tx_socket, exec_tx_socket));
+        tokio::spawn(async move {
+            socket_manager(config, socket, match_tx_socket, exec_tx_socket).await
+        });
     }
 
     for stream in config.streams().values() {
         let match_tx = match_tx.clone();
-        let (child_tx, child_rx) = sync_channel(0);
+        let (child_tx, child_rx) = oneshot::channel();
 
-        stream_thread_handles.push(thread::spawn(move || stream.manager(child_tx, match_tx)));
+        stream_task_handles.push(tokio::spawn(async move {
+            stream.manager(child_tx, match_tx).await
+        }));
 
-        if let Ok(Some(child)) = child_rx.recv() {
+        if let Ok(Some(child)) = child_rx.await {
             stream_process_child_handles.push(child);
         }
     }
 
+    // TODO replace by async things
     let signal_received = Arc::new(AtomicBool::new(false));
     {
         // Handle SIGINT, SIGTERM, SIGHUP
@@ -117,23 +120,24 @@ pub fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
     }
 
     // Wait for all streams to quit
-    for thread_handle in stream_thread_handles {
-        let _ = thread_handle.join();
+    for task_handle in stream_task_handles {
+        let _ = task_handle.await;
     }
 
     #[allow(clippy::unwrap_used)] // propagating panics is ok
-    match_tx.send(MatchManagerInput::Stop).unwrap();
-    let _ = matches_manager_thread_handle.join();
+    match_tx.send(MatchManagerInput::Stop).await.unwrap();
+    let _ = matches_manager_task_handle.await;
 
     #[allow(clippy::unwrap_used)] // propagating panics is ok
-    exec_tx.send(ExecsManagerInput::Stop).unwrap();
-    let _ = execs_manager_thread_handle.join();
+    exec_tx.send(ExecsManagerInput::Stop).await.unwrap();
+    let _ = execs_manager_task_handle.await;
 
-    let _ = database_manager_thread_handle.join();
+    let _ = database_manager_task_handle.await;
 
     let stop_ok = config.stop();
 
     // not waiting for the socket_manager to finish, sorry
+    // TODO make it listen on shutdown_rx
     if let Err(err) = fs::remove_file(socket) {
         error!("failed to remove socket: {}", err);
     }

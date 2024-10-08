@@ -1,5 +1,6 @@
-use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, process::Command, sync::Arc};
+use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 
+use async_process::Command;
 use chrono::TimeDelta;
 
 use serde::Deserialize;
