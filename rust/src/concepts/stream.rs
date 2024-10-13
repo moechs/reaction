@@ -1,11 +1,13 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, process::Stdio};
 
-use async_process::{Child, Command, Stdio};
 use chrono::Local;
-use futures::{io::BufReader, AsyncBufReadExt, StreamExt};
 use log::{error, info};
 use serde::Deserialize;
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::{Child, Command},
+    sync::{mpsc, oneshot},
+};
 
 use super::{Filter, Patterns, MFT};
 use crate::daemon::MatchManagerInput;
@@ -91,27 +93,36 @@ impl Stream {
         // let main handle the child process
         let _ = child_tx.send(Some(child));
 
-        while let Some(line) = lines.next().await {
-            let line = match line {
-                Ok(line) => line,
-                Err(_) => break,
-            };
-
-            for filter in self.filters.values() {
-                if let Some(match_) = filter.get_match(&line) {
-                    #[allow(clippy::unwrap_used)] // propagating panics is ok
-                    match_tx
-                        .send(MatchManagerInput::Match(MFT {
-                            m: match_,
-                            o: filter,
-                            t: Local::now(),
-                        }))
-                        .await
-                        .unwrap();
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    for filter in self.filters.values() {
+                        if let Some(match_) = filter.get_match(&line) {
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            match_tx
+                                .send(MatchManagerInput::Match(MFT {
+                                    m: match_,
+                                    o: filter,
+                                    t: Local::now(),
+                                }))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                }
+                Ok(None) => {
+                    error!("stream {} exited: its command returned.", self.name);
+                    break;
+                }
+                Err(err) => {
+                    error!(
+                        "impossible to read output from stream {}: {}",
+                        self.name, err
+                    );
+                    break;
                 }
             }
         }
-        error!("stream {} exited: its command returned.", self.name);
     }
 }
 

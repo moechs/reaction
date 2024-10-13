@@ -1,59 +1,73 @@
 use std::{
     collections::BTreeSet,
     error::Error,
-    io::{stdin, stdout, BufRead, BufReader},
-    os::unix::net::UnixStream,
+    io::{stdin, BufRead, BufReader},
     path::PathBuf,
-    process::exit,
     sync::Arc,
 };
 
 use bincode::Options;
-use log::{error, info};
+use futures::{SinkExt, StreamExt};
+use log::info;
 use regex::Regex;
+use tokio::{io::AsyncWriteExt, net::UnixStream};
+use tokio_util::{
+    bytes::Bytes,
+    codec::{Framed, LengthDelimitedCodec},
+};
 
 use crate::{
     concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
     utils::{bincode_options, cli::Format},
 };
+
 macro_rules! or_quit {
     ($msg:expr, $expression:expr) => {
-        match $expression {
-            Ok(x) => x,
-            Err(err) => {
-                error!("failed to communicate to daemon: {}, {}", $msg, err);
-                exit(1);
-            }
-        }
+        $expression.map_err(|err| format!("failed to communicate to daemon: {}, {}", $msg, err))?
     };
 }
 
-fn send_retrieve(socket: &PathBuf, req: &ClientRequest) -> DaemonResponse {
+async fn send_retrieve(socket: &PathBuf, req: &ClientRequest) -> Result<DaemonResponse, String> {
     let bin = bincode_options();
-    let conn = or_quit!("opening connection to daemon", UnixStream::connect(socket));
-    let conn2 = or_quit!("failed to clone stream", conn.try_clone());
-    or_quit!("failed to send request", bin.serialize_into(conn, req));
+    let conn = or_quit!(
+        "opening connection to daemon",
+        UnixStream::connect(socket).await
+    );
+    // Encode
+    let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+    let encoded_request = or_quit!("failed to encode request", bin.serialize(req));
     or_quit!(
         "failed to send request",
-        bin.deserialize_from::<UnixStream, DaemonResponse>(conn2)
+        transport.send(Bytes::from(encoded_request)).await
+    );
+    // Decode
+    let encoded_response = or_quit!(
+        "failed to read response",
+        transport.next().await.ok_or("empty response from server")
+    );
+    let encoded_response = or_quit!("failed to decode response", encoded_response);
+    or_quit!(
+        "failed to decode response",
+        bin.deserialize(&encoded_response)
     )
 }
 
-fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {
-    match format {
-        Format::JSON => serde_json::to_writer(stdout().lock(), &cs)?,
-        Format::YAML => serde_yaml::to_writer(stdout().lock(), &cs)?,
-    }
+async fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {
+    let encoded = match format {
+        Format::JSON => serde_json::to_string_pretty(&cs)?,
+        Format::YAML => serde_yaml::to_string(&cs)?,
+    };
+    tokio::io::stdout().write_all(encoded.as_bytes()).await?;
     Ok(())
 }
 
-pub fn request(
+pub async fn request(
     socket: PathBuf,
     format: Format,
     stream_filter: Option<String>,
     patterns: Vec<(String, String)>,
     order: Order,
-) {
+) -> Result<(), Box<dyn Error>> {
     let response = send_retrieve(
         &socket,
         &ClientRequest {
@@ -61,29 +75,25 @@ pub fn request(
             stream_filter,
             patterns,
         },
-    );
-    match response {
-        DaemonResponse::Order(cs) => {
-            if let Err(err) = print_status(cs, format) {
-                error!("while printing response: {err}");
-                exit(1);
-            }
-        }
-        DaemonResponse::Err(err) => {
-            error!("failed to communicate to daemon: error response: {err}");
-            exit(1);
-        }
-    }
+    )
+    .await;
+    match response? {
+        DaemonResponse::Order(cs) => print_status(cs, format)
+            .await
+            .map_err(|err| format!("while printing response: {err}")),
+        DaemonResponse::Err(err) => Err(format!(
+            "failed to communicate to daemon: error response: {err}"
+        )),
+    }?;
+    Ok(())
 }
 
-pub fn test_regex(config_path: PathBuf, mut regex: String, line: Option<String>) {
-    let config: Config = match Config::from_file(&config_path) {
-        Ok(config) => config,
-        Err(err) => {
-            error!("{err}");
-            exit(1);
-        }
-    };
+pub fn test_regex(
+    config_path: PathBuf,
+    mut regex: String,
+    line: Option<String>,
+) -> Result<(), Box<dyn Error>> {
+    let config: Config = Config::from_file(&config_path)?;
 
     // Code close to Filter::setup()
     let mut used_patterns: BTreeSet<Arc<Pattern>> = BTreeSet::new();
@@ -92,24 +102,18 @@ pub fn test_regex(config_path: PathBuf, mut regex: String, line: Option<String>)
             // we already `find` it, so we must be able to `rfind` it
             #[allow(clippy::unwrap_used)]
             if regex.rfind(pattern.name_with_braces()).unwrap() != index {
-                error!(
+                return Err(format!(
                     "pattern {} present multiple times in regex",
                     pattern.name_with_braces()
-                );
-                exit(1);
+                )
+                .into());
             }
             used_patterns.insert(pattern.clone());
         }
         regex = regex.replacen(pattern.name_with_braces(), &pattern.regex, 1);
     }
 
-    let compiled = match Regex::new(&regex) {
-        Ok(reg) => reg,
-        Err(err) => {
-            error!("regex doesn't compile: {err}");
-            exit(1);
-        }
-    };
+    let compiled = Regex::new(&regex).map_err(|err| format!("regex doesn't compile: {err}"))?;
 
     let match_closure = |line: String| {
         let mut ignored = false;
@@ -148,4 +152,5 @@ pub fn test_regex(config_path: PathBuf, mut regex: String, line: Option<String>)
             };
         }
     }
+    Ok(())
 }

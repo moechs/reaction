@@ -59,7 +59,7 @@ pub async fn matches_manager(
                                 #[allow(clippy::unwrap_used)]
                                 // retry_duration is always Some() after filter's setup
                                 let dur = mft.t - Local::now() + mft.o.retry_duration().unwrap();
-                                time::sleep(dur.to_std().unwrap()).await;
+                                time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous retry_duration?")).await;
                                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                                 match_tx
                                     .send(MatchManagerInput::Unmatch(mft))

@@ -1,9 +1,9 @@
 use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 
-use async_process::Command;
 use chrono::TimeDelta;
 
 use serde::Deserialize;
+use tokio::process::Command;
 
 use super::{ActionFilter, Match, Pattern};
 use crate::utils::parse_duration;

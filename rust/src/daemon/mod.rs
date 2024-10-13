@@ -1,7 +1,7 @@
 use std::{
+    error::Error,
     fs,
     path::PathBuf,
-    process::exit,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -10,7 +10,13 @@ use std::{
 
 use log::{error, info};
 use socket::socket_manager;
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    join,
+    process::Child,
+    select,
+    signal::unix::{signal, SignalKind},
+    sync::{mpsc, oneshot},
+};
 
 use crate::concepts::Config;
 use database::database_manager;
@@ -26,18 +32,12 @@ mod matches;
 mod socket;
 mod statemap;
 
-pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
-    let config: &'static Config = match Config::from_file(&config_path) {
-        Ok(config) => Box::leak(Box::new(config)),
-        Err(err) => {
-            error!("{err}");
-            exit(1);
-        }
-    };
+pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn Error>> {
+    let config: &'static Config =
+        Config::from_file(&config_path).map(|config| Box::leak(Box::new(config)))?;
 
     if !config.start() {
-        error!("a start command failed, exiting.");
-        exit(1);
+        return Err("a start command failed, exiting.".into());
     }
 
     let mut stream_process_child_handles = Vec::new();
@@ -93,6 +93,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
     }
 
     // TODO replace by async things
+    tokio::spawn(async move {});
     let signal_received = Arc::new(AtomicBool::new(false));
     {
         // Handle SIGINT, SIGTERM, SIGHUP
@@ -102,8 +103,8 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
 
             info!("waiting for streams to finish...");
             // Kill stream subprocesses
-            for child_handle in stream_process_child_handles.iter_mut() {
-                let _ = child_handle.kill();
+            for child_handle in stream_process_child_handles.into_iter() {
+                let _ = tokio::spawn(async move { child_handle.kill().await });
             }
         }) {
             match err {
@@ -112,8 +113,9 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
                 ctrlc::Error::MultipleHandlers => {}
                 // Real error
                 _ => {
-                    error!("impossible to launch a signal-catching thread, exiting: {err}");
-                    exit(1);
+                    return Err(
+                        "impossible to launch a signal-catching thread, exiting: {err}".into(),
+                    );
                 }
             }
         }
@@ -142,5 +144,26 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> bool {
         error!("failed to remove socket: {}", err);
     }
 
-    !signal_received.load(Ordering::SeqCst) && stop_ok
+    if !signal_received.load(Ordering::SeqCst) {
+        Err("quitting because all streams finished".into())
+    } else if !stop_ok {
+        Err("while executing stop command".into())
+    } else {
+        Ok(())
+    }
+}
+
+async fn signals(stream_process_child_handles: Vec<Child>) -> tokio::io::Result<()> {
+    // TODO refaire pour que la création des channels soient sync puis que la suite soit spawn
+    {
+        let mut sighup = signal(SignalKind::hangup())?;
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
+        select! {
+            _ = sighup.recv() => {},
+            _ = sigint.recv() => {},
+            _ = sigterm.recv() => {},
+        };
+    }
+    Ok(())
 }

@@ -43,6 +43,12 @@ impl<T: DeserializeOwned> LengthPrefixedBincode<T> {
     }
 }
 
+impl<T: DeserializeOwned> Default for LengthPrefixedBincode<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: DeserializeOwned> Decoder for LengthPrefixedBincode<T> {
     type Item = T;
     type Error = DecodeError;

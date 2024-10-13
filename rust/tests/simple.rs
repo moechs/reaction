@@ -70,8 +70,8 @@ fn get_file_content(path: &str) -> String {
     contents
 }
 
-#[test]
-fn simple() {
+#[tokio::test]
+async fn simple() {
     let dir = TempDir::new().unwrap();
     env::set_current_dir(&dir).unwrap();
 
@@ -89,10 +89,13 @@ fn simple() {
     // Set the logger before running any code from the crate
     SimpleLogger::init(Level::Debug).unwrap();
 
+    // Initialize tokio runtime
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+
     // Run the daemon
-    let handle = thread::spawn(move || {
-        assert!(daemon(config_path.into(), socket_path.into()));
-    });
+    let exit =
+        runtime.block_on(async move { daemon(config_path.into(), socket_path.into()).await });
+    assert!(exit);
 
     // Run the flushes
 
@@ -122,7 +125,6 @@ fn simple() {
         );
     });
 
-    handle.join().unwrap();
     handle2.join().unwrap();
     handle3.join().unwrap();
 

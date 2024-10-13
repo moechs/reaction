@@ -23,7 +23,6 @@ thiserror = "1.0.63"
 timer = "0.2.0"
 
 # async-related
-async-process = "2.3.0"
 futures = "0.3.30"
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-util = { version = "0.7.12", features = ["codec"] }

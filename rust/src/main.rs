@@ -2,14 +2,15 @@ use std::process::exit;
 
 use clap::Parser;
 
-use log::Level;
+use log::{error, Level};
 use reaction::client::{request, test_regex};
 use reaction::concepts::Order;
 use reaction::daemon::daemon;
 use reaction::utils::cli::{Cli, Command};
 use reaction::utils::SimpleLogger;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Show a nice message when reaction panics
     std::panic::set_hook(Box::new(move |panic_info| {
         eprintln!("ERROR internal reaction error: panic");
@@ -43,35 +44,37 @@ fn main() {
         }
     }
 
-    match cli.command {
+    let result = match cli.command {
         Command::Start {
             config,
             loglevel: _,
             socket,
-        } => {
-            let runtime = tokio::runtime::Runtime::new().unwrap();
-            let daemon_exit = runtime.block_on(async move { daemon(config, socket).await });
-            exit(match daemon_exit {
-                true => 0,
-                false => 1,
-            });
-        }
+        } => daemon(config, socket).await,
         Command::Show {
             socket,
             format,
             limit,
             patterns,
-        } => request(socket, format, limit, patterns, Order::Show),
+        } => request(socket, format, limit, patterns, Order::Show).await,
         Command::Flush {
             socket,
             format,
             limit,
             patterns,
-        } => request(socket, format, limit, patterns, Order::Flush),
+        } => request(socket, format, limit, patterns, Order::Flush).await,
         Command::TestRegex {
             config,
             regex,
             line,
         } => test_regex(config, regex, line),
+    };
+    match result {
+        Ok(()) => {
+            exit(0);
+        }
+        Err(err) => {
+            error!("{err}");
+            exit(1);
+        }
     }
 }

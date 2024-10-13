@@ -44,6 +44,7 @@ pub async fn execs_manager(
 
             // Wait for semaphore's permission, if it is Some
             let _permit = match semaphore {
+                #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
                 Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
                 None => None,
             };
@@ -79,7 +80,7 @@ pub async fn execs_manager(
                         let exec_tx = exec_tx.clone();
                         tokio::spawn(async move {
                             let dur = mat.t - Local::now();
-                            time::sleep(dur.to_std().unwrap()).await;
+                            time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?")).await;
                             #[allow(clippy::unwrap_used)] // propagating panics is ok
                             exec_tx
                                 .send(ExecsManagerInput::ExecPending(mat.clone()))
