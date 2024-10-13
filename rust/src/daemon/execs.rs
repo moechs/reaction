@@ -1,11 +1,11 @@
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
 use chrono::Local;
-use tracing::{error, info};
 use tokio::{
     sync::{mpsc, watch, Semaphore},
     time,
 };
+use tracing::{error, info};
 
 use crate::concepts::{Action, ActionFilter, Config, LogEntry, Order, MAT};
 
@@ -68,7 +68,7 @@ pub async fn execs_manager(
             _ = stop.changed() => break,
             Some(mat) = exec_rx.recv() => {
                 let now = Local::now();
-                if mat.t.lt(&now) {
+                if mat.t < now {
                     exec_now(mat);
                 } else {
                      execs.add(&mat);
@@ -76,7 +76,7 @@ pub async fn execs_manager(
                         let mat = mat.clone();
                         let pendings_tx = pendings_tx.clone();
                         tokio::spawn(async move {
-                            let dur = mat.t - Local::now();
+                            let dur = mat.t - now;
                             time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?")).await;
                             #[allow(clippy::unwrap_used)] // propagating panics is ok
                             pendings_tx
@@ -139,17 +139,17 @@ pub async fn execs_manager(
             }
             else => break
         }
+    }
 
-        for (action, inner_map) in &mut execs {
-            if action.on_exit() {
-                for (match_, inner_set) in inner_map {
-                    for _ in inner_set.iter() {
-                        exec_now(MAT {
-                            m: match_.clone(),
-                            o: action,
-                            t: Local::now(),
-                        });
-                    }
+    for (action, inner_map) in &mut execs {
+        if action.on_exit() {
+            for (match_, inner_set) in inner_map {
+                for _ in inner_set.iter() {
+                    exec_now(MAT {
+                        m: match_.clone(),
+                        o: action,
+                        t: Local::now(),
+                    });
                 }
             }
         }

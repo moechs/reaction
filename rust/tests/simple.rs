@@ -1,19 +1,14 @@
 use std::{
     env,
     fs::File,
-    io::{Read, Write},
+    io::{IsTerminal, Read, Write},
     time::Duration,
 };
 
-use tracing::Level;
 use tempfile::TempDir;
+use tracing::Level;
 
-use reaction::{
-    client::request,
-    concepts::Order,
-    daemon::daemon,
-    utils::{cli::Format, SimpleLogger},
-};
+use reaction::{client::request, concepts::Order, daemon::daemon, utils::cli::Format};
 use tokio::time::sleep;
 
 fn file_with_contents(path: &str, contents: &str) {
@@ -87,11 +82,16 @@ async fn simple() {
     file_with_contents(out_path, "");
 
     // Set the logger before running any code from the crate
-    SimpleLogger::init(Level::Debug).unwrap();
+    tracing_subscriber::fmt::fmt()
+        .without_time()
+        .with_target(false)
+        .with_ansi(std::io::stdout().is_terminal())
+        .with_max_level(Level::DEBUG)
+        .try_init()
+        .unwrap();
 
     // Run the daemon
-    let handle =
-        tokio::spawn(async move { daemon(config_path.into(), socket_path.into()).await });
+    let handle = tokio::spawn(async move { daemon(config_path.into(), socket_path.into()).await });
 
     // Run the flushes
 
@@ -107,7 +107,8 @@ async fn simple() {
             None,
             vec![("num".into(), "24".into())],
             Order::Flush,
-        ).await
+        )
+        .await
     });
 
     let handle3 = tokio::spawn(async move {
@@ -118,7 +119,8 @@ async fn simple() {
             None,
             vec![("num".into(), "56".into())],
             Order::Flush,
-        ).await
+        )
+        .await
     });
 
     let (daemon_exit, _, _) = tokio::join!(handle, handle2, handle3);
