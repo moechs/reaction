@@ -15,7 +15,7 @@ use super::{
     messages::{Match, Time, MAT},
     Action, ActionFilter, LogEntry, Pattern, Patterns,
 };
-use crate::{daemon::ExecsManagerInput, utils::parse_duration};
+use crate::utils::parse_duration;
 
 // Only names are serialized
 // Only computed fields are not deserialized
@@ -201,12 +201,7 @@ impl Filter {
         None
     }
 
-    pub async fn send_actions(
-        &'static self,
-        m: &Match,
-        t: Time,
-        tx: &mpsc::Sender<ExecsManagerInput>,
-    ) {
+    pub async fn send_actions(&'static self, m: &Match, t: Time, tx: &mpsc::Sender<MAT>) {
         for action in self.actions.values() {
             let mat = MAT {
                 m: m.clone(),
@@ -214,7 +209,7 @@ impl Filter {
                 t: t + action.after_duration().unwrap_or_default(),
             };
             #[allow(clippy::unwrap_used)] // propagating panics is ok
-            tx.send(ExecsManagerInput::Exec(mat)).await.unwrap();
+            tx.send(mat).await.unwrap();
         }
     }
 

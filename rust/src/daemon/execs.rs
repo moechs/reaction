@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 use chrono::Local;
 use log::{error, info};
 use tokio::{
-    sync::{mpsc, oneshot, Semaphore},
+    sync::{mpsc, Semaphore},
     time,
 };
 
@@ -11,23 +11,16 @@ use crate::concepts::{Action, ActionFilter, Config, LogEntry, Order, MAT};
 
 use super::{
     database::DatabaseManagerInput,
-    statemap::{FilterOptions, StateMap, StateMapTrait},
+    socket::SocketOrder,
+    statemap::{StateMap, StateMapTrait},
 };
 
-#[derive(Debug)]
-pub enum ExecsManagerInput {
-    Exec(MAT),
-    ExecPending(MAT),
-    Order(Order, FilterOptions, oneshot::Sender<ExecsMap>),
-    Stop,
-}
-
-type ExecsMap = StateMap<Action>;
+pub type ExecsMap = StateMap<Action>;
 
 pub async fn execs_manager(
     config: &'static Config,
-    mut exec_rx: mpsc::Receiver<ExecsManagerInput>,
-    exec_tx: mpsc::Sender<ExecsManagerInput>,
+    mut exec_rx: mpsc::Receiver<MAT>,
+    mut socket_order_rx: mpsc::Receiver<SocketOrder<ExecsMap>>,
     log_tx: mpsc::Sender<DatabaseManagerInput>,
 ) {
     // FIXME replace with TryStreamExt::try_for_each_concurrent?
@@ -67,35 +60,37 @@ pub async fn execs_manager(
 
     let mut execs: ExecsMap = BTreeMap::new();
 
-    while let Some(mat) = exec_rx.recv().await {
-        match mat {
-            ExecsManagerInput::Exec(mat) => {
+    let (pendings_tx, mut pendings_rx) = mpsc::channel(1);
+
+    loop {
+        tokio::select! {
+            Some(mat) = exec_rx.recv() => {
                 let now = Local::now();
                 if mat.t.lt(&now) {
                     exec_now(mat);
                 } else {
-                    execs.add(&mat);
+                     execs.add(&mat);
                     {
                         let mat = mat.clone();
-                        let exec_tx = exec_tx.clone();
+                        let pendings_tx = pendings_tx.clone();
                         tokio::spawn(async move {
                             let dur = mat.t - Local::now();
                             time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?")).await;
                             #[allow(clippy::unwrap_used)] // propagating panics is ok
-                            exec_tx
-                                .send(ExecsManagerInput::ExecPending(mat.clone()))
+                            pendings_tx
+                                .send(mat.clone())
                                 .await
                                 .unwrap();
                         });
                     }
                 }
             }
-            ExecsManagerInput::ExecPending(mat) => {
+            Some(mat) = pendings_rx.recv() => {
                 if execs.rm(&mat) {
                     exec_now(mat);
                 }
             }
-            ExecsManagerInput::Order(order, options, tx) => {
+            Some((order, options, tx)) = socket_order_rx.recv() => {
                 let filtered = execs.filtered(options);
 
                 if let Order::Flush = order {
@@ -140,21 +135,20 @@ pub async fn execs_manager(
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 tx.send(filtered).unwrap();
             }
-            ExecsManagerInput::Stop => {
-                for (action, inner_map) in execs {
-                    if action.on_exit() {
-                        for (match_, inner_set) in inner_map {
-                            for _ in inner_set {
-                                exec_now(MAT {
-                                    m: match_.clone(),
-                                    o: action,
-                                    t: Local::now(),
-                                });
-                            }
-                        }
+            else => break
+        }
+
+        for (action, inner_map) in &mut execs {
+            if action.on_exit() {
+                for (match_, inner_set) in inner_map {
+                    for _ in inner_set.iter() {
+                        exec_now(MAT {
+                            m: match_.clone(),
+                            o: action,
+                            t: Local::now(),
+                        });
                     }
                 }
-                break;
             }
         }
     }

@@ -1,21 +1,12 @@
-use std::{
-    error::Error,
-    fs,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::{error::Error, fs, path::PathBuf};
 
 use log::{error, info};
 use socket::socket_manager;
 use tokio::{
-    join,
     process::Child,
     select,
     signal::unix::{signal, SignalKind},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
 };
 
 use crate::concepts::Config;
@@ -23,16 +14,13 @@ use database::database_manager;
 use execs::execs_manager;
 use matches::matches_manager;
 
-pub use execs::ExecsManagerInput;
-pub use matches::MatchManagerInput;
-
 mod database;
 mod execs;
 mod matches;
 mod socket;
 mod statemap;
 
-pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn Error>> {
+pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: &'static Config =
         Config::from_file(&config_path).map(|config| Box::leak(Box::new(config)))?;
 
@@ -43,48 +31,55 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
     let mut stream_process_child_handles = Vec::new();
     let mut stream_task_handles = Vec::new();
 
-    let (match_tx, match_rx) = mpsc::channel(10);
+    let (stream2match_tx, stream2match_rx) = mpsc::channel(10);
+    let (database2match_tx, database2match_rx) = mpsc::channel(10);
+
+    let (socket2match_tx, socket2match_rx) = mpsc::channel(1);
+    let (socket2exec_tx, socket2exec_rx) = mpsc::channel(1);
+
     let (exec_tx, exec_rx) = mpsc::channel(10);
     let (log_tx, log_rx) = mpsc::channel(10);
 
-    // TODO use this for a more idiomatic shutdown signal
-    // let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    // Shutdown channel
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let matches_manager_task_handle = {
-        let match_tx_matches = match_tx.clone();
-        let exec_tx_matches = exec_tx.clone();
-        let log_tx_matches = log_tx.clone();
+        let log_tx = log_tx.clone();
         tokio::spawn(async move {
-            matches_manager(match_rx, match_tx_matches, exec_tx_matches, log_tx_matches).await
+            matches_manager(
+                stream2match_rx,
+                database2match_rx,
+                socket2match_rx,
+                exec_tx,
+                log_tx,
+            )
+            .await
         })
     };
 
     let execs_manager_task_handle = {
-        let exec_tx_execs = exec_tx.clone();
-        tokio::spawn(async move { execs_manager(config, exec_rx, exec_tx_execs, log_tx).await })
+        tokio::spawn(async move { execs_manager(config, exec_rx, socket2exec_rx, log_tx).await })
     };
 
     let database_manager_task_handle = {
-        let match_tx_database = match_tx.clone();
         // The `task::spawn` is done in the function, after database rotation is finished
-        database_manager(config, log_rx, match_tx_database).await
+        database_manager(config, log_rx, database2match_tx).await
     };
 
-    {
-        let match_tx_socket = match_tx.clone();
-        let exec_tx_socket = exec_tx.clone();
+    let socket_manager_task_handle = {
         let socket = socket.to_owned();
+        let shutdown_rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            socket_manager(config, socket, match_tx_socket, exec_tx_socket).await
-        });
-    }
+            socket_manager(config, socket, socket2match_tx, socket2exec_tx, shutdown_rx).await
+        })
+    };
 
     for stream in config.streams().values() {
-        let match_tx = match_tx.clone();
+        let stream2match_tx = stream2match_tx.clone();
         let (child_tx, child_rx) = oneshot::channel();
 
         stream_task_handles.push(tokio::spawn(async move {
-            stream.manager(child_tx, match_tx).await
+            stream.manager(child_tx, stream2match_tx).await
         }));
 
         if let Ok(Some(child)) = child_rx.await {
@@ -92,48 +87,17 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
         }
     }
 
-    // TODO replace by async things
-    tokio::spawn(async move {});
-    let signal_received = Arc::new(AtomicBool::new(false));
-    {
-        // Handle SIGINT, SIGTERM, SIGHUP
-        let signal_received2 = signal_received.clone();
-        if let Err(err) = ctrlc::set_handler(move || {
-            signal_received2.store(true, Ordering::SeqCst);
-
-            info!("waiting for streams to finish...");
-            // Kill stream subprocesses
-            for child_handle in stream_process_child_handles.into_iter() {
-                let _ = tokio::spawn(async move { child_handle.kill().await });
-            }
-        }) {
-            match err {
-                // Would only happen in tests as this is the only place in the code
-                // where we put an handler. Sorry that there is test-specific code!
-                ctrlc::Error::MultipleHandlers => {}
-                // Real error
-                _ => {
-                    return Err(
-                        "impossible to launch a signal-catching thread, exiting: {err}".into(),
-                    );
-                }
-            }
-        }
-    }
+    // Close streams when we receive a quit signal
+    handle_signals(stream_process_child_handles, shutdown_tx)?;
 
     // Wait for all streams to quit
     for task_handle in stream_task_handles {
         let _ = task_handle.await;
     }
 
-    #[allow(clippy::unwrap_used)] // propagating panics is ok
-    match_tx.send(MatchManagerInput::Stop).await.unwrap();
+    let _ = socket_manager_task_handle.await;
     let _ = matches_manager_task_handle.await;
-
-    #[allow(clippy::unwrap_used)] // propagating panics is ok
-    exec_tx.send(ExecsManagerInput::Stop).await.unwrap();
     let _ = execs_manager_task_handle.await;
-
     let _ = database_manager_task_handle.await;
 
     let stop_ok = config.stop();
@@ -144,7 +108,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
         error!("failed to remove socket: {}", err);
     }
 
-    if !signal_received.load(Ordering::SeqCst) {
+    if !shutdown_rx.borrow().eq(&true) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {
         Err("while executing stop command".into())
@@ -153,17 +117,25 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
     }
 }
 
-async fn signals(stream_process_child_handles: Vec<Child>) -> tokio::io::Result<()> {
-    // TODO refaire pour que la création des channels soient sync puis que la suite soit spawn
-    {
-        let mut sighup = signal(SignalKind::hangup())?;
-        let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigterm = signal(SignalKind::terminate())?;
-        select! {
-            _ = sighup.recv() => {},
-            _ = sigint.recv() => {},
-            _ = sigterm.recv() => {},
+fn handle_signals(
+    stream_process_child_handles: Vec<Child>,
+    shutdown_tx: watch::Sender<bool>,
+) -> tokio::io::Result<()> {
+    let mut sighup = signal(SignalKind::hangup())?;
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    tokio::spawn(async move {
+        let signal = select! {
+            _ = sighup.recv() => "SIGHUP",
+            _ = sigint.recv() => "SIGINT",
+            _ = sigterm.recv() => "SIGTERM",
         };
-    }
+        let _ = shutdown_tx.send(true);
+        info!("received {signal}, closing streams...");
+        // Kill stream subprocesses
+        for mut child_handle in stream_process_child_handles.into_iter() {
+            tokio::spawn(async move { child_handle.kill().await });
+        }
+    });
     Ok(())
 }

@@ -2,7 +2,6 @@ use std::{
     env,
     fs::File,
     io::{Read, Write},
-    thread,
     time::Duration,
 };
 
@@ -15,6 +14,7 @@ use reaction::{
     daemon::daemon,
     utils::{cli::Format, SimpleLogger},
 };
+use tokio::time::sleep;
 
 fn file_with_contents(path: &str, contents: &str) {
     let mut file = File::create(path).unwrap();
@@ -89,13 +89,9 @@ async fn simple() {
     // Set the logger before running any code from the crate
     SimpleLogger::init(Level::Debug).unwrap();
 
-    // Initialize tokio runtime
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-
     // Run the daemon
-    let exit =
-        runtime.block_on(async move { daemon(config_path.into(), socket_path.into()).await });
-    assert!(exit);
+    let handle =
+        tokio::spawn(async move { daemon(config_path.into(), socket_path.into()).await });
 
     // Run the flushes
 
@@ -103,30 +99,30 @@ async fn simple() {
     // This ensures that the subsecond precision lost from de/serialization
     // never causes the flush to be interpreted as anterior to the match
 
-    let handle2 = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(2500));
+    let handle2 = tokio::spawn(async move {
+        sleep(Duration::from_millis(2500)).await;
         request(
             socket_path.into(),
             Format::JSON,
             None,
             vec![("num".into(), "24".into())],
             Order::Flush,
-        );
+        ).await
     });
 
-    let handle3 = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(2500));
+    let handle3 = tokio::spawn(async move {
+        sleep(Duration::from_millis(2500)).await;
         request(
             socket_path.into(),
             Format::JSON,
             None,
             vec![("num".into(), "56".into())],
             Order::Flush,
-        );
+        ).await
     });
 
-    handle2.join().unwrap();
-    handle3.join().unwrap();
+    let (daemon_exit, _, _) = tokio::join!(handle, handle2, handle3);
+    assert!(daemon_exit.is_ok());
 
     assert_eq!(
         // 24 is encountered for the second time, then
@@ -148,7 +144,7 @@ async fn simple() {
 
     file_with_contents(out_path, "");
 
-    assert!(daemon(config_path.into(), socket_path.into()));
+    assert!(daemon(config_path.into(), socket_path.into()).await.is_ok());
 
     // 36 from DB
     // 12 from DB

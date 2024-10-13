@@ -10,8 +10,7 @@ use log::{debug, error, info, warn};
 use thiserror::Error;
 use tokio::{sync::mpsc, task};
 
-use super::MatchManagerInput;
-use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time};
+use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time, MFT};
 
 mod lowlevel;
 mod tests;
@@ -64,7 +63,7 @@ macro_rules! flush_or_die {
 pub async fn database_manager(
     config: &'static Config,
     mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
-    matches_tx: mpsc::Sender<MatchManagerInput>,
+    matches_tx: mpsc::Sender<MFT>,
 ) -> task::JoinHandle<()> {
     let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)).await {
         Ok(dbs) => dbs,
@@ -109,23 +108,17 @@ pub async fn database_manager(
 
 async fn rotate_db(
     config: &'static Config,
-    matches_tx: Option<mpsc::Sender<MatchManagerInput>>,
+    matches_tx: Option<mpsc::Sender<MFT>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     info!("Rotating database...");
     let res = _rotate_db(config, &matches_tx).await;
-
-    if let Some(tx) = matches_tx {
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
-        tx.send(MatchManagerInput::EndOfStartup).await.unwrap();
-    }
-
     info!("Rotated database");
     res
 }
 
 async fn _rotate_db(
     config: &'static Config,
-    matches_tx: &Option<mpsc::Sender<MatchManagerInput>>,
+    matches_tx: &Option<mpsc::Sender<MFT>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     // TODO asyncify this
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config).await? {
@@ -182,7 +175,7 @@ async fn _rotate_db(
 }
 
 async fn __rotate_db(
-    matches_tx: &Option<mpsc::Sender<MatchManagerInput>>,
+    matches_tx: &Option<mpsc::Sender<MFT>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
@@ -248,9 +241,7 @@ async fn __rotate_db(
                     if let Some(tx) = matches_tx {
                         debug!("DB sending match from DB: {:?}", entry.m);
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
-                        tx.send(MatchManagerInput::Match(entry.clone().into()))
-                            .await
-                            .unwrap();
+                        tx.send(entry.clone().into()).await.unwrap();
                     }
 
                     write_or_die!(log_write_db, entry);

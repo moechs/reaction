@@ -67,7 +67,7 @@ pub async fn request(
     stream_filter: Option<String>,
     patterns: Vec<(String, String)>,
     order: Order,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let response = send_retrieve(
         &socket,
         &ClientRequest {
@@ -92,7 +92,7 @@ pub fn test_regex(
     config_path: PathBuf,
     mut regex: String,
     line: Option<String>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: Config = Config::from_file(&config_path)?;
 
     // Code close to Filter::setup()

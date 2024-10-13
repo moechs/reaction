@@ -10,7 +10,6 @@ use tokio::{
 };
 
 use super::{Filter, Patterns, MFT};
-use crate::daemon::MatchManagerInput;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,7 +66,7 @@ impl Stream {
     pub async fn manager(
         &'static self,
         child_tx: oneshot::Sender<Option<Child>>,
-        match_tx: mpsc::Sender<MatchManagerInput>,
+        match_tx: mpsc::Sender<MFT>,
     ) {
         info!("{}: start {:?}", self.name, self.cmd);
         let mut child = match Command::new(&self.cmd[0])
@@ -100,11 +99,11 @@ impl Stream {
                         if let Some(match_) = filter.get_match(&line) {
                             #[allow(clippy::unwrap_used)] // propagating panics is ok
                             match_tx
-                                .send(MatchManagerInput::Match(MFT {
+                                .send(MFT {
                                     m: match_,
                                     o: filter,
                                     t: Local::now(),
-                                }))
+                                })
                                 .await
                                 .unwrap();
                         }

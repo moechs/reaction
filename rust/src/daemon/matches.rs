@@ -1,104 +1,54 @@
 use std::collections::BTreeMap;
 
 use chrono::Local;
-use log::debug;
-use tokio::{
-    sync::{mpsc, oneshot},
-    time,
-};
+use tokio::{sync::mpsc, time};
 
 use super::{
     database::DatabaseManagerInput,
-    statemap::{FilterOptions, StateMap, StateMapTrait},
-    ExecsManagerInput,
+    socket::SocketOrder,
+    statemap::{StateMap, StateMapTrait},
 };
-use crate::concepts::{ActionFilter, Filter, LogEntry, Order, MFT};
-
-#[derive(Debug)]
-pub enum MatchManagerInput {
-    Match(MFT),
-    Unmatch(MFT),
-    Order(Order, FilterOptions, oneshot::Sender<MatchesMap>),
-    EndOfStartup,
-    Stop,
-}
+use crate::concepts::{Filter, LogEntry, Order, MAT, MFT};
 
 pub type MatchesMap = StateMap<Filter>;
 
 pub async fn matches_manager(
-    mut match_rx: mpsc::Receiver<MatchManagerInput>,
-    match_tx: mpsc::Sender<MatchManagerInput>,
-    action_tx: mpsc::Sender<ExecsManagerInput>,
+    mut match_rx: mpsc::Receiver<MFT>,
+    mut startup_match_rx: mpsc::Receiver<MFT>,
+    mut socket_order_rx: mpsc::Receiver<SocketOrder<MatchesMap>>,
+    action_tx: mpsc::Sender<MAT>,
     log_tx: mpsc::Sender<DatabaseManagerInput>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
-    let mut startup = true;
+    let (unmatches_tx, mut unmatches_rx) = mpsc::channel(1);
 
-    while let Some(mft) = match_rx.recv().await {
-        for (filter, map) in matches.iter() {
-            debug!("MATCHES {:?} {:?}", filter.full_name(), map.keys());
-        }
-        match mft {
-            MatchManagerInput::EndOfStartup => {
-                debug!("end of startup!");
-                startup = false;
+    while let Some(mft) = startup_match_rx.recv().await {
+        let _ = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx).await;
+    }
+
+    loop {
+        tokio::select! {
+            Some(mft) = match_rx.recv() => {
+                let exec = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx).await;
+
+                #[allow(clippy::unwrap_used)] // propagating panics is ok
+                log_tx
+                    .send(DatabaseManagerInput::Log(LogEntry {
+                        exec,
+                        m: mft.m,
+                        f: mft.o,
+                        t: mft.t,
+                    }))
+                .await
+                    .unwrap();
             }
-            MatchManagerInput::Match(mft) => {
-                // Store matches
-                let exec = match mft.o.retry() {
-                    None => true,
-                    Some(retry) => {
-                        // Add new match
-                        matches.add(&mft);
-                        // Remove match when expired
-                        {
-                            let mft = mft.clone();
-                            let match_tx = match_tx.clone();
-                            tokio::spawn(async move {
-                                #[allow(clippy::unwrap_used)]
-                                // retry_duration is always Some() after filter's setup
-                                let dur = mft.t - Local::now() + mft.o.retry_duration().unwrap();
-                                time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous retry_duration?")).await;
-                                #[allow(clippy::unwrap_used)] // propagating panics is ok
-                                match_tx
-                                    .send(MatchManagerInput::Unmatch(mft))
-                                    .await
-                                    .unwrap();
-                            });
-                        }
-
-                        matches.get_times(&mft) >= retry as usize
-                    }
-                };
-
-                // Executing actions
-                if exec {
-                    // Delete matches only if storing them
-                    if mft.o.retry().is_some() {
-                        matches.rm_times(&mft);
-                    }
-                    mft.o.send_actions(&mft.m, mft.t, &action_tx).await;
-                }
-
-                if !startup {
-                    #[allow(clippy::unwrap_used)] // propagating panics is ok
-                    log_tx
-                        .send(DatabaseManagerInput::Log(LogEntry {
-                            exec,
-                            m: mft.m,
-                            f: mft.o,
-                            t: mft.t,
-                        }))
-                        .await
-                        .unwrap();
-                }
-            }
-            MatchManagerInput::Unmatch(mft) => {
+            Some(mft) = unmatches_rx.recv() => {
                 matches.rm(&mft);
             }
-            MatchManagerInput::Order(order, options, tx) => {
-                let filtered = matches.filtered(options);
+            Some((order, options, tx)) = socket_order_rx.recv() => {
+                // FIXME do not clone
+                let filtered = matches.clone().filtered(options);
 
                 if let Order::Flush = order {
                     let now = Local::now();
@@ -130,8 +80,49 @@ pub async fn matches_manager(
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 tx.send(filtered).unwrap();
             }
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            MatchManagerInput::Stop => break,
+            else => break
         }
     }
+}
+
+async fn handle_match(
+    matches: &mut MatchesMap,
+    mft: MFT,
+    unmatches_tx: &mpsc::Sender<MFT>,
+    action_tx: &mpsc::Sender<MAT>,
+) -> bool {
+    // Store matches
+    let exec = match mft.o.retry() {
+        None => true,
+        Some(retry) => {
+            // Add new match
+            matches.add(&mft);
+            // Remove match when expired
+            {
+                let mft = mft.clone();
+                let unmatches_tx = unmatches_tx.clone();
+                tokio::spawn(async move {
+                    #[allow(clippy::unwrap_used)]
+                    // retry_duration is always Some() after filter's setup
+                    let dur = mft.t - Local::now() + mft.o.retry_duration().unwrap();
+                    time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous retry_duration?")).await;
+                    #[allow(clippy::unwrap_used)] // propagating panics is ok
+                    unmatches_tx.send(mft).await.unwrap();
+                });
+            }
+
+            matches.get_times(&mft) >= retry as usize
+        }
+    };
+
+    // Executing actions
+    if exec {
+        // Delete matches only if storing them
+        if mft.o.retry().is_some() {
+            matches.rm_times(&mft);
+        }
+        mft.o.send_actions(&mft.m, mft.t, action_tx).await;
+    }
+
+    exec
 }

@@ -7,7 +7,7 @@ use regex::Regex;
 use tokio::{
     join,
     net::UnixListener,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
 };
 use tokio_util::{
     bytes::Bytes,
@@ -16,12 +16,13 @@ use tokio_util::{
 
 use crate::{
     concepts::{
-        ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Pattern, PatternStatus,
+        ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern,
+        PatternStatus,
     },
     utils::bincode_options,
 };
 
-use super::{statemap::FilterOptions, ExecsManagerInput, MatchManagerInput};
+use super::{execs::ExecsMap, matches::MatchesMap, statemap::FilterOptions};
 
 macro_rules! err_str {
     ($expression:expr) => {
@@ -56,8 +57,8 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
 
 async fn answer_order(
     config: &'static Config,
-    match_tx: &mpsc::Sender<MatchManagerInput>,
-    exec_tx: &mpsc::Sender<ExecsManagerInput>,
+    match_tx: &mpsc::Sender<SocketOrder<MatchesMap>>,
+    exec_tx: &mpsc::Sender<SocketOrder<ExecsMap>>,
     options: ClientRequest,
 ) -> Result<ClientStatus, String> {
     // Compute options
@@ -104,11 +105,7 @@ async fn answer_order(
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         match_tx
-            .send(MatchManagerInput::Order(
-                options.order,
-                filtering_options2,
-                m_tx,
-            ))
+            .send((options.order, filtering_options2, m_tx))
             .await
             .unwrap();
 
@@ -122,11 +119,7 @@ async fn answer_order(
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         exec_tx
-            .send(ExecsManagerInput::Order(
-                options.order,
-                filtering_options,
-                e_tx,
-            ))
+            .send((options.order, filtering_options, e_tx))
             .await
             .unwrap();
 
@@ -196,11 +189,14 @@ macro_rules! or_next {
     };
 }
 
+pub type SocketOrder<T> = (Order, FilterOptions, oneshot::Sender<T>);
+
 pub async fn socket_manager(
     config: &'static Config,
     socket: PathBuf,
-    match_tx: mpsc::Sender<MatchManagerInput>,
-    exec_tx: mpsc::Sender<ExecsManagerInput>,
+    match_tx: mpsc::Sender<SocketOrder<MatchesMap>>,
+    exec_tx: mpsc::Sender<SocketOrder<ExecsMap>>,
+    mut stop: watch::Receiver<bool>,
 ) {
     let listener = match open_socket(socket) {
         Ok(l) => l,
@@ -212,37 +208,43 @@ pub async fn socket_manager(
 
     let bin = bincode_options();
     loop {
-        let try_conn = listener.accept().await;
-        match try_conn {
-            Ok((conn, _)) => {
-                let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-                // Decode
-                let received = transport.next().await;
-                let encoded_request = match received {
-                    Some(r) => or_next!("while reading request", r),
-                    None => {
-                        error!("failed to answer client: client sent no request");
-                        continue;
-                    }
-                };
-                let request = or_next!(
-                    "failed to decode request",
-                    bin.deserialize(&encoded_request)
-                );
-                // Process
-                let response = match answer_order(config, &match_tx, &exec_tx, request).await {
-                    Ok(res) => DaemonResponse::Order(res),
-                    Err(err) => DaemonResponse::Err(err),
-                };
-                // Encode
-                let encoded_response =
-                    or_next!("failed to serialize response", bin.serialize(&response));
-                or_next!(
-                    "failed to send response:",
-                    transport.send(Bytes::from(encoded_response)).await
-                );
+        tokio::select! {
+            _ = stop.changed() => {
+                break
             }
-            Err(err) => error!("failed to open connection from cli: {err}"),
+            try_conn = listener.accept() => {
+                match try_conn {
+                    Ok((conn, _)) => {
+                        let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+                        // Decode
+                        let received = transport.next().await;
+                        let encoded_request = match received {
+                            Some(r) => or_next!("while reading request", r),
+                            None => {
+                                error!("failed to answer client: client sent no request");
+                                continue;
+                            }
+                        };
+                        let request = or_next!(
+                            "failed to decode request",
+                            bin.deserialize(&encoded_request)
+                            );
+                        // Process
+                        let response = match answer_order(config, &match_tx, &exec_tx, request).await {
+                            Ok(res) => DaemonResponse::Order(res),
+                            Err(err) => DaemonResponse::Err(err),
+                        };
+                        // Encode
+                        let encoded_response =
+                            or_next!("failed to serialize response", bin.serialize(&response));
+                        or_next!(
+                            "failed to send response:",
+                            transport.send(Bytes::from(encoded_response)).await
+                            );
+                    }
+                    Err(err) => error!("failed to open connection from cli: {err}"),
+                }
+            }
         }
     }
 }
