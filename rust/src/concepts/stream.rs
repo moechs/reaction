@@ -7,7 +7,7 @@ use tokio::{
     process::{Child, Command},
     sync::{mpsc, oneshot},
 };
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use super::{Filter, Patterns, MFT};
 
@@ -122,7 +122,6 @@ impl Stream {
                 }
             }
         }
-        debug!("fin stream manager");
     }
 }
 

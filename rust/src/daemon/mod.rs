@@ -1,6 +1,5 @@
 use std::{error::Error, fs, path::PathBuf};
 
-use tracing::{error, info};
 use socket::socket_manager;
 use tokio::{
     process::Child,
@@ -8,6 +7,7 @@ use tokio::{
     signal::unix::{signal, SignalKind},
     sync::{mpsc, oneshot, watch},
 };
+use tracing::{error, info};
 
 use crate::concepts::Config;
 use database::database_manager;
@@ -20,7 +20,10 @@ mod matches;
 mod socket;
 mod statemap;
 
-pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn daemon(
+    config_path: PathBuf,
+    socket: PathBuf,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: &'static Config =
         Config::from_file(&config_path).map(|config| Box::leak(Box::new(config)))?;
 
@@ -45,6 +48,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
 
     let matches_manager_task_handle = {
         let log_tx = log_tx.clone();
+        let shutdown_rx = shutdown_rx.clone();
         tokio::spawn(async move {
             matches_manager(
                 stream2match_rx,
@@ -52,13 +56,17 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
                 socket2match_rx,
                 exec_tx,
                 log_tx,
+                shutdown_rx,
             )
             .await
         })
     };
 
     let execs_manager_task_handle = {
-        tokio::spawn(async move { execs_manager(config, exec_rx, socket2exec_rx, log_tx).await })
+        let shutdown_rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            execs_manager(config, exec_rx, socket2exec_rx, log_tx, shutdown_rx).await
+        })
     };
 
     let database_manager_task_handle = {
@@ -89,12 +97,13 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
     drop(stream2match_tx);
 
     // Close streams when we receive a quit signal
-    handle_signals(stream_process_child_handles, shutdown_tx)?;
+    handle_signals(stream_process_child_handles, shutdown_tx.clone())?;
 
     // Wait for all streams to quit
     for task_handle in stream_task_handles {
         let _ = task_handle.await;
     }
+    let _ = shutdown_tx.send(true);
 
     let _ = socket_manager_task_handle.await;
     let _ = matches_manager_task_handle.await;

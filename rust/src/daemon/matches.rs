@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use chrono::Local;
-use tokio::{sync::mpsc, time};
+use tokio::{
+    sync::{mpsc, watch},
+    time,
+};
 
 use super::{
     database::DatabaseManagerInput,
@@ -18,6 +21,7 @@ pub async fn matches_manager(
     mut socket_order_rx: mpsc::Receiver<SocketOrder<MatchesMap>>,
     action_tx: mpsc::Sender<MAT>,
     log_tx: mpsc::Sender<DatabaseManagerInput>,
+    mut stop: watch::Receiver<bool>,
 ) {
     let mut matches: MatchesMap = BTreeMap::new();
 
@@ -29,6 +33,7 @@ pub async fn matches_manager(
 
     loop {
         tokio::select! {
+            _ = stop.changed() => break,
             Some(mft) = match_rx.recv() => {
                 let exec = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx).await;
 

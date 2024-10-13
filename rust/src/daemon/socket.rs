@@ -209,9 +209,7 @@ pub async fn socket_manager(
     let bin = bincode_options();
     loop {
         tokio::select! {
-            _ = stop.changed() => {
-                break
-            }
+            _ = stop.changed() => break,
             try_conn = listener.accept() => {
                 match try_conn {
                     Ok((conn, _)) => {

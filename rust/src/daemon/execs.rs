@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 use chrono::Local;
 use tracing::{error, info};
 use tokio::{
-    sync::{mpsc, Semaphore},
+    sync::{mpsc, watch, Semaphore},
     time,
 };
 
@@ -22,6 +22,7 @@ pub async fn execs_manager(
     mut exec_rx: mpsc::Receiver<MAT>,
     mut socket_order_rx: mpsc::Receiver<SocketOrder<ExecsMap>>,
     log_tx: mpsc::Sender<DatabaseManagerInput>,
+    mut stop: watch::Receiver<bool>,
 ) {
     // FIXME replace with TryStreamExt::try_for_each_concurrent?
     let semaphore = if config.concurrency() > 0 {
@@ -64,6 +65,7 @@ pub async fn execs_manager(
 
     loop {
         tokio::select! {
+            _ = stop.changed() => break,
             Some(mat) = exec_rx.recv() => {
                 let now = Local::now();
                 if mat.t.lt(&now) {
