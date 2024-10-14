@@ -7,9 +7,9 @@ use std::{
     sync::Arc,
 };
 
-use log::{error, info};
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::{error, info};
 
 use super::{Filter, Pattern, Stream};
 

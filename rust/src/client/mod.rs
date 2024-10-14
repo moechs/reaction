@@ -8,13 +8,13 @@ use std::{
 
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
-use log::info;
 use regex::Regex;
 use tokio::{io::AsyncWriteExt, net::UnixStream};
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
 };
+use tracing::info;
 
 use crate::{
     concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},

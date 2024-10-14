@@ -1,13 +1,13 @@
 use std::{collections::BTreeMap, process::Stdio};
 
 use chrono::Local;
-use log::{error, info};
 use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     sync::{mpsc, oneshot},
 };
+use tracing::{debug, error, info};
 
 use super::{Filter, Patterns, MFT};
 
@@ -122,6 +122,7 @@ impl Stream {
                 }
             }
         }
+        debug!("fin stream manager");
     }
 }
 

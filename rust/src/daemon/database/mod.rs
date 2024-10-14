@@ -6,9 +6,9 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
-use log::{debug, error, info, warn};
 use thiserror::Error;
 use tokio::{sync::mpsc, task};
+use tracing::{debug, error, info, warn};
 
 use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time, MFT};
 

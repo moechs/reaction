@@ -1,13 +1,14 @@
-use std::process::exit;
+use std::{io::IsTerminal, process::exit};
 
 use clap::Parser;
 
-use log::{error, Level};
-use reaction::client::{request, test_regex};
-use reaction::concepts::Order;
-use reaction::daemon::daemon;
-use reaction::utils::cli::{Cli, Command};
-use reaction::utils::SimpleLogger;
+use reaction::{
+    client::{request, test_regex},
+    concepts::Order,
+    daemon::daemon,
+    utils::cli::{Cli, Command},
+};
+use tracing::{error, Level};
 
 #[tokio::main]
 async fn main() {
@@ -36,9 +37,15 @@ async fn main() {
         {
             loglevel
         } else {
-            Level::Debug
+            Level::DEBUG
         };
-        if let Err(err) = SimpleLogger::init(level) {
+        if let Err(err) = tracing_subscriber::fmt::fmt()
+            .without_time()
+            .with_target(false)
+            .with_ansi(std::io::stdout().is_terminal())
+            .with_max_level(level)
+            .try_init()
+        {
             eprintln!("ERROR could not initialize logging: {err}");
             exit(1);
         }

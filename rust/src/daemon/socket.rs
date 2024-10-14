@@ -2,7 +2,6 @@ use std::{collections::BTreeMap, fs, io, path::PathBuf, process::exit, sync::Arc
 
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
-use log::{error, warn};
 use regex::Regex;
 use tokio::{
     join,
@@ -13,6 +12,7 @@ use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
 };
+use tracing::{error, warn};
 
 use crate::{
     concepts::{

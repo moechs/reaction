@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use log::Level;
+use tracing::Level;
 use tempfile::TempDir;
 
 use reaction::{

@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, fmt::Debug, process::exit};
 use bincode::Options;
 use chrono::{DateTime, Local};
 use futures::{io, SinkExt, StreamExt};
-use log::{debug, error, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     fs::File,
@@ -13,6 +12,7 @@ use tokio_util::{
     bytes::Bytes,
     codec::{FramedRead, FramedWrite, LengthDelimitedCodec},
 };
+use tracing::{debug, error, warn};
 
 use crate::{
     concepts::{ActionFilter, Config, Filter, LogEntry, Match},

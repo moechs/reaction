@@ -6,10 +6,10 @@ use std::{
 };
 
 use chrono::TimeDelta;
-use log::info;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::mpsc;
+use tracing::info;
 
 use super::{
     messages::{Match, Time, MAT},

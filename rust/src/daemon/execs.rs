@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
 use chrono::Local;
-use log::{error, info};
+use tracing::{error, info};
 use tokio::{
     sync::{mpsc, Semaphore},
     time,
@@ -45,7 +45,7 @@ pub async fn execs_manager(
             // Construct command
             let mut command = action.exec(&mat.m);
 
-            info!("{}: run [{:?}]", &action, command);
+            info!("{}: run [{:?}]", &action, command.as_std());
             if let Err(err) = command
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
@@ -53,7 +53,7 @@ pub async fn execs_manager(
                 .status()
                 .await
             {
-                error!("{}: run [{:?}], code {}", &action, command, err);
+                error!("{}: run [{:?}], code {}", &action, command.as_std(), err);
             }
         });
     };

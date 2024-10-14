@@ -1,11 +1,9 @@
 pub mod cli;
-pub mod logger;
 mod parse_duration;
 
 use std::marker::PhantomData;
 
 use bincode::Options;
-pub use logger::SimpleLogger;
 pub use parse_duration::parse_duration;
 use serde::de::DeserializeOwned;
 use thiserror::Error;

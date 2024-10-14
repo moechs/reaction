@@ -2,6 +2,7 @@ use std::{fmt, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
+use tracing::Level;
 
 #[derive(Parser)]
 #[clap(version)]
@@ -30,8 +31,8 @@ pub enum Command {
         config: PathBuf,
 
         /// minimum log level to show
-        #[clap(short = 'l', long, value_parser = parse_log_level, default_value_t = log::Level::Info, ignore_case = true)]
-        loglevel: log::Level,
+        #[clap(short = 'l', long, value_parser = parse_log_level, default_value_t = Level::INFO, ignore_case = true)]
+        loglevel: Level,
 
         /// path to the client-daemon communication socket
         #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
@@ -129,13 +130,13 @@ fn parse_named_regex(s: &str) -> Result<(String, String), String> {
     Ok((name.to_string(), v.to_string()))
 }
 
-fn parse_log_level(s: &str) -> Result<log::Level, String> {
+fn parse_log_level(s: &str) -> Result<Level, String> {
     match s.to_ascii_uppercase().as_str() {
-        "DEBUG" => Ok(log::Level::Debug),
-        "INFO" => Ok(log::Level::Info),
-        "WARN" => Ok(log::Level::Warn),
-        "ERROR" => Ok(log::Level::Error),
-        "FATAL" => Ok(log::Level::Error),
+        "DEBUG" => Ok(Level::DEBUG),
+        "INFO" => Ok(Level::INFO),
+        "WARN" => Ok(Level::WARN),
+        "ERROR" => Ok(Level::ERROR),
+        "FATAL" => Ok(Level::ERROR),
         _ => Err("must be one of ERROR, WARN, INFO, DEBUG".into()),
     }
 }

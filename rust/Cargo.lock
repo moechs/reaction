@@ -726,7 +726,6 @@ dependencies = [
  "clap_complete",
  "futures",
  "jrsonnet-evaluator",
- "log",
  "num_cpus",
  "regex",
  "serde",

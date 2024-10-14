@@ -1,6 +1,6 @@
 use std::{error::Error, fs, path::PathBuf};
 
-use log::{error, info};
+use tracing::{error, info};
 use socket::socket_manager;
 use tokio::{
     process::Child,
@@ -86,6 +86,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> Result<(), Box<dyn
             stream_process_child_handles.push(child);
         }
     }
+    drop(stream2match_tx);
 
     // Close streams when we receive a quit signal
     handle_signals(stream_process_child_handles, shutdown_tx)?;
