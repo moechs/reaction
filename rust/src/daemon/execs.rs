@@ -75,14 +75,20 @@ pub async fn execs_manager(
                     {
                         let mat = mat.clone();
                         let pendings_tx = pendings_tx.clone();
+                        let mut stop = stop.clone();
                         tokio::spawn(async move {
-                            let dur = mat.t - now;
-                            time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?")).await;
-                            #[allow(clippy::unwrap_used)] // propagating panics is ok
-                            pendings_tx
-                                .send(mat.clone())
-                                .await
-                                .unwrap();
+                            let dur = (mat.t - now).to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?");
+                            tokio::select! {
+                                biased;
+                                _ = stop.changed() => {}
+                                _ = time::sleep(dur) => {
+                                    #[allow(clippy::unwrap_used)] // propagating panics is ok
+                                    pendings_tx
+                                        .send(mat.clone())
+                                        .await
+                                        .unwrap();
+                                }
+                            }
                         });
                     }
                 }

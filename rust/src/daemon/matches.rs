@@ -28,14 +28,14 @@ pub async fn matches_manager(
     let (unmatches_tx, mut unmatches_rx) = mpsc::channel(1);
 
     while let Some(mft) = startup_match_rx.recv().await {
-        let _ = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx).await;
+        let _ = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx, &stop).await;
     }
 
     loop {
         tokio::select! {
             _ = stop.changed() => break,
             Some(mft) = match_rx.recv() => {
-                let exec = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx).await;
+                let exec = handle_match(&mut matches, mft.clone(), &unmatches_tx, &action_tx, &stop).await;
 
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 log_tx
@@ -95,6 +95,7 @@ async fn handle_match(
     mft: MFT,
     unmatches_tx: &mpsc::Sender<MFT>,
     action_tx: &mpsc::Sender<MAT>,
+    stop: &watch::Receiver<bool>,
 ) -> bool {
     // Store matches
     let exec = match mft.o.retry() {
@@ -106,13 +107,21 @@ async fn handle_match(
             {
                 let mft = mft.clone();
                 let unmatches_tx = unmatches_tx.clone();
+                let mut stop = stop.clone();
                 tokio::spawn(async move {
                     #[allow(clippy::unwrap_used)]
                     // retry_duration is always Some() after filter's setup
-                    let dur = mft.t - Local::now() + mft.o.retry_duration().unwrap();
-                    time::sleep(dur.to_std().expect("Duration is bigger than what's supported. Did you put an enormous retry_duration?")).await;
-                    #[allow(clippy::unwrap_used)] // propagating panics is ok
-                    unmatches_tx.send(mft).await.unwrap();
+                    let dur = (mft.t - Local::now() + mft.o.retry_duration().unwrap())
+                        .to_std()
+                        .expect("Duration is bigger than what's supported. Did you put an enormous retry_duration?");
+                    tokio::select! {
+                        biased;
+                        _ = stop.changed() => {}
+                        _ = time::sleep(dur) => {
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            unmatches_tx.send(mft).await.unwrap();
+                        }
+                    }
                 });
             }
 
