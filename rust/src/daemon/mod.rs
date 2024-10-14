@@ -34,14 +34,14 @@ pub async fn daemon(
     let mut stream_process_child_handles = Vec::new();
     let mut stream_task_handles = Vec::new();
 
-    let (stream2match_tx, stream2match_rx) = mpsc::channel(10);
-    let (database2match_tx, database2match_rx) = mpsc::channel(10);
+    let (stream2match_tx, stream2match_rx) = mpsc::channel(123456);
+    let (database2match_tx, database2match_rx) = mpsc::channel(234560);
 
     let (socket2match_tx, socket2match_rx) = mpsc::channel(1);
     let (socket2exec_tx, socket2exec_rx) = mpsc::channel(1);
 
-    let (exec_tx, exec_rx) = mpsc::channel(10);
-    let (log_tx, log_rx) = mpsc::channel(10);
+    let (matches2exec_tx, matches2exec_rx) = mpsc::channel(234560);
+    let (log_tx, log_rx) = mpsc::channel(234560);
 
     // Shutdown channel
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -54,7 +54,7 @@ pub async fn daemon(
                 stream2match_rx,
                 database2match_rx,
                 socket2match_rx,
-                exec_tx,
+                matches2exec_tx,
                 log_tx,
                 shutdown_rx,
             )
@@ -65,7 +65,7 @@ pub async fn daemon(
     let execs_manager_task_handle = {
         let shutdown_rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            execs_manager(config, exec_rx, socket2exec_rx, log_tx, shutdown_rx).await
+            execs_manager(config, matches2exec_rx, socket2exec_rx, log_tx, shutdown_rx).await
         })
     };
 

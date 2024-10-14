@@ -17,7 +17,7 @@ streams:
         regex:
           - '^found <num>'
         retry: 9
-        retryperiod: 1m
+        retryperiod: 6m
         actions:
           damn:
             cmd: [ 'sleep', '0.0<num>' ]
@@ -32,7 +32,7 @@ streams:
         regex:
           - '^found <num>'
         retry: 480
-        retryperiod: 1m
+        retryperiod: 6m
         actions:
           damn:
             cmd: [ 'sleep', '0.0<num>' ]
@@ -47,7 +47,7 @@ streams:
         regex:
           - '^found <num>'
         retry: 480
-        retryperiod: 1m
+        retryperiod: 6m
         actions:
           damn:
             cmd: [ 'sleep', '0.0<num>' ]
@@ -56,13 +56,13 @@ streams:
             after: 1m
             onexit: false
   tailDown4:
-    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done' ]
+    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done; sleep infinity' ]
     filters:
       find:
         regex:
           - '^found <num>'
         retry: 480
-        retryperiod: 1m
+        retryperiod: 6m
         actions:
           damn:
             cmd: [ 'sleep', '0.0<num>' ]
