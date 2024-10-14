@@ -118,7 +118,7 @@ pub async fn daemon(
         error!("failed to remove socket: {}", err);
     }
 
-    if !shutdown_rx.borrow().eq(&true) {
+    if !*shutdown_rx.borrow() {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {
         Err("while executing stop command".into())
