@@ -56,7 +56,7 @@ streams:
             after: 1m
             onexit: false
   tailDown4:
-    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done; sleep infinity' ]
+    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done' ]
     filters:
       find:
         regex:

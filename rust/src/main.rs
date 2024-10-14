@@ -25,34 +25,34 @@ async fn main() {
         eprintln!("this error occurred.");
     }));
 
-    console_subscriber::init();
+    // console_subscriber::init();
 
     let cli = Cli::parse();
 
-    // {
-    //     // Set log level
-    //     let level = if let Command::Start {
-    //         loglevel,
-    //         config: _,
-    //         socket: _,
-    //     } = cli.command
-    //     {
-    //         loglevel
-    //     } else {
-    //         Level::DEBUG
-    //     };
-    //     if let Err(err) = tracing_subscriber::fmt::fmt()
-    //         .without_time()
-    //         .with_target(false)
-    //         .with_ansi(std::io::stdout().is_terminal())
-    //         // .with_max_level(level)
-    //         .with_max_level(Level::TRACE)
-    //         .try_init()
-    //     {
-    //         eprintln!("ERROR could not initialize logging: {err}");
-    //         exit(1);
-    //     }
-    // }
+    {
+        // Set log level
+        let level = if let Command::Start {
+            loglevel,
+            config: _,
+            socket: _,
+        } = cli.command
+        {
+            loglevel
+        } else {
+            Level::DEBUG
+        };
+        if let Err(err) = tracing_subscriber::fmt::fmt()
+            .without_time()
+            .with_target(false)
+            .with_ansi(std::io::stdout().is_terminal())
+            .with_max_level(level)
+            // .with_max_level(Level::TRACE)
+            .try_init()
+        {
+            eprintln!("ERROR could not initialize logging: {err}");
+            exit(1);
+        }
+    }
 
     let result = match cli.command {
         Command::Start {

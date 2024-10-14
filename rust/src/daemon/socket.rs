@@ -198,7 +198,7 @@ pub async fn socket_manager(
     exec_tx: mpsc::Sender<SocketOrder<ExecsMap>>,
     mut stop: watch::Receiver<bool>,
 ) {
-    let listener = match open_socket(socket) {
+    let listener = match open_socket(socket.clone()) {
         Ok(l) => l,
         Err(err) => {
             error!("while creating communication socket: {err}");
@@ -244,5 +244,9 @@ pub async fn socket_manager(
                 }
             }
         }
+    }
+
+    if let Err(err) = fs::remove_file(socket) {
+        error!("failed to remove socket: {}", err);
     }
 }

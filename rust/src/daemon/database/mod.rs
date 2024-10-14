@@ -63,7 +63,7 @@ macro_rules! flush_or_die {
 pub async fn database_manager(
     config: &'static Config,
     mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
-    matches_tx: mpsc::Sender<MFT>,
+    matches_tx: BTreeMap<&Filter, mpsc::Sender<MFT>>,
 ) -> task::JoinHandle<()> {
     let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)).await {
         Ok(dbs) => dbs,
@@ -82,6 +82,7 @@ pub async fn database_manager(
                     write_or_die!(log_db, entry);
                     cpt += 1;
                     if cpt == MAX_WRITES {
+                        info!("Rotating database...");
                         cpt = 0;
                         flush_or_die!(log_db);
                         flush_or_die!(flush_db);
@@ -97,6 +98,7 @@ pub async fn database_manager(
                                 exit(1);
                             }
                         };
+                        info!("Rotated database");
                     }
                 }
             };
@@ -108,17 +110,7 @@ pub async fn database_manager(
 
 async fn rotate_db(
     config: &'static Config,
-    matches_tx: Option<mpsc::Sender<MFT>>,
-) -> Result<(WriteDB, WriteDB), DBError> {
-    info!("Rotating database...");
-    let res = _rotate_db(config, &matches_tx).await;
-    info!("Rotated database");
-    res
-}
-
-async fn _rotate_db(
-    config: &'static Config,
-    matches_tx: &Option<mpsc::Sender<MFT>>,
+    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     // TODO asyncify this
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config).await? {
@@ -148,7 +140,7 @@ async fn _rotate_db(
 
     let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config).await;
 
-    __rotate_db(
+    _rotate_db(
         matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
@@ -174,8 +166,8 @@ async fn _rotate_db(
     Ok((log_write_db, flush_write_db))
 }
 
-async fn __rotate_db(
-    matches_tx: &Option<mpsc::Sender<MFT>>,
+async fn _rotate_db(
+    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
@@ -238,10 +230,12 @@ async fn __rotate_db(
                         millisecond_disambiguation_counter += 1;
                     }
 
-                    if let Some(tx) = matches_tx {
-                        debug!("DB sending match from DB: {:?}", entry.m);
-                        #[allow(clippy::unwrap_used)] // propagating panics is ok
-                        tx.send(entry.clone().into()).await.unwrap();
+                    if let Some(matches_tx) = &matches_tx {
+                        if let Some(tx) = matches_tx.get(entry.f) {
+                            debug!("DB sending match from DB: {:?}", entry.m);
+                            #[allow(clippy::unwrap_used)] // propagating panics is ok
+                            tx.send(entry.clone().into()).await.unwrap();
+                        }
                     }
 
                     write_or_die!(log_write_db, entry);

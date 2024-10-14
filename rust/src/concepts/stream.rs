@@ -1,15 +1,8 @@
-use std::{collections::BTreeMap, process::Stdio};
+use std::{cmp::Ordering, collections::BTreeMap};
 
-use chrono::Local;
 use serde::Deserialize;
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::{Child, Command},
-    sync::{mpsc, oneshot},
-};
-use tracing::{error, info};
 
-use super::{Filter, Patterns, MFT};
+use super::{Filter, Patterns};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,6 +21,14 @@ impl Stream {
 
     pub fn get_filter(&self, filter_name: &str) -> Option<&Filter> {
         self.filters.get(filter_name)
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn cmd(&self) -> &Vec<String> {
+        &self.cmd
     }
 
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
@@ -62,66 +63,22 @@ impl Stream {
 
         Ok(())
     }
+}
 
-    pub async fn manager(
-        &'static self,
-        child_tx: oneshot::Sender<Option<Child>>,
-        match_tx: mpsc::Sender<MFT>,
-    ) {
-        info!("{}: start {:?}", self.name, self.cmd);
-        let mut child = match Command::new(&self.cmd[0])
-            .args(&self.cmd[1..])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .stdout(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(err) => {
-                error!("could not execute stream {} cmd: {}", self.name, err);
-                let _ = child_tx.send(None);
-                return;
-            }
-        };
-
-        // keep stdout before sending/moving child to the main thread
-        #[allow(clippy::unwrap_used)]
-        // we know there is an stdout because we asked for Stdio::piped()
-        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-
-        // let main handle the child process
-        let _ = child_tx.send(Some(child));
-
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    for filter in self.filters.values() {
-                        if let Some(match_) = filter.get_match(&line) {
-                            #[allow(clippy::unwrap_used)] // propagating panics is ok
-                            match_tx
-                                .send(MFT {
-                                    m: match_,
-                                    o: filter,
-                                    t: Local::now(),
-                                })
-                                .await
-                                .unwrap();
-                        }
-                    }
-                }
-                Ok(None) => {
-                    error!("stream {} exited: its command returned.", self.name);
-                    break;
-                }
-                Err(err) => {
-                    error!(
-                        "impossible to read output from stream {}: {}",
-                        self.name, err
-                    );
-                    break;
-                }
-            }
-        }
+impl PartialEq for Stream {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl Eq for Stream {}
+impl Ord for Stream {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+impl PartialOrd for Stream {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 

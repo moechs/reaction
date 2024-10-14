@@ -74,6 +74,10 @@ impl Filter {
         self.retry_duration
     }
 
+    pub fn actions(&self) -> &BTreeMap<String, Action> {
+        &self.actions
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,
