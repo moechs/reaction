@@ -1,17 +1,8 @@
-use std::{collections::BTreeMap, fmt::Debug, process::exit};
+use std::{collections::BTreeMap, fmt::Debug, fs::File, io::{self, BufReader, BufWriter, Write}, process::exit};
 
 use bincode::Options;
 use chrono::{DateTime, Local};
-use futures::{io, SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::{
-    fs::File,
-    io::{BufReader, BufWriter},
-};
-use tokio_util::{
-    bytes::Bytes,
-    codec::{FramedRead, FramedWrite, LengthDelimitedCodec},
-};
 use tracing::{debug, error, warn};
 
 use crate::{
@@ -32,14 +23,14 @@ type WriteHeader = BTreeMap<&'static Filter, usize>;
 const DB_SIGNATURE: &str = "reaction-db-v01";
 
 pub struct ReadDB {
-    f: FramedRead<BufReader<File>, LengthDelimitedCodec>,
+    f: BufReader<File>,
     h: ReadHeader,
     bin: BincodeOptions,
 }
 
 impl ReadDB {
-    pub async fn open(path: &str, config: &'static Config) -> Result<Option<Self>, DBError> {
-        let file = match File::open(path).await {
+    pub fn open(path: &str, config: &'static Config) -> Result<Option<Self>, DBError> {
+        let file = match File::open(path) {
             Ok(file) => file,
             Err(err) => match err.kind() {
                 std::io::ErrorKind::NotFound => {
@@ -56,31 +47,24 @@ impl ReadDB {
         };
 
         let mut ret = ReadDB {
-            f: FramedRead::new(BufReader::new(file), LengthDelimitedCodec::new()),
+            f: BufReader::new(file),
             h: BTreeMap::default(),
             bin: bincode_options(),
         };
 
-        match ret.read::<String>().await {
-            Some(Ok(signature)) => {
+        match ret.read::<String>() {
+            Ok(signature) => {
                 if DB_SIGNATURE == signature {
                     Ok(())
                 } else {
                     Err(DBError::Error("database is not a reaction database".into()))
                 }
             }
-            Some(Err(err)) => Err(DBError::Error(format!("reading database signature: {err}"))),
-            None => Err(DBError::Error(
-                "EOF while reading database header".to_string(),
-            )),
+            Err(err) => Err(DBError::Error(format!("reading database signature: {err}"))),
         }?;
 
         let db_header = ret
             .read::<DatabaseHeader>()
-            .await
-            .unwrap_or(Err(DBError::Error(
-                "EOF before database header".to_string(),
-            )))
             .map_err(|err| DBError::Error(format!("while reading database header: {err}")))?;
 
         ret.h = db_header
@@ -91,40 +75,40 @@ impl ReadDB {
         Ok(Some(ret))
     }
 
-    async fn read<T: DeserializeOwned + Debug>(&mut self) -> Option<Result<T, DBError>> {
-        match self.f.next().await? {
-            Err(err) => Some(Err(err.into())),
-            Ok(encoded) => Some({
-                match self.bin.deserialize::<T>(&encoded) {
-                    Ok(decoded) => {
-                        debug!("reading this: {:?}", decoded);
-                        Ok(decoded)
-                    }
-                    Err(err) => Err(err.into()),
-                }
-            }),
-        }
+    fn read<T: DeserializeOwned + Debug>(&mut self) -> Result<T, bincode::Error> {
+        let decoded = self.bin.deserialize_from::<_, T>(&mut self.f)?;
+        debug!("reading this: {:?}", &decoded);
+        Ok(decoded)
     }
+}
 
-    // FIXME use channel instead?
-    pub async fn next(&mut self) -> Option<Result<LogEntry, DBError>> {
-        let res = self.read::<ComputedLogEntry>().await;
-        res.map(|item| match item {
-            Ok(item) => item.to(&self.h),
-            Err(err) => Err(err),
-        })
+impl Iterator for ReadDB {
+    type Item = Result<LogEntry, DBError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = self.read::<ComputedLogEntry>();
+        match res {
+            Ok(item) => Some(item.to(&self.h)),
+            Err(err) => match *err {
+                bincode::ErrorKind::Io(err) => match err.kind() {
+                    io::ErrorKind::UnexpectedEof => None,
+                    _ => Some(Err(err.into())),
+                },
+                _ => Some(Err(err.into())),
+            },
+        }
     }
 }
 
 pub struct WriteDB {
-    f: FramedWrite<BufWriter<File>, LengthDelimitedCodec>,
+    f: BufWriter<File>,
     h: WriteHeader,
     bin: BincodeOptions,
 }
 
 impl WriteDB {
-    pub async fn create(path: &str, config: &'static Config) -> Self {
-        let file = match File::create(path).await {
+    pub fn create(path: &str, config: &'static Config) -> Self {
+        let file = match File::create(path) {
             Ok(file) => file,
             Err(err) => {
                 error!("Failed to create DB: {}", err);
@@ -133,12 +117,12 @@ impl WriteDB {
         };
 
         let mut ret = WriteDB {
-            f: FramedWrite::new(BufWriter::new(file), LengthDelimitedCodec::new()),
+            f: BufWriter::new(file),
             h: BTreeMap::default(),
             bin: bincode_options(),
         };
 
-        if let Err(err) = ret._write(DB_SIGNATURE).await {
+        if let Err(err) = ret._write(DB_SIGNATURE) {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }
@@ -153,7 +137,7 @@ impl WriteDB {
             .enumerate()
             .collect();
 
-        if let Err(err) = ret._write(&database_header).await {
+        if let Err(err) = ret._write(&database_header) {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }
@@ -168,20 +152,20 @@ impl WriteDB {
         ret
     }
 
-    pub async fn write(&mut self, entry: LogEntry) -> Result<(), DBError> {
+    pub fn write(&mut self, entry: LogEntry) -> Result<(), DBError> {
         let computed = ComputedLogEntry::from(entry, &self.h)?;
-        self._write(computed).await
+        self._write(computed)
     }
 
-    async fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
+    fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
         let encoded = self.bin.serialize(&data)?;
         // debug!("writing this: {:?}, {:?}", &data, &encoded);
-        self.f.send(Bytes::from(encoded)).await?;
+        self.f.write_all(&encoded)?;
         Ok(())
     }
 
-    pub async fn flush(&mut self) -> io::Result<()> {
-        self.f.flush().await
+    pub fn flush(&mut self) -> io::Result<()> {
+        self.f.flush()
     }
 }
 

@@ -1,13 +1,14 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
-    fs,
+    fs, io,
     process::exit,
+    thread,
 };
 
 use chrono::{Local, TimeDelta};
 use thiserror::Error;
-use tokio::{sync::mpsc, task};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time, MFT};
@@ -30,7 +31,7 @@ pub enum DBError {
     #[error("decode error: {0}")]
     BincodeError(#[from] bincode::Error),
     #[error("io error: {0}")]
-    IOError(#[from] tokio::io::Error),
+    IOError(#[from] io::Error),
     #[error("{0}")]
     Error(String),
 }
@@ -44,7 +45,7 @@ pub enum DatabaseManagerInput {
 // Just discovering macros, let me be useless
 macro_rules! write_or_die {
     ($db:expr, $entry:expr) => {
-        if let Err(err) = $db.write($entry).await {
+        if let Err(err) = $db.write($entry) {
             error!("Could not write to DB: {}", err);
             exit(1);
         }
@@ -52,7 +53,7 @@ macro_rules! write_or_die {
 }
 macro_rules! flush_or_die {
     ($db:expr) => {
-        if let Err(err) = $db.flush().await {
+        if let Err(err) = $db.flush() {
             error!("Could not flush DB: {}", err);
             exit(1);
         }
@@ -60,12 +61,12 @@ macro_rules! flush_or_die {
 }
 
 /// First rotates the database, then spawns the database thread
-pub async fn database_manager(
+pub fn database_manager(
     config: &'static Config,
     mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
     matches_tx: BTreeMap<&Filter, mpsc::Sender<MFT>>,
-) -> task::JoinHandle<()> {
-    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)).await {
+) -> thread::JoinHandle<()> {
+    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
         Ok(dbs) => dbs,
         Err(err) => {
             error!("while rotating databases on start: {}", err);
@@ -73,9 +74,9 @@ pub async fn database_manager(
         }
     };
 
-    task::spawn(async move {
+    thread::spawn(move || {
         let mut cpt = 0;
-        while let Some(order) = log_rx.recv().await {
+        while let Some(order) = log_rx.blocking_recv() {
             match order {
                 DatabaseManagerInput::Flush(entry) => write_or_die!(flush_db, entry),
                 DatabaseManagerInput::Log(entry) => {
@@ -88,7 +89,7 @@ pub async fn database_manager(
                         flush_or_die!(flush_db);
                         drop(log_db);
                         drop(flush_db);
-                        (log_db, flush_db) = match rotate_db(config, None).await {
+                        (log_db, flush_db) = match rotate_db(config, None) {
                             Ok(dbs) => dbs,
                             Err(err) => {
                                 error!(
@@ -108,28 +109,27 @@ pub async fn database_manager(
     })
 }
 
-async fn rotate_db(
+fn rotate_db(
     config: &'static Config,
     matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
-    // TODO asyncify this
-    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config).await? {
+    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
         Some(db) => db,
         None => {
-            return Ok(tokio::join!(
+            return Ok((
                 WriteDB::create(LOG_DB_NAME, config),
                 WriteDB::create(FLUSH_DB_NAME, config),
             ));
         }
     };
-    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config).await? {
+    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config)? {
         Some(db) => db,
         None => {
             warn!(
                 "Strange! Found a {} but no {}, opening /dev/null instead",
                 LOG_DB_NAME, FLUSH_DB_NAME
             );
-            match ReadDB::open("/dev/null", config).await? {
+            match ReadDB::open("/dev/null", config)? {
                 Some(db) => db,
                 None => {
                     return Err(DBError::Error("/dev/null is not accessible".into()));
@@ -138,15 +138,14 @@ async fn rotate_db(
         }
     };
 
-    let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config).await;
+    let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config);
 
     _rotate_db(
         matches_tx,
         &mut log_read_db,
         &mut flush_read_db,
         &mut log_write_db,
-    )
-    .await;
+    );
 
     drop(log_read_db);
     drop(flush_read_db);
@@ -162,11 +161,11 @@ async fn rotate_db(
         return Err(DBError::Error(format!("Failed to delete old DB: {}", err)));
     }
 
-    let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config).await;
+    let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config);
     Ok((log_write_db, flush_write_db))
 }
 
-async fn _rotate_db(
+fn _rotate_db(
     matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
@@ -178,7 +177,7 @@ async fn _rotate_db(
 
     // Read flushes
     let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
-    while let Some(flush_entry) = flush_read_db.next().await {
+    while let Some(flush_entry) = flush_read_db.next() {
         match flush_entry {
             Ok(entry) => {
                 let matches_map = flushes.entry(entry.f).or_default();
@@ -194,7 +193,7 @@ async fn _rotate_db(
     let now = Local::now();
 
     // Read matches
-    while let Some(log_entry) = log_read_db.next().await {
+    while let Some(log_entry) = log_read_db.next() {
         match log_entry {
             Ok(mut entry) => {
                 // Check if number of patterns is in sync
@@ -234,7 +233,7 @@ async fn _rotate_db(
                         if let Some(tx) = matches_tx.get(entry.f) {
                             debug!("DB sending match from DB: {:?}", entry.m);
                             #[allow(clippy::unwrap_used)] // propagating panics is ok
-                            tx.send(entry.clone().into()).await.unwrap();
+                            tx.blocking_send(entry.clone().into()).unwrap();
                         }
                     }
 

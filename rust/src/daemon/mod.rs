@@ -71,9 +71,9 @@ pub async fn daemon(
     drop(log_tx);
     drop(exec_limit);
 
-    let database_manager_task_handle = {
+    let database_manager_thread_handle = {
         // The `task::spawn` is done in the function, after database rotation is finished
-        database_manager(config, log_rx, log2filter_tx).await
+        database_manager(config, log_rx, log2filter_tx)
     };
 
     let mut stream_filter_managers = BTreeMap::new();
@@ -115,7 +115,7 @@ pub async fn daemon(
     let _ = shutdown_tx.send(true);
 
     // let _ = socket_manager_task_handle.await;
-    let _ = database_manager_task_handle.await;
+    let _ = database_manager_thread_handle.join();
 
     let stop_ok = config.stop();
 
