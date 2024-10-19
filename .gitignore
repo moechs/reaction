@@ -14,4 +14,5 @@ reaction*.export.json
 debian-packaging/*
 *.swp
 export-go-db/export-db
-import-rust-db/target/
+import-rust-db/target
+/target
