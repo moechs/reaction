@@ -2,6 +2,8 @@
 /ip46tables
 /nft46
 reaction*.db
+reaction*.db.old
+reaction*.export.json
 /reaction*.sock
 /result
 /wiki
@@ -11,3 +13,5 @@ reaction*.db
 *.qcow2
 debian-packaging/*
 *.swp
+export-go-db/export-db
+import-rust-db/target/
