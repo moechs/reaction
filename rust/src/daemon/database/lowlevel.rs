@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, fmt::Debug, fs::File, io::{self, BufReader, BufWriter, Write}, process::exit};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    fs::File,
+    io::{self, BufReader, BufWriter, Write},
+    process::exit,
+};
 
 use bincode::Options;
 use chrono::{DateTime, Local};
@@ -130,9 +136,7 @@ impl WriteDB {
         let database_header: DatabaseHeader = config
             .filters()
             .into_iter()
-            .map(|f| {
-                (f.stream_name().to_owned(), f.name().to_owned())
-            })
+            .map(|f| (f.stream_name().to_owned(), f.name().to_owned()))
             .enumerate()
             .collect();
 

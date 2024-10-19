@@ -9,8 +9,8 @@ use crate::{
     tests::Fixture,
 };
 
-#[tokio::test]
-async fn write_and_read_db() {
+#[test]
+fn write_and_read_db() {
     let config_file = Fixture::from_string(
         "config.jsonnet",
         "
@@ -61,26 +61,26 @@ async fn write_and_read_db() {
 
     let db_path = Fixture::empty("matches.db");
 
-    let mut write_db = WriteDB::create(db_path.to_str().unwrap(), config).await;
+    let mut write_db = WriteDB::create(db_path.to_str().unwrap(), config);
 
-    assert!(write_db.write(correct_log_entry.clone()).await.is_ok());
-    assert!(write_db.write(incorrect_log_entry).await.is_err());
+    assert!(write_db.write(correct_log_entry.clone()).is_ok());
+    assert!(write_db.write(incorrect_log_entry).is_err());
 
     drop(write_db);
 
-    let read_db = ReadDB::open(db_path.to_str().unwrap(), config).await;
+    let read_db = ReadDB::open(db_path.to_str().unwrap(), config);
 
     assert!(read_db.is_ok());
     let read_db = read_db.unwrap();
     assert!(read_db.is_some());
     let mut read_db = read_db.unwrap();
 
-    let read_entry = read_db.next().await;
+    let read_entry = read_db.next();
     assert!(read_entry.is_some());
     let read_entry = read_entry.unwrap();
     assert!(read_entry.is_ok());
     assert_eq!(read_entry.unwrap(), correct_log_entry);
 
-    let read_entry = read_db.next().await;
+    let read_entry = read_db.next();
     assert!(read_entry.is_none());
 }
