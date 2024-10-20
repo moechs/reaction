@@ -11,7 +11,7 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
+    concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
     utils::bincode_options,
 };
 

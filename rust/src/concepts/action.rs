@@ -5,7 +5,7 @@ use chrono::TimeDelta;
 use serde::Deserialize;
 use tokio::process::Command;
 
-use super::{ActionFilter, Match, Pattern};
+use super::{Match, Pattern};
 use crate::utils::parse_duration;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -33,16 +33,6 @@ pub struct Action {
 
 fn set_false() -> bool {
     false
-}
-
-impl ActionFilter for Action {
-    fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
-        &self.patterns
-    }
-
-    fn full_name(&self) -> (&str, &str, &str) {
-        (&self.stream_name, &self.filter_name, &self.name)
-    }
 }
 
 impl Action {

@@ -1,12 +1,12 @@
 use chrono::{DateTime, Local, TimeDelta};
 
-use super::{Action, ActionFilter, Filter};
+use super::{Action, Filter};
 
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
 
 #[derive(Clone, Debug)]
-pub struct MT<T: ActionFilter + 'static> {
+pub struct MT<T: 'static> {
     pub m: Match,
     pub o: &'static T,
     pub t: Time,

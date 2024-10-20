@@ -11,7 +11,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use crate::concepts::{ActionFilter, Config, Filter, LogEntry, Match, Time, MFT};
+use crate::concepts::{Config, Filter, LogEntry, Match, Time, MFT};
 
 mod lowlevel;
 mod tests;

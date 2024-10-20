@@ -7,7 +7,7 @@ use chrono::Local;
 use regex::Regex;
 use tokio::sync::{mpsc, Semaphore};
 
-use crate::concepts::{ActionFilter, Filter, LogEntry, Match, Pattern, PatternStatus, Time, MFT};
+use crate::concepts::{Filter, LogEntry, Match, Pattern, PatternStatus, Time, MFT};
 
 use super::{action::ActionManager, database::DatabaseManagerInput};
 

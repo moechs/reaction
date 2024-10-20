@@ -6,7 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::{
-    concepts::{ActionFilter, Config, Filter, LogEntry, Match},
+    concepts::{Config, Filter, LogEntry, Match},
     utils::{bincode_options, BincodeOptions},
 };
 
@@ -131,8 +131,7 @@ impl WriteDB {
             .filters()
             .into_iter()
             .map(|f| {
-                let names = f.full_name();
-                (names.0.to_owned(), names.1.to_owned())
+                (f.stream_name().to_owned(), f.name().to_owned())
             })
             .enumerate()
             .collect();

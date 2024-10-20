@@ -13,7 +13,7 @@ use tracing::info;
 
 use super::{
     messages::{Match, Time, MAT},
-    Action, ActionFilter, LogEntry, Pattern, Patterns,
+    Action, LogEntry, Pattern, Patterns,
 };
 use crate::utils::parse_duration;
 
@@ -46,16 +46,6 @@ pub struct Filter {
     stream_name: String,
 }
 
-impl ActionFilter for Filter {
-    fn full_name(&self) -> (&str, &str, &str) {
-        (self.stream_name.as_ref(), self.name.as_ref(), "")
-    }
-
-    fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
-        &self.patterns
-    }
-}
-
 impl Filter {
     #[cfg(test)]
     pub fn from_name(stream_name: &str, filter_name: &str) -> Filter {
@@ -70,6 +60,10 @@ impl Filter {
         &self.name
     }
 
+    pub fn stream_name(&self) -> &str {
+        &self.stream_name
+    }
+
     pub fn retry(&self) -> Option<u32> {
         self.retry
     }
@@ -80,6 +74,10 @@ impl Filter {
 
     pub fn actions(&self) -> &BTreeMap<String, Action> {
         &self.actions
+    }
+
+    pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
+        &self.patterns
     }
 
     pub fn setup(
