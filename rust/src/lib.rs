@@ -2,10 +2,10 @@
     clippy::panic,
     clippy::todo,
     clippy::unimplemented,
-    clippy::unwrap_used
+    clippy::unwrap_used,
+    unsafe_code
 )]
 #![allow(clippy::upper_case_acronyms, clippy::mutable_key_type)]
-#![forbid(unsafe_code)]
 
 pub mod client;
 pub mod concepts;

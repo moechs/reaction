@@ -3,11 +3,7 @@ use std::{collections::BTreeMap, fs, io, path::PathBuf, process::exit, sync::Arc
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio::{
-    join,
-    net::UnixListener,
-    sync::{mpsc, oneshot, watch},
-};
+use tokio::{net::UnixListener, sync::{broadcast, oneshot}};
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
@@ -15,14 +11,18 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{
-        ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern,
-        PatternStatus,
-    },
+    concepts::{ActionFilter, ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
     utils::bincode_options,
 };
 
-use super::{execs::ExecsMap, matches::MatchesMap, statemap::FilterOptions};
+use super::SharedState;
+
+#[derive(Clone)]
+pub struct FilterOptions {
+    pub stream_name: Option<String>,
+    pub filter_name: Option<String>,
+    pub patterns: BTreeMap<Arc<Pattern>, Regex>,
+}
 
 macro_rules! err_str {
     ($expression:expr) => {
@@ -57,122 +57,75 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
 
 async fn answer_order(
     config: &'static Config,
-    match_tx: &mpsc::Sender<SocketOrder<MatchesMap>>,
-    exec_tx: &mpsc::Sender<SocketOrder<ExecsMap>>,
+    shared_state: &SharedState,
     options: ClientRequest,
 ) -> Result<ClientStatus, String> {
     // Compute options
-    let filtering_options = {
-        let (stream_name, filter_name) = match options.stream_filter {
-            Some(sf) => match sf.split_once(".") {
-                Some((s, f)) => (Some(s.to_string()), Some(f.to_string())),
-                None => (Some(sf), None),
-            },
-            None => (None, None),
-        };
-
-        // Compute the Vec<(pattern_name, String)> into a BTreeMap<Arc<Pattern>, Regex>
-        let patterns = options
-            .patterns
-            .iter()
-            .map(|(name, reg)| {
-                // lookup pattern in config.patterns
-                config
-                    .patterns()
-                    .iter()
-                    // retrieve or Err
-                    .find(|(pattern_name, _)| name == *pattern_name)
-                    .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
-                    // compile Regex or Err
-                    .and_then(|(_, pattern)| match Regex::new(reg) {
-                        Ok(reg) => Ok((pattern.clone(), reg)),
-                        Err(err) => Err(format!("pattern '{name}' regex doesn't compile: {err}")),
-                    })
-            })
-            .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
-
-        FilterOptions {
-            stream_name,
-            filter_name,
-            patterns,
-        }
+    let (stream_name, filter_name) = match options.stream_filter {
+        Some(sf) => match sf.split_once(".") {
+            Some((s, f)) => (Some(s.to_string()), Some(f.to_string())),
+            None => (Some(sf), None),
+        },
+        None => (None, None),
     };
 
-    // ask for matches clone
-    let filtering_options2 = filtering_options.clone();
-    let matches = async move {
-        let (m_tx, m_rx) = oneshot::channel();
+    // Compute the Vec<(pattern_name: String, regex: String)> into a BTreeMap<Arc<Pattern>, Regex>
+    let patterns = options
+        .patterns
+        .iter()
+        .map(|(name, reg)| {
+            // lookup pattern in config.patterns
+            config
+                .patterns()
+                .iter()
+                // retrieve or Err
+                .find(|(pattern_name, _)| name == *pattern_name)
+                .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
+                // compile Regex or Err
+                .and_then(|(_, pattern)| match Regex::new(reg) {
+                    Ok(reg) => Ok((pattern.clone(), reg)),
+                    Err(err) => Err(format!("pattern '{name}' regex doesn't compile: {err}")),
+                })
+        })
+        .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
 
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
-        match_tx
-            .send((options.order, filtering_options2, m_tx))
-            .await
-            .unwrap();
-
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
-        m_rx.await.unwrap()
-    };
-
-    // ask for execs clone
-    let execs = async move {
-        let (e_tx, e_rx) = oneshot::channel();
-
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
-        exec_tx
-            .send((options.order, filtering_options, e_tx))
-            .await
-            .unwrap();
-
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
-        e_rx.await.unwrap()
-    };
-
-    let (matches, execs) = join!(matches, execs);
-
-    // Transform matches and execs into a ClientStatus
-    let cs: ClientStatus = matches
-        .into_iter()
-        .fold(BTreeMap::new(), |mut acc, (object, map)| {
-            let (stream, filter, _) = object.full_name();
-            acc.entry(stream.into())
-                .or_default()
-                .entry(filter.into())
-                .or_default()
-                .extend(map.into_iter().map(|(match_, times)| {
+    // TODO directly call flush function here?
+    let cs: ClientStatus = futures::stream::iter(shared_state.s.iter())
+        // stream filtering
+        .filter(|(stream, _)| async {
+            stream_name.is_none()
+                || stream_name
+                    .clone()
+                    .is_some_and(|name| name == stream.name())
+        })
+        .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
+            let filter_manager = filter_manager.lock().await;
+            let inner_map = filter_manager
+                .iter()
+                // filter filtering
+                .filter(|(filter, _)| {
+                    filter_name.is_none()
+                        || filter_name
+                            .clone()
+                            .is_some_and(|name| name == filter.name())
+                })
+                // pattern filtering
+                .filter(|(filter, _)| {
+                    patterns
+                        .iter()
+                        .all(|(pattern, _)| filter.patterns().get(pattern).is_some())
+                })
+                .map(|(filter, manager)| {
                     (
-                        match_.join(" "),
-                        PatternStatus {
-                            matches: times.len(),
-                            ..Default::default()
-                        },
+                        filter.name().to_owned(),
+                        manager.to_pattern_status_map(&patterns),
                     )
-                }));
+                })
+                .collect();
+            acc.insert(stream.name().to_owned(), inner_map);
             acc
-        });
-
-    let cs = execs.into_iter().fold(cs, |mut acc, (object, map)| {
-        let (stream, filter, action) = object.full_name();
-        let inner_map = acc
-            .entry(stream.into())
-            .or_default()
-            .entry(filter.into())
-            .or_default();
-
-        map.into_iter().for_each(|(match_, times)| {
-            inner_map
-                .entry(match_.join(" "))
-                .or_default()
-                .actions
-                .insert(
-                    action.to_string(),
-                    times
-                        .into_iter()
-                        .map(|time| time.to_rfc3339().chars().take(19).collect())
-                        .collect(),
-                );
-        });
-        acc
-    });
+        })
+        .await;
 
     Ok(cs)
 }
@@ -194,9 +147,8 @@ pub type SocketOrder<T> = (Order, FilterOptions, oneshot::Sender<T>);
 pub async fn socket_manager(
     config: &'static Config,
     socket: PathBuf,
-    match_tx: mpsc::Sender<SocketOrder<MatchesMap>>,
-    exec_tx: mpsc::Sender<SocketOrder<ExecsMap>>,
-    mut stop: watch::Receiver<bool>,
+    shared_state: Arc<SharedState>,
+    mut stop: broadcast::Receiver<()>,
 ) {
     let listener = match open_socket(socket.clone()) {
         Ok(l) => l,
@@ -209,7 +161,7 @@ pub async fn socket_manager(
     let bin = bincode_options();
     loop {
         tokio::select! {
-            _ = stop.changed() => break,
+            _ = stop.recv() => break,
             try_conn = listener.accept() => {
                 match try_conn {
                     Ok((conn, _)) => {
@@ -228,7 +180,7 @@ pub async fn socket_manager(
                             bin.deserialize(&encoded_request)
                             );
                         // Process
-                        let response = match answer_order(config, &match_tx, &exec_tx, request).await {
+                        let response = match answer_order(config, &shared_state, request).await {
                             Ok(res) => DaemonResponse::Order(res),
                             Err(err) => DaemonResponse::Err(err),
                         };

@@ -1,18 +1,21 @@
-use std::process::Stdio;
+use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
-    sync::oneshot,
+    sync::{oneshot, Mutex},
 };
 use tracing::{error, info};
 
-use crate::{concepts::Stream, daemon::filter::FilterManager};
+use crate::{
+    concepts::{Filter, Stream},
+    daemon::filter::FilterManager,
+};
 
 pub async fn stream_manager(
     stream: &'static Stream,
     child_tx: oneshot::Sender<Option<Child>>,
-    mut filter_managers: Vec<FilterManager>,
+    filter_managers: Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>,
 ) {
     info!("{}: start {:?}", stream.name(), stream.cmd());
     let mut child = match Command::new(&stream.cmd()[0])
@@ -43,7 +46,9 @@ pub async fn stream_manager(
             Ok(Some(line)) => {
                 futures::future::join_all(
                     filter_managers
-                        .iter_mut()
+                        .lock()
+                        .await
+                        .values_mut()
                         .map(|manager| manager.handle_line(&line)),
                 )
                 .await;
@@ -64,6 +69,8 @@ pub async fn stream_manager(
     }
 
     filter_managers
-        .iter_mut()
+        .lock()
+        .await
+        .values_mut()
         .for_each(|manager| manager.quit());
 }

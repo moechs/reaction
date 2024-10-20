@@ -4,9 +4,10 @@ use std::{
 };
 
 use chrono::Local;
+use regex::Regex;
 use tokio::sync::{mpsc, Semaphore};
 
-use crate::concepts::{Filter, LogEntry, Match, Time, MFT};
+use crate::concepts::{ActionFilter, Filter, LogEntry, Match, Pattern, PatternStatus, Time, MFT};
 
 use super::{action::ActionManager, database::DatabaseManagerInput};
 
@@ -92,6 +93,43 @@ impl FilterManager {
         self.action_managers
             .iter_mut()
             .for_each(|manager| manager.quit());
+    }
+
+    pub fn to_pattern_status_map(
+        &self,
+        patterns: &BTreeMap<Arc<Pattern>, Regex>,
+    ) -> BTreeMap<String, PatternStatus> {
+        self.matches
+            .iter()
+            // TODO match filtering
+            .filter(|(match_, _)| {
+                match_
+                    .iter()
+                    .zip(self.filter.patterns())
+                    .filter_map(|(a_match, pattern)| {
+                        patterns.get(pattern.as_ref()).map(|regex| (a_match, regex))
+                    })
+                    .all(|(a_match, regex)| regex.is_match(a_match))
+            })
+            .map(|(match_, times)| {
+                let actions =
+                    self.action_managers
+                        .iter()
+                        .fold(BTreeMap::default(), |mut acc, manager| {
+                            if let Some(times) = manager.to_readable_vec(match_) {
+                                acc.insert(manager.action().name().to_owned(), times);
+                            }
+                            acc
+                        });
+                (
+                    match_.join(" "),
+                    PatternStatus {
+                        matches: times.len(),
+                        actions,
+                    },
+                )
+            })
+            .collect()
     }
 
     fn add_match(&mut self, m: &Match, t: Time) {

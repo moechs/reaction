@@ -66,6 +66,10 @@ impl Filter {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn retry(&self) -> Option<u32> {
         self.retry
     }

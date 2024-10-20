@@ -46,6 +46,9 @@ impl ActionFilter for Action {
 }
 
 impl Action {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn after_duration(&self) -> Option<TimeDelta> {
         self.after_duration
     }

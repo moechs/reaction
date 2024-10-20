@@ -28,8 +28,7 @@ impl State {
         self.ordered_times.remove(&t).is_some()
     }
 
-    fn clear_past_times(&mut self, after: Option<TimeDelta>) {
-        let now = Local::now();
+    fn clear_past_times(&mut self, now: Time, after: Option<TimeDelta>) {
         let after = after.unwrap_or_default();
         while self
             .ordered_times
@@ -50,6 +49,10 @@ pub struct ActionManager {
 }
 
 impl ActionManager {
+    pub fn action(&self) -> &'static Action {
+        self.action
+    }
+
     pub fn new(
         action: &'static Action,
         pending: BTreeMap<Match, BTreeSet<Time>>,
@@ -76,7 +79,7 @@ impl ActionManager {
         } else {
             {
                 let mut state = self.state.lock().unwrap();
-                state.clear_past_times(self.action.after_duration());
+                state.clear_past_times(t, self.action.after_duration());
                 state.add_match(&m, exec_t);
             }
             let this = self.clone();
@@ -89,6 +92,14 @@ impl ActionManager {
                 }
             });
         }
+    }
+
+    pub fn to_readable_vec(&self, match_: &Match) -> Option<Vec<String>> {
+        self.state.lock().unwrap().pending.get(match_).map(|set| {
+            set.iter()
+                .map(|time| time.to_rfc3339().chars().take(19).collect())
+                .collect()
+        })
     }
 
     fn exec_now(&self, m: Match) {
