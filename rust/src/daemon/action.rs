@@ -8,7 +8,7 @@ use chrono::{Local, TimeDelta};
 use tokio::sync::Semaphore;
 use tracing::{error, info};
 
-use crate::concepts::{Action, Match, Time};
+use crate::concepts::{Action, Match, Order, Time};
 
 struct State {
     pending: BTreeMap<Match, BTreeSet<Time>>,
@@ -94,12 +94,33 @@ impl ActionManager {
         }
     }
 
-    pub fn to_readable_vec(&self, match_: &Match) -> Option<Vec<String>> {
-        self.state.lock().unwrap().pending.get(match_).map(|set| {
-            set.iter()
-                .map(|time| time.to_rfc3339().chars().take(19).collect())
-                .collect()
-        })
+    pub fn handle_order<F: Fn(&Match) -> bool>(
+        &self,
+        order: Order,
+        is_match: F,
+    ) -> BTreeMap<String, Vec<String>> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .pending
+            .clone()
+            .into_iter()
+            // match filtering
+            .filter(|(match_, _)| is_match(match_))
+            .fold(BTreeMap::default(), |mut acc, (match_, times)| {
+                let times = times
+                    .iter()
+                    .map(|time| {
+                        if let Order::Flush = order {
+                            if state.remove(match_.clone(), *time) {
+                                self.exec_now(match_.clone());
+                            }
+                        }
+                        time.to_rfc3339().chars().take(19).collect()
+                    })
+                    .collect();
+                acc.insert(match_.join(" "), times);
+                acc
+            })
     }
 
     fn exec_now(&self, m: Match) {

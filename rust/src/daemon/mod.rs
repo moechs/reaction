@@ -54,9 +54,6 @@ pub async fn daemon(
     let mut stream_process_child_handles = Vec::new();
     let mut stream_task_handles = Vec::new();
 
-    // let (socket2match_tx, socket2match_rx) = mpsc::channel(1);
-    // let (socket2exec_tx, socket2exec_rx) = mpsc::channel(1);
-
     let (log_tx, log_rx) = mpsc::channel(234560);
 
     // Shutdown channel
@@ -92,7 +89,7 @@ pub async fn daemon(
     drop(exec_limit);
 
     let database_manager_thread_handle = {
-        // The `task::spawn` is done in the function, after database rotation is finished
+        // The `thread::spawn` is done in the function, after database rotation is finished
         database_manager(config, log_rx, log2filter_tx)
     };
 
@@ -104,7 +101,7 @@ pub async fn daemon(
         }
         stream_filter_managers.s.insert(stream, Arc::new(Mutex::new(filter_managers)));
     }
-    let stream_filter_managers: Arc<SharedState> = Arc::new(stream_filter_managers);
+    let stream_filter_managers = Arc::new(stream_filter_managers);
 
     for (stream, filter_managers) in stream_filter_managers.s.iter() {
         let (child_tx, child_rx) = oneshot::channel();
@@ -130,7 +127,7 @@ pub async fn daemon(
 
     let socket_manager_task_handle = {
         let socket = socket.to_owned();
-        let stream_filter_managers: Arc<SharedState> = stream_filter_managers.clone();
+        let stream_filter_managers = stream_filter_managers.clone();
         tokio::spawn(async move {
             socket_manager(config, socket, stream_filter_managers, shutdown_rx).await
         })

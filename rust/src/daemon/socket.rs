@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fs, io, path::PathBuf, process::exit, sync::Arc
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio::{net::UnixListener, sync::{broadcast, oneshot}};
+use tokio::{net::UnixListener, sync::broadcast};
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
@@ -11,18 +11,11 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
+    concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Pattern},
     utils::bincode_options,
 };
 
 use super::SharedState;
-
-#[derive(Clone)]
-pub struct FilterOptions {
-    pub stream_name: Option<String>,
-    pub filter_name: Option<String>,
-    pub patterns: BTreeMap<Arc<Pattern>, Regex>,
-}
 
 macro_rules! err_str {
     ($expression:expr) => {
@@ -89,7 +82,6 @@ async fn answer_order(
         })
         .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
 
-    // TODO directly call flush function here?
     let cs: ClientStatus = futures::stream::iter(shared_state.s.iter())
         // stream filtering
         .filter(|(stream, _)| async {
@@ -99,9 +91,9 @@ async fn answer_order(
                     .is_some_and(|name| name == stream.name())
         })
         .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
-            let filter_manager = filter_manager.lock().await;
+            let mut filter_manager = filter_manager.lock().await;
             let inner_map = filter_manager
-                .iter()
+                .iter_mut()
                 // filter filtering
                 .filter(|(filter, _)| {
                     filter_name.is_none()
@@ -118,7 +110,7 @@ async fn answer_order(
                 .map(|(filter, manager)| {
                     (
                         filter.name().to_owned(),
-                        manager.to_pattern_status_map(&patterns),
+                        manager.handle_order(&patterns, options.order),
                     )
                 })
                 .collect();
@@ -141,8 +133,6 @@ macro_rules! or_next {
         }
     };
 }
-
-pub type SocketOrder<T> = (Order, FilterOptions, oneshot::Sender<T>);
 
 pub async fn socket_manager(
     config: &'static Config,
