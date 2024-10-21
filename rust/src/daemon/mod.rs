@@ -34,18 +34,17 @@ struct SharedState {
     pub s: BTreeMap<&'static Stream, Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>>,
 }
 
-#[allow(unsafe_code)]
+// #[allow(unsafe_code)]
 // It's actually safe. It's a bug in rust that shadows the 'static reference, which ensures the
 // reference will always link to something
 // https://github.com/rust-lang/rust/issues/96865
-unsafe impl Send for SharedState {}
+// unsafe impl Send for SharedState {}
 
 pub async fn daemon(
     config_path: PathBuf,
     socket: PathBuf,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let config: &'static Config =
-        Config::from_file(&config_path).map(|config| Box::leak(Box::new(config)))?;
+    let config: &'static Config = Box::leak(Box::new(Config::from_file(&config_path)?));
 
     if !config.start() {
         return Err("a start command failed, exiting.".into());
@@ -99,7 +98,9 @@ pub async fn daemon(
         for (filter, filter_manager_handler) in filter_manager_handlers {
             filter_managers.insert(filter, filter_manager_handler.await.unwrap());
         }
-        stream_filter_managers.s.insert(stream, Arc::new(Mutex::new(filter_managers)));
+        stream_filter_managers
+            .s
+            .insert(stream, Arc::new(Mutex::new(filter_managers)));
     }
     let stream_filter_managers = Arc::new(stream_filter_managers);
 
