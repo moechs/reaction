@@ -50,7 +50,7 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
 
 async fn answer_order(
     config: &'static Config,
-    shared_state: &SharedState,
+    shared_state: &Arc<SharedState>,
     options: ClientRequest,
 ) -> Result<ClientStatus, String> {
     // Compute options
@@ -82,17 +82,22 @@ async fn answer_order(
         })
         .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
 
-    let cs: ClientStatus = futures::stream::iter(shared_state.s.iter())
-        // stream filtering
-        .filter(|(stream, _)| async {
-            stream_name.is_none()
-                || stream_name
-                    .clone()
-                    .is_some_and(|name| name == stream.name())
-        })
-        .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
-            let mut filter_manager = filter_manager.lock().await;
-            let inner_map = filter_manager
+    let cs: ClientStatus = futures::stream::iter(
+        shared_state
+            .s
+            .iter()
+            // stream filtering
+            .filter(|(stream, _)| {
+                stream_name.is_none()
+                    || stream_name
+                        .clone()
+                        .is_some_and(|name| name == stream.name())
+            }),
+    )
+    .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
+        let mut filter_manager = filter_manager.lock().await;
+        let inner_map = futures::stream::iter(
+            filter_manager
                 .iter_mut()
                 // filter filtering
                 .filter(|(filter, _)| {
@@ -106,18 +111,20 @@ async fn answer_order(
                     patterns
                         .iter()
                         .all(|(pattern, _)| filter.patterns().get(pattern).is_some())
-                })
-                .map(|(filter, manager)| {
-                    (
-                        filter.name().to_owned(),
-                        manager.handle_order(&patterns, options.order),
-                    )
-                })
-                .collect();
-            acc.insert(stream.name().to_owned(), inner_map);
-            acc
+                }),
+        )
+        .then(|(filter, manager)| async {
+            (
+                filter.name().to_owned(),
+                manager.handle_order(&patterns, options.order).await,
+            )
         })
+        .collect()
         .await;
+        acc.insert(stream.name().to_owned(), inner_map);
+        acc
+    })
+    .await;
 
     Ok(cs)
 }

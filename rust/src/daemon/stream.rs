@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, process::Stdio, sync::Arc};
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -15,7 +15,7 @@ use crate::{
 pub async fn stream_manager(
     stream: &'static Stream,
     child_tx: oneshot::Sender<Option<Child>>,
-    filter_managers: Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>,
+    filter_managers: Arc<Mutex<HashMap<&'static Filter, FilterManager>>>,
 ) {
     info!("{}: start {:?}", stream.name(), stream.cmd());
     let mut child = match Command::new(&stream.cmd()[0])

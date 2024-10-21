@@ -35,6 +35,7 @@ impl State {
             .first_key_value()
             .is_some_and(|(k, _)| *k + after < now)
         {
+            #[allow(clippy::unwrap_used)] // we just checked in the condition that first is_some
             let (_, m) = self.ordered_times.pop_first().unwrap();
             self.pending.remove(&m);
         }
@@ -78,6 +79,7 @@ impl ActionManager {
             self.exec_now(m);
         } else {
             {
+                #[allow(clippy::unwrap_used)] // propagating panics is ok
                 let mut state = self.state.lock().unwrap();
                 state.clear_past_times(t, self.action.after_duration());
                 state.add_match(&m, exec_t);
@@ -86,6 +88,7 @@ impl ActionManager {
             tokio::spawn(async move {
                 let dur = (exec_t - now).to_std().expect("Duration is bigger than what's supported. Did you put an enormous after duration?");
                 tokio::time::sleep(dur).await;
+                #[allow(clippy::unwrap_used)] // propagating panics is ok
                 let mut state = this.state.lock().unwrap();
                 if state.remove(m.clone(), t) {
                     this.exec_now(m);
@@ -98,7 +101,8 @@ impl ActionManager {
         &self,
         order: Order,
         is_match: F,
-    ) -> BTreeMap<String, Vec<String>> {
+    ) -> BTreeMap<Vec<String>, Vec<String>> {
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
         state
             .pending
@@ -118,7 +122,7 @@ impl ActionManager {
                         time.to_rfc3339().chars().take(19).collect()
                     })
                     .collect();
-                acc.insert(match_.join(" "), times);
+                acc.insert(match_, times);
                 acc
             })
     }
@@ -152,6 +156,7 @@ impl ActionManager {
 
     pub fn quit(&mut self) {
         if self.action.on_exit() {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
             let mut state = self.state.lock().unwrap();
             for (m, times) in &state.pending {
                 for _ in times {

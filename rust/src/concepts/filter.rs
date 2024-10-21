@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    hash::Hash,
     sync::Arc,
 };
 
@@ -251,6 +252,12 @@ impl Ord for Filter {
 impl PartialOrd for Filter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+impl Hash for Filter {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.stream_name.hash(state);
+        self.name.hash(state);
     }
 }
 

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     error::Error,
     path::PathBuf,
     sync::{
@@ -8,7 +8,6 @@ use std::{
     },
 };
 
-use socket::socket_manager;
 use tokio::{
     process::Child,
     select,
@@ -20,6 +19,7 @@ use tracing::info;
 use crate::concepts::{Config, Filter, Stream};
 use database::database_manager;
 use filter::FilterManager;
+use socket::socket_manager;
 use stream::stream_manager;
 
 mod database;
@@ -31,7 +31,7 @@ mod stream;
 
 // type SharedState = BTreeMap<&'static Stream, Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>>;
 struct SharedState {
-    pub s: BTreeMap<&'static Stream, Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>>,
+    pub s: HashMap<&'static Stream, Arc<Mutex<HashMap<&'static Filter, FilterManager>>>>,
 }
 
 // #[allow(unsafe_code)]
@@ -66,10 +66,10 @@ pub async fn daemon(
     };
 
     // Filter managers
-    let mut stream_filter_managers_handlers = BTreeMap::new();
+    let mut stream_filter_managers_handlers = HashMap::new();
     let mut log2filter_tx = BTreeMap::new();
     for stream in config.streams().values() {
-        let mut filter_managers_handlers = BTreeMap::new();
+        let mut filter_managers_handlers = HashMap::new();
         for filter in stream.filters().values() {
             let manager = FilterManager::new(
                 filter,
@@ -92,10 +92,11 @@ pub async fn daemon(
         database_manager(config, log_rx, log2filter_tx)
     };
 
-    let mut stream_filter_managers = SharedState { s: BTreeMap::new() };
+    let mut stream_filter_managers = SharedState { s: HashMap::new() };
     for (stream, filter_manager_handlers) in stream_filter_managers_handlers {
-        let mut filter_managers = BTreeMap::new();
+        let mut filter_managers = HashMap::new();
         for (filter, filter_manager_handler) in filter_manager_handlers {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
             filter_managers.insert(filter, filter_manager_handler.await.unwrap());
         }
         stream_filter_managers
@@ -128,7 +129,6 @@ pub async fn daemon(
 
     let socket_manager_task_handle = {
         let socket = socket.to_owned();
-        let stream_filter_managers = stream_filter_managers.clone();
         tokio::spawn(async move {
             socket_manager(config, socket, stream_filter_managers, shutdown_rx).await
         })

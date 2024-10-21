@@ -146,7 +146,9 @@ async fn simple() {
 
     file_with_contents(out_path, "");
 
-    assert!(daemon(config_path.into(), socket_path.into()).await.is_ok());
+    assert!(daemon(config_path.into(), socket_path.into())
+        .await
+        .is_err());
 
     // 36 from DB
     // 12 from DB

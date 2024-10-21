@@ -95,7 +95,7 @@ impl FilterManager {
             .for_each(|manager| manager.quit());
     }
 
-    pub fn handle_order(
+    pub async fn handle_order(
         &mut self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,
         order: Order,
@@ -110,18 +110,17 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let cs = self
-            .matches
-            .clone()
-            .iter()
+        let matches = self.matches.clone();
+        let cs: BTreeMap<_, _> = matches
+            .into_iter()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
             .map(|(match_, times)| {
                 if let Order::Flush = order {
-                    self.remove_match(match_);
+                    self.remove_match(&match_);
                 }
                 (
-                    match_.join(" "),
+                    match_,
                     PatternStatus {
                         matches: times.len(),
                         ..Default::default()
@@ -130,7 +129,7 @@ impl FilterManager {
             })
             .collect();
 
-        self.action_managers.iter().fold(cs, |mut acc, manager| {
+        let cs = self.action_managers.iter().fold(cs, |mut acc, manager| {
             for (match_, times) in manager.handle_order(order, is_match) {
                 let pattern_status = acc.entry(match_).or_default();
                 pattern_status
@@ -138,7 +137,23 @@ impl FilterManager {
                     .insert(manager.action().to_string(), times);
             }
             acc
-        })
+        });
+
+        let now = Local::now();
+        for match_ in cs.keys() {
+            #[allow(clippy::unwrap_used)] // propagating panics is ok
+            self.log_tx
+                .send(DatabaseManagerInput::Flush(LogEntry {
+                    exec: false,
+                    m: match_.to_vec(),
+                    f: self.filter,
+                    t: now,
+                }))
+                .await
+                .unwrap()
+        }
+
+        cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
 
     fn add_match(&mut self, m: &Match, t: Time) {
@@ -162,6 +177,7 @@ impl FilterManager {
             .first_key_value()
             .is_some_and(|(k, _)| *k + retry_duration < now)
         {
+            #[allow(clippy::unwrap_used)] // we just checked in the condition that first is_some
             let (_, m) = self.ordered_times.pop_first().unwrap();
             self.matches.remove(&m);
         }

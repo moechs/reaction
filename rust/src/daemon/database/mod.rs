@@ -64,17 +64,17 @@ macro_rules! flush_or_die {
 pub fn database_manager(
     config: &'static Config,
     mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
-    matches_tx: BTreeMap<&Filter, mpsc::Sender<MFT>>,
+    matches_tx: BTreeMap<&'static Filter, mpsc::Sender<MFT>>,
 ) -> thread::JoinHandle<()> {
-    let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
-        Ok(dbs) => dbs,
-        Err(err) => {
-            error!("while rotating databases on start: {}", err);
-            exit(1);
-        }
-    };
-
     thread::spawn(move || {
+        let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
+            Ok(dbs) => dbs,
+            Err(err) => {
+                error!("while rotating databases on start: {}", err);
+                exit(1);
+            }
+        };
+
         let mut cpt = 0;
         while let Some(order) = log_rx.blocking_recv() {
             match order {
@@ -177,7 +177,7 @@ fn _rotate_db(
 
     // Read flushes
     let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
-    while let Some(flush_entry) = flush_read_db.next() {
+    for flush_entry in flush_read_db {
         match flush_entry {
             Ok(entry) => {
                 let matches_map = flushes.entry(entry.f).or_default();
@@ -193,7 +193,7 @@ fn _rotate_db(
     let now = Local::now();
 
     // Read matches
-    while let Some(log_entry) = log_read_db.next() {
+    for log_entry in log_read_db {
         match log_entry {
             Ok(mut entry) => {
                 // Check if number of patterns is in sync
