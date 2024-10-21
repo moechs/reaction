@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::Debug,
     fs::File,
-    io::{self, BufReader, BufWriter, Write},
+    io::{self, BufReader, BufWriter, Read, Write},
     process::exit,
 };
 
@@ -21,7 +21,6 @@ use super::DBError;
 // OPTIM Add a timestamp prefix to the header, to permit having
 // shorter timestamps?
 // It may permit to win 1-4 bytes per entry, don't know if it's worth it
-// FIXME put signature in the header?
 type DatabaseHeader = BTreeMap<usize, (String, String)>;
 type ReadHeader = BTreeMap<usize, &'static Filter>;
 type WriteHeader = BTreeMap<&'static Filter, usize>;
@@ -58,16 +57,24 @@ impl ReadDB {
             bin: bincode_options(),
         };
 
-        match ret.read::<String>() {
-            Ok(signature) => {
-                if DB_SIGNATURE == signature {
-                    Ok(())
-                } else {
-                    Err(DBError::Error("database is not a reaction database".into()))
-                }
-            }
-            Err(err) => Err(DBError::Error(format!("reading database signature: {err}"))),
-        }?;
+        // Signature checking
+        let mut signature = [0u8; 15];
+        ret.f
+            .read_exact(&mut signature)
+            .map_err(|err| DBError::Error(format!("reading database signature: {err}")))?;
+        if DB_SIGNATURE.as_bytes()[0..13] != signature[0..13] {
+            return Err(DBError::Error(format!(
+                "{path} is not a reaction database, or it is a reaction-v1.x database.
+You can migrate your old database to a new one by following documented steps at https://reaction.ppom.me/migrate-to-v2
+You can also choose to delete the local {} and {} if you don't care about your old matches.", super::LOG_DB_NAME, super::FLUSH_DB_NAME
+            )));
+        }
+        if DB_SIGNATURE.as_bytes()[13..15] != signature[13..15] {
+            return Err(DBError::Error(format!(
+                "{path} seem to be the database of a newer version of reaction.
+Are you sure you're running the last version of reaction?"
+            )));
+        }
 
         let db_header = ret
             .read::<DatabaseHeader>()
@@ -128,7 +135,8 @@ impl WriteDB {
             bin: bincode_options(),
         };
 
-        if let Err(err) = ret._write(DB_SIGNATURE) {
+        // Signature writing
+        if let Err(err) = ret.f.write_all(DB_SIGNATURE.as_bytes()) {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }
