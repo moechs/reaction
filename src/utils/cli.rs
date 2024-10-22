@@ -7,7 +7,6 @@ use tracing::Level;
 #[derive(Parser)]
 #[clap(version)]
 #[command(name = "reaction")]
-#[command(version = "2.0")]
 #[command(
     about = "Scan logs and take action",
     long_about = "A daemon that scans program outputs for repeated patterns, and takes action.
