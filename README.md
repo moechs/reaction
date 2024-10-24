@@ -8,12 +8,10 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 ## Current project status
 
-Hey, it may look like nothing is happening here... That's because reaction is actively being rewritten in rust,
-which happens in the [rust](https://framagit.org/ppom/reaction/-/tree/rust) branch!
+reaction just reached v2.0.0-rc1 version, which is a complete rust rewrite of reaction.
+It's in feature parity with the Go version, and breaking changes should be small.
 
-I'll soon™️ publish a v2.0.0-rc1 version, which will be the rust rewrite of reaction.
-It will be in feature parity with the Go version, and breaking changes should be small.
-More information on this when the release lands!
+See https://reaction.ppom.me/migrate-to-v2.html
 
 ## Rationale
 
