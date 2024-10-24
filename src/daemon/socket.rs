@@ -183,7 +183,7 @@ pub async fn socket_manager(
                         };
                         // Encode
                         let encoded_response =
-                            or_next!("failed to serialize response", bin.serialize(&response));
+                            or_next!("failed to serialize response", bin.serialize::<DaemonResponse>(&response));
                         or_next!(
                             "failed to send response:",
                             transport.send(Bytes::from(encoded_response)).await
