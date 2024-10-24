@@ -28,6 +28,7 @@ fn main() {
 }
 
 fn lil_main() -> Result<(), E> {
+    println!("Hello from Rust!");
     println!("You're about to reimport the previously exported database.");
     println!("This will move the old database files as .old");
     println!("When the process completes, you'll be able to run reaction-v2.");

@@ -6,8 +6,8 @@ use tracing::Level;
 
 #[derive(Parser)]
 #[clap(version)]
-#[command(name = "reaction")]
 #[command(
+    name = "reaction",
     about = "Scan logs and take action",
     long_about = "A daemon that scans program outputs for repeated patterns, and takes action.
 Aims at being more versatile and flexible than fail2ban, while being faster and having simpler configuration.
@@ -18,11 +18,11 @@ on the wiki: https://reaction.ppom.me
 )]
 pub struct Cli {
     #[clap(subcommand)]
-    pub command: Command,
+    pub command: SubCommand,
 }
 
 #[derive(Subcommand)]
-pub enum Command {
+pub enum SubCommand {
     /// Start reaction daemon
     Start {
         /// configuration file in json, jsonnet or yaml format. required.

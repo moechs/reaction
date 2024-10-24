@@ -168,7 +168,7 @@ A standard place to put such executables is `/usr/local/bin/`.
 
 > Provided binaries in the previous section are compiled this way:
 ```shell
-$ docker run -it --rm -e HOME=/tmp/ -v $(pwd):/tmp/code -w /tmp/code -u $(id -u) golang:1.20 make clean reaction.deb
+$ docker run -it --rm -e HOME=/tmp/ -v $(pwd):/tmp/code -w /tmp/code -u $(id -u) rust make clean reaction.deb
 $ make signatures
 ```
 #### Signature verification
@@ -207,7 +207,7 @@ ExecStart=/usr/bin/reaction start -c /etc/reaction.yml
 
 ### Compilation
 
-You'll need the go (>= 1.20) toolchain for reaction and a c compiler for ip46tables.
+You'll need a recent rust toolchain for reaction and a c compiler for ip46tables.
 ```shell
 $ make
 ```

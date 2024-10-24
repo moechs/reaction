@@ -1,6 +1,7 @@
 CC ?= gcc
 PREFIX ?= /usr/local
 BINDIR = $(PREFIX)/bin
+MANDIR = $(PREFIX)/share/man/man1
 SYSTEMDDIR ?= /etc/systemd
 
 all: reaction ip46tables nft46
@@ -8,6 +9,7 @@ all: reaction ip46tables nft46
 clean:
 	rm -f reaction ip46tables nft46 reaction*.deb reaction.minisig ip46tables.minisig nft46.minisig reaction*.deb.minisig
 	rm -rf debian-packaging
+	cargo clean
 
 ip46tables: helpers_c/ip46tables.c
 	$(CC) -s -static helpers_c/ip46tables.c -o ip46tables
@@ -15,8 +17,8 @@ ip46tables: helpers_c/ip46tables.c
 nft46: helpers_c/nft46.c
 	$(CC) -s -static helpers_c/nft46.c -o nft46
 
-reaction: app/* reaction.go go.mod go.sum
-	CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s"
+reaction: src/* src/*/* src/*/*/* Cargo.toml Cargo.lock build.rs
+	cargo build --release
 
 reaction_%-1_amd64.deb:
 	apt-get -qq -y update

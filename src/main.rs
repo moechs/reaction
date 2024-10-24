@@ -6,7 +6,7 @@ use reaction::{
     client::{request, test_regex},
     concepts::Order,
     daemon::daemon,
-    utils::cli::{Cli, Command},
+    utils::cli::{Cli, SubCommand},
 };
 use tracing::{error, Level};
 
@@ -31,7 +31,7 @@ async fn main() {
 
     {
         // Set log level
-        let level = if let Command::Start {
+        let level = if let SubCommand::Start {
             loglevel,
             config: _,
             socket: _,
@@ -55,24 +55,24 @@ async fn main() {
     }
 
     let result = match cli.command {
-        Command::Start {
+        SubCommand::Start {
             config,
             loglevel: _,
             socket,
         } => daemon(config, socket).await,
-        Command::Show {
+        SubCommand::Show {
             socket,
             format,
             limit,
             patterns,
         } => request(socket, format, limit, patterns, Order::Show).await,
-        Command::Flush {
+        SubCommand::Flush {
             socket,
             format,
             limit,
             patterns,
         } => request(socket, format, limit, patterns, Order::Flush).await,
-        Command::TestRegex {
+        SubCommand::TestRegex {
             config,
             regex,
             line,
