@@ -13,6 +13,6 @@ reaction*.export.json
 *.qcow2
 debian-packaging/*
 *.swp
-export-go-db/export-db
+export-go-db/export-go-db
 import-rust-db/target
 /target

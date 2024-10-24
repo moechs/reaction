@@ -92,7 +92,7 @@ def main():
 
         # Build glue script
         contents = """
-func main() {
+function main() {
     set -eu -o pipefail
     DIR="$(mktemp -d)"
     echo "$GOBIN" | base64 -d > "$DIR/gobin"
