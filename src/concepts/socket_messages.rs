@@ -1,8 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use super::Match;
 
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::{
+    ser::{SerializeMap, SerializeStruct},
+    Deserialize, Serialize,
+};
 
 // We don't need protocol versionning here because
 // client and daemon are the same binary
@@ -13,7 +16,7 @@ pub enum Order {
     Flush,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientRequest {
     pub order: Order,
     pub stream_filter: Option<String>,
@@ -32,12 +35,6 @@ pub enum DaemonResponse {
     Err(String),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct InfoRes {
-    pub matches: BTreeMap<(String, String), BTreeMap<Match, BTreeSet<i64>>>,
-    pub execs: BTreeMap<(String, String, String), BTreeMap<Match, BTreeSet<i64>>>,
-}
-
 pub type ClientStatus = BTreeMap<String, BTreeMap<String, BTreeMap<String, PatternStatus>>>;
 
 #[derive(Debug, Default, Deserialize)]
@@ -53,24 +50,23 @@ impl Serialize for PatternStatus {
     {
         // We only skip serializing emptiness if we're on a human-readable format
         // This means we're printing for user, not exchanging it over a socket
-        let state = if serializer.is_human_readable() {
+        if serializer.is_human_readable() {
             let ser_matches = self.matches != 0;
             let ser_actions = !self.actions.is_empty();
-            let mut state = serializer
-                .serialize_struct("PatternStatus", ser_matches as usize + ser_actions as usize)?;
+            let mut state =
+                serializer.serialize_map(Some(ser_matches as usize + ser_actions as usize))?;
             if ser_matches {
-                state.serialize_field("matches", &self.matches)?;
+                state.serialize_entry("matches", &self.matches)?;
             }
             if ser_actions {
-                state.serialize_field("actions", &self.actions)?;
+                state.serialize_entry("actions", &self.actions)?;
             }
-            state
+            state.end()
         } else {
             let mut state = serializer.serialize_struct("PatternStatus", 2)?;
             state.serialize_field("matches", &self.matches)?;
             state.serialize_field("actions", &self.actions)?;
-            state
-        };
-        state.end()
+            state.end()
+        }
     }
 }

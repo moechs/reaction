@@ -123,8 +123,10 @@ async fn simple() {
         .await
     });
 
-    let (daemon_exit, _, _) = tokio::join!(handle, handle2, handle3);
+    let (daemon_exit, flush1, flush2) = tokio::join!(handle, handle2, handle3);
     assert!(daemon_exit.is_ok());
+    assert!(flush1.is_ok());
+    assert!(flush2.is_ok());
 
     assert_eq!(
         // 24 is encountered for the second time, then

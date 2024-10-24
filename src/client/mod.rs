@@ -9,12 +9,11 @@ use std::{
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio::{io::AsyncWriteExt, net::UnixStream};
+use tokio::net::UnixStream;
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
 };
-use tracing::info;
 
 use crate::{
     concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Order, Pattern},
@@ -46,10 +45,10 @@ async fn send_retrieve(socket: &PathBuf, req: &ClientRequest) -> Result<DaemonRe
         transport.next().await.ok_or("empty response from server")
     );
     let encoded_response = or_quit!("failed to decode response", encoded_response);
-    or_quit!(
+    Ok(or_quit!(
         "failed to decode response",
-        bin.deserialize(&encoded_response)
-    )
+        bin.deserialize::<DaemonResponse>(&encoded_response)
+    ))
 }
 
 async fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {
@@ -57,7 +56,7 @@ async fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Er
         Format::JSON => serde_json::to_string_pretty(&cs)?,
         Format::YAML => serde_yaml::to_string(&cs)?,
     };
-    tokio::io::stdout().write_all(encoded.as_bytes()).await?;
+    println!("{}", encoded);
     Ok(())
 }
 
@@ -144,7 +143,7 @@ pub fn test_regex(
     if let Some(line) = line {
         match_closure(line);
     } else {
-        info!("no second argument: reading from stdin");
+        eprintln!("no second argument: reading from stdin");
         for line in BufReader::new(stdin()).lines() {
             match line {
                 Ok(line) => match_closure(line),

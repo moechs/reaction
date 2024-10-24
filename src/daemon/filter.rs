@@ -134,7 +134,7 @@ impl FilterManager {
                 let pattern_status = acc.entry(match_).or_default();
                 pattern_status
                     .actions
-                    .insert(manager.action().to_string(), times);
+                    .insert(manager.action().name().into(), times);
             }
             acc
         });

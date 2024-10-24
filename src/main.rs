@@ -29,18 +29,19 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    let (is_daemon, level) = if let SubCommand::Start {
+        config: _,
+        loglevel,
+        socket: _,
+    } = cli.command
     {
+        (true, loglevel)
+    } else {
+        (false, Level::DEBUG)
+    };
+
+    if is_daemon {
         // Set log level
-        let level = if let SubCommand::Start {
-            loglevel,
-            config: _,
-            socket: _,
-        } = cli.command
-        {
-            loglevel
-        } else {
-            Level::DEBUG
-        };
         if let Err(err) = tracing_subscriber::fmt::fmt()
             .without_time()
             .with_target(false)
@@ -83,7 +84,11 @@ async fn main() {
             exit(0);
         }
         Err(err) => {
-            error!("{err}");
+            if is_daemon {
+                error!("{err}");
+            } else {
+                eprintln!("ERROR {err}");
+            }
             exit(1);
         }
     }
