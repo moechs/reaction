@@ -1,6 +1,7 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign cargo-cross
 import base64
+import http.client
 import json
 import os
 import subprocess
@@ -32,13 +33,13 @@ def main():
         sys.exit(1)
 
     # Ask user
-    # if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
-    #     print("exiting.")
-    #     sys.exit(1)
+    if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
+        print("exiting.")
+        sys.exit(1)
 
     # Git push
-    # cmd = subprocess.run(["git", "push", "--tags"])
-    # quit_if(cmd)
+    cmd = subprocess.run(["git", "push", "--tags"])
+    quit_if(cmd)
 
     cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
     quit_if(cmd)
@@ -256,6 +257,7 @@ wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \
         print("User deleted emptied description, exiting.")
         sys.exit(1)
 
+    # Construct JSON payload
     files = [ file for file in all_files if file[2] != False ]
     data = {
         "tag_name": tag,
@@ -263,7 +265,7 @@ wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \
         "assets": {
             "links": [
                 {
-                    "url": f"https://static.ppom.me/reaction/releases/{tag}/{file[1]}/{os.path.basename(file[0])}".replace("//", "/"),
+                    "url": "https://" + f"static.ppom.me/reaction/releases/{tag}/{file[1]}/{os.path.basename(file[0])}".replace("//", "/"),
                     "name": file[2],
                     "link_type": file[3],
                 }
@@ -275,15 +277,12 @@ wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \
 
     body = json.dumps(data)
 
-    subprocess.run(["jq"], text=True, input=body)
-
+    # Send POST request
     headers = {
         "Host": "framagit.org",
         "Content-Type": "application/json",
         "PRIVATE-TOKEN": token,
     }
-
-    sys.exit(1)
 
     conn = http.client.HTTPSConnection("framagit.org")
     conn.request("POST", "/api/v4/projects/90566/releases", body=body, headers=headers)
