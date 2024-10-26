@@ -165,11 +165,11 @@ impl WriteDB {
 
     pub fn write(&mut self, entry: LogEntry) -> Result<(), DBError> {
         let computed = ComputedLogEntry::from(entry, &self.h)?;
-        self._write(computed)
+        self._write(&computed)
     }
 
-    fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: T) -> Result<(), DBError> {
-        let encoded = self.bin.serialize(&data)?;
+    fn _write<T: Serialize + std::fmt::Debug>(&mut self, data: &T) -> Result<(), DBError> {
+        let encoded = self.bin.serialize(data)?;
         // debug!("writing this: {:?}, {:?}", &data, &encoded);
         self.f.write_all(&encoded)?;
         Ok(())

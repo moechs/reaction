@@ -16,24 +16,24 @@ struct State {
 }
 
 impl State {
-    fn add_match(&mut self, m: &Match, t: Time) {
-        self.pending.entry(m.clone()).or_default().insert(t);
-        self.ordered_times.insert(t, m.clone());
+    fn add_match(&mut self, m: &Match, t: &Time) {
+        self.pending.entry(m.clone()).or_default().insert(*t);
+        self.ordered_times.insert(*t, m.clone());
     }
 
-    fn remove(&mut self, m: Match, t: Time) -> bool {
-        self.pending.entry(m).and_modify(|times| {
-            times.remove(&t);
+    fn remove(&mut self, m: &Match, t: &Time) -> bool {
+        self.pending.entry(m.clone()).and_modify(|times| {
+            times.remove(t);
         });
-        self.ordered_times.remove(&t).is_some()
+        self.ordered_times.remove(t).is_some()
     }
 
-    fn clear_past_times(&mut self, now: Time, after: Option<TimeDelta>) {
+    fn clear_past_times(&mut self, now: &Time, after: Option<TimeDelta>) {
         let after = after.unwrap_or_default();
         while self
             .ordered_times
             .first_key_value()
-            .is_some_and(|(k, _)| *k + after < now)
+            .is_some_and(|(k, _)| *k + after < *now)
         {
             #[allow(clippy::unwrap_used)] // we just checked in the condition that first is_some
             let (_, m) = self.ordered_times.pop_first().unwrap();
@@ -81,8 +81,8 @@ impl ActionManager {
             {
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 let mut state = self.state.lock().unwrap();
-                state.clear_past_times(t, self.action.after_duration());
-                state.add_match(&m, exec_t);
+                state.clear_past_times(&t, self.action.after_duration());
+                state.add_match(&m, &exec_t);
             }
             let this = self.clone();
             tokio::spawn(async move {
@@ -90,7 +90,7 @@ impl ActionManager {
                 tokio::time::sleep(dur).await;
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 let mut state = this.state.lock().unwrap();
-                if state.remove(m.clone(), t) {
+                if state.remove(&m, &t) {
                     this.exec_now(m);
                 }
             });
@@ -115,7 +115,7 @@ impl ActionManager {
                     .iter()
                     .map(|time| {
                         if let Order::Flush = order {
-                            if state.remove(match_.clone(), *time) {
+                            if state.remove(&match_, time) {
                                 self.exec_now(match_.clone());
                             }
                         }

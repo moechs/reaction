@@ -2,7 +2,7 @@ use std::{
     collections::BTreeSet,
     error::Error,
     io::{stdin, BufRead, BufReader},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -26,7 +26,7 @@ macro_rules! or_quit {
     };
 }
 
-async fn send_retrieve(socket: &PathBuf, req: &ClientRequest) -> Result<DaemonResponse, String> {
+async fn send_retrieve(socket: &Path, req: &ClientRequest) -> Result<DaemonResponse, String> {
     let bin = bincode_options();
     let conn = or_quit!(
         "opening connection to daemon",

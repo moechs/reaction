@@ -65,17 +65,17 @@ async fn answer_order(
     // Compute the Vec<(pattern_name: String, regex: String)> into a BTreeMap<Arc<Pattern>, Regex>
     let patterns = options
         .patterns
-        .iter()
+        .into_iter()
         .map(|(name, reg)| {
             // lookup pattern in config.patterns
             config
                 .patterns()
                 .iter()
                 // retrieve or Err
-                .find(|(pattern_name, _)| name == *pattern_name)
+                .find(|(pattern_name, _)| &name == *pattern_name)
                 .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
                 // compile Regex or Err
-                .and_then(|(_, pattern)| match Regex::new(reg) {
+                .and_then(|(_, pattern)| match Regex::new(&reg) {
                     Ok(reg) => Ok((pattern.clone(), reg)),
                     Err(err) => Err(format!("pattern '{name}' regex doesn't compile: {err}")),
                 })

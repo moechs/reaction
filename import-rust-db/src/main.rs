@@ -52,7 +52,7 @@ fn lil_main() -> Result<(), E> {
     Ok(())
 }
 
-fn import(json_path: String, write_path: String) -> Result<(), E> {
+fn import(json_path: &str, write_path: &str) -> Result<(), E> {
     let json_file = BufReader::new(File::open(json_path.clone())?);
     let mut write_file = BufWriter::new(File::create(write_path)?);
     let bin = bincode_options();
@@ -81,7 +81,7 @@ fn import(json_path: String, write_path: String) -> Result<(), E> {
     Ok(())
 }
 
-fn collect_stream_filters(json_path: String) -> Result<WriteHeader, E> {
+fn collect_stream_filters(json_path: &str) -> Result<WriteHeader, E> {
     let mut header = BTreeMap::new();
     let mut count = 0;
     let json_file = BufReader::new(File::open(json_path)?);

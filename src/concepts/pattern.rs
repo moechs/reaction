@@ -23,7 +23,7 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    pub fn setup(&mut self, name: &String) -> Result<(), String> {
+    pub fn setup(&mut self, name: &str) -> Result<(), String> {
         self._setup(name)
             .map_err(|msg| format!("pattern {}: {}", name, msg))
     }
@@ -35,8 +35,8 @@ impl Pattern {
         &self.name_with_braces
     }
 
-    pub fn _setup(&mut self, name: &String) -> Result<(), String> {
-        self.name = name.clone();
+    pub fn _setup(&mut self, name: &str) -> Result<(), String> {
+        self.name = name.to_string();
         self.name_with_braces = format!("<{}>", name);
 
         if self.name.is_empty() {
@@ -151,16 +151,16 @@ pub mod tests {
         // Empty name
         pattern = default_pattern();
         pattern.regex = "abc".into();
-        assert!(pattern.setup(&"".into()).is_err());
+        assert!(pattern.setup("").is_err());
 
         // '.' in name
         pattern = default_pattern();
         pattern.regex = "abc".into();
-        assert!(pattern.setup(&"na.me".into()).is_err());
+        assert!(pattern.setup("na.me").is_err());
 
         // Empty regex
         pattern = default_pattern();
-        assert!(pattern.setup(&"name".into()).is_err());
+        assert!(pattern.setup("name").is_err());
     }
 
     #[test]
@@ -169,17 +169,17 @@ pub mod tests {
 
         // regex ok
         pattern = ok_pattern();
-        assert!(pattern.setup(&"name".into()).is_ok());
+        assert!(pattern.setup("name").is_ok());
 
         // regex ok
         pattern = default_pattern();
         pattern.regex = "abc".into();
-        assert!(pattern.setup(&"name".into()).is_ok());
+        assert!(pattern.setup("name").is_ok());
 
         // regex ko
         pattern = default_pattern();
         pattern.regex = "[abc".into();
-        assert!(pattern.setup(&"name".into()).is_err());
+        assert!(pattern.setup("name").is_err());
     }
 
     #[test]
@@ -191,13 +191,13 @@ pub mod tests {
         pattern.regex = "[abc]".into();
         pattern.ignore.push("a".into());
         pattern.ignore.push("b".into());
-        assert!(pattern.setup(&"name".into()).is_ok());
+        assert!(pattern.setup("name").is_ok());
 
         // ignore ko
         pattern = default_pattern();
         pattern.regex = "[abc]".into();
         pattern.ignore.push("d".into());
-        assert!(pattern.setup(&"name".into()).is_err());
+        assert!(pattern.setup("name").is_err());
     }
 
     #[test]
@@ -209,13 +209,13 @@ pub mod tests {
         pattern.regex = "[abc]".into();
         pattern.ignore_regex.push("[a]".into());
         pattern.ignore_regex.push("a".into());
-        assert!(pattern.setup(&"name".into()).is_ok());
+        assert!(pattern.setup("name").is_ok());
 
         // ignore_regex ko
         pattern = default_pattern();
         pattern.regex = "[abc]".into();
         pattern.ignore.push("[a".into());
-        assert!(pattern.setup(&"name".into()).is_err());
+        assert!(pattern.setup("name").is_err());
     }
 
     #[test]
@@ -230,7 +230,7 @@ pub mod tests {
         pattern.ignore_regex.push("c".into());
         pattern.ignore_regex.push("[de]".into());
 
-        pattern.setup(&"name".into()).unwrap();
+        pattern.setup("name").unwrap();
         assert!(!pattern.not_an_ignore("a"));
         assert!(!pattern.not_an_ignore("b"));
         assert!(!pattern.not_an_ignore("c"));
