@@ -227,5 +227,9 @@ make install_systemd
 
 Contributions are welcome. For any substantial feature, please file an issue first, to be assured that we agree on the feature, and to avoid unnecessary work.
 
+I recommend reading [`ARCHITECTURE.md`](ARCHITECTURE.md) first. This is a tour of the codebase, which should save time to potential contributors.
+
+## Funding
+
 This is a free time project, so I'm not working on schedule.
 However, if you're willing to fund the project, I can priorise and plan paid work. This includes features, documentation and specific JSONnet configurations.

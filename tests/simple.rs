@@ -8,7 +8,7 @@ use std::{
 use tempfile::TempDir;
 use tracing::Level;
 
-use reaction::{client::request, concepts::Order, daemon::daemon, utils::cli::Format};
+use reaction::{cli::Format, client::request, daemon::daemon, protocol::Order};
 use tokio::time::sleep;
 
 fn file_with_contents(path: &str, contents: &str) {

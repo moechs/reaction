@@ -13,7 +13,7 @@ use tracing::{debug, error, warn};
 
 use crate::{
     concepts::{Config, Filter, LogEntry, Match},
-    utils::{bincode_options, BincodeOptions},
+    protocol::{bincode_options, BincodeOptions},
 };
 
 use super::DBError;

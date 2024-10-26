@@ -6,7 +6,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 
 use super::{Match, Pattern};
-use crate::utils::parse_duration;
+use super::parse_duration;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

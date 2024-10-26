@@ -11,8 +11,8 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{ClientRequest, ClientStatus, Config, DaemonResponse, Pattern},
-    utils::bincode_options,
+    concepts::{Config, Pattern},
+    protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse},
 };
 
 use super::SharedState;

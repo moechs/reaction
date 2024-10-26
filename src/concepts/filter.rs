@@ -16,7 +16,7 @@ use super::{
     messages::{Match, Time, MAT},
     Action, LogEntry, Pattern, Patterns,
 };
-use crate::utils::parse_duration;
+use super::parse_duration;
 
 // Only names are serialized
 // Only computed fields are not deserialized

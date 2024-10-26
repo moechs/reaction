@@ -8,7 +8,7 @@ use std::{
 use clap_complete::shells;
 
 // SubCommand defined here
-include!("src/utils/cli.rs");
+include!("src/cli.rs");
 
 fn compile_helper(name: &str, out_dir: &Path) -> io::Result<()> {
     process::Command::new("gcc")

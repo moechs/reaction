@@ -7,8 +7,9 @@
 )]
 #![allow(clippy::upper_case_acronyms, clippy::mutable_key_type)]
 
+pub mod cli;
 pub mod client;
 pub mod concepts;
 pub mod daemon;
+pub mod protocol;
 pub mod tests;
-pub mod utils;

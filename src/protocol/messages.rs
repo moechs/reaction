@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use super::Match;
-
 use serde::{
     // ser::{SerializeMap, SerializeStruct},
     Deserialize, Serialize,
 };
+
+use crate::concepts::Match;
 
 // We don't need protocol versionning here because
 // client and daemon are the same binary

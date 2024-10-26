@@ -1,12 +1,11 @@
 use std::{io::IsTerminal, process::exit};
 
 use clap::Parser;
-
 use reaction::{
+    cli::{Cli, SubCommand},
     client::{request, test_regex},
-    concepts::Order,
     daemon::daemon,
-    utils::cli::{Cli, SubCommand},
+    protocol::Order,
 };
 use tracing::{error, Level};
 
