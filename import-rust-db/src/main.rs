@@ -47,13 +47,13 @@ fn lil_main() -> Result<(), E> {
     std::fs::rename(format!("{DB}{NORMAL}"), format!("{DB}{OLD}"))?;
     std::fs::rename(format!("{FLUSH}{NORMAL}"), format!("{FLUSH}{OLD}"))?;
 
-    import(format!("{DB}{EXPORT}"), format!("{DB}{NORMAL}"))?;
-    import(format!("{FLUSH}{EXPORT}"), format!("{FLUSH}{NORMAL}"))?;
+    import(&format!("{DB}{EXPORT}"), &format!("{DB}{NORMAL}"))?;
+    import(&format!("{FLUSH}{EXPORT}"), &format!("{FLUSH}{NORMAL}"))?;
     Ok(())
 }
 
 fn import(json_path: &str, write_path: &str) -> Result<(), E> {
-    let json_file = BufReader::new(File::open(json_path.clone())?);
+    let json_file = BufReader::new(File::open(json_path)?);
     let mut write_file = BufWriter::new(File::create(write_path)?);
     let bin = bincode_options();
 
