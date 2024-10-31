@@ -60,7 +60,7 @@ impl FilterManager {
     }
 
     pub async fn handle_match(&mut self, m: Match, t: Time, send_log: bool) {
-        self.clear_past_times();
+        self.clear_past_times(t);
 
         let exec = match self.filter.retry() {
             None => true,
@@ -172,8 +172,7 @@ impl FilterManager {
         }
     }
 
-    fn clear_past_times(&mut self) {
-        let now = Local::now();
+    fn clear_past_times(&mut self, now: Time) {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
         while self
             .ordered_times

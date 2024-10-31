@@ -9,14 +9,10 @@ use std::{
 use chrono::TimeDelta;
 use regex::Regex;
 use serde::Deserialize;
-use tokio::sync::mpsc;
 use tracing::info;
 
-use super::{
-    messages::{Match, Time, MAT},
-    Action, LogEntry, Pattern, Patterns,
-};
 use super::parse_duration;
+use super::{messages::Match, Action, Pattern, Patterns};
 
 // Only names are serialized
 // Only computed fields are not deserialized
@@ -206,26 +202,6 @@ impl Filter {
             }
         }
         None
-    }
-
-    pub async fn send_actions(&'static self, m: &Match, t: Time, tx: &mpsc::Sender<MAT>) {
-        for action in self.actions.values() {
-            let mat = MAT {
-                m: m.clone(),
-                o: action,
-                t: t + action.after_duration().unwrap_or_default(),
-            };
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            tx.send(mat).await.unwrap();
-        }
-    }
-
-    pub fn is_outdated(entry: &LogEntry, now: &Time) -> bool {
-        if entry.exec {
-            entry.t + entry.f.longuest_action_duration < *now
-        } else {
-            entry.t + entry.f.retry_duration.unwrap_or_default() < *now
-        }
     }
 }
 

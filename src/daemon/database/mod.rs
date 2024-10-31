@@ -190,8 +190,6 @@ fn _rotate_db(
     }
     let last_global_flush = flushes.get(&Filter::default());
 
-    let now = Local::now();
-
     // Read matches
     for log_entry in log_read_db {
         match log_entry {
@@ -220,25 +218,23 @@ fn _rotate_db(
                 }
 
                 // Store match & store in db
-                if !Filter::is_outdated(&entry, &now) {
-                    #[allow(clippy::unwrap_used)] // 0 second is obviously less than i64::MAX
-                    {
-                        // We loose subsecond precision when storing times, so we add those fake
-                        // milliseconds to make sure each time is unique
-                        entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
-                        millisecond_disambiguation_counter += 1;
-                    }
-
-                    if let Some(matches_tx) = &matches_tx {
-                        if let Some(tx) = matches_tx.get(entry.f) {
-                            debug!("DB sending match from DB: {:?}", entry.m);
-                            #[allow(clippy::unwrap_used)] // propagating panics is ok
-                            tx.blocking_send(entry.clone().into()).unwrap();
-                        }
-                    }
-
-                    write_or_die!(log_write_db, entry);
+                {
+                    // We loose subsecond precision when storing times, so we add those fake
+                    // milliseconds to make sure each time is unique
+                    #![allow(clippy::unwrap_used)] // 0 second is obviously less than i64::MAX
+                    entry.t += TimeDelta::new(0, millisecond_disambiguation_counter).unwrap();
+                    millisecond_disambiguation_counter += 1;
                 }
+
+                if let Some(matches_tx) = &matches_tx {
+                    if let Some(tx) = matches_tx.get(entry.f) {
+                        debug!("DB sending match from DB: {:?}", entry.m);
+                        #[allow(clippy::unwrap_used)] // propagating panics is ok
+                        tx.blocking_send(entry.clone().into()).unwrap();
+                    }
+                }
+
+                write_or_die!(log_write_db, entry);
             }
             Err(err) => {
                 *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
