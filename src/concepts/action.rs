@@ -5,8 +5,8 @@ use chrono::TimeDelta;
 use serde::Deserialize;
 use tokio::process::Command;
 
-use super::{Match, Pattern};
 use super::parse_duration;
+use super::{Match, Pattern};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

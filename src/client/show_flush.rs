@@ -11,7 +11,10 @@ use tokio_util::{
     codec::{Framed, LengthDelimitedCodec},
 };
 
-use crate::{cli::Format, protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse, Order}};
+use crate::{
+    cli::Format,
+    protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse, Order},
+};
 
 macro_rules! or_quit {
     ($msg:expr, $expression:expr) => {
@@ -70,8 +73,9 @@ pub async fn request(
     )
     .await;
     match response? {
-        DaemonResponse::Order(cs) => print_status(cs, format)
-            .map_err(|err| format!("while printing response: {err}")),
+        DaemonResponse::Order(cs) => {
+            print_status(cs, format).map_err(|err| format!("while printing response: {err}"))
+        }
         DaemonResponse::Err(err) => Err(format!(
             "failed to communicate to daemon: error response: {err}"
         )),

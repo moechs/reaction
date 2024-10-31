@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use super::parse_duration;
-use super::{messages::Match, Action, Pattern, Patterns};
+use super::{Action, Match, Pattern, Patterns};
 
 // Only names are serialized
 // Only computed fields are not deserialized

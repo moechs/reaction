@@ -12,11 +12,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::{
-    concepts::{Config, Filter, LogEntry, Match},
+    concepts::{Config, Filter, Match},
     protocol::{bincode_options, BincodeOptions},
 };
 
-use super::DBError;
+use super::{DBError, LogEntry};
 
 // OPTIM Add a timestamp prefix to the header, to permit having
 // shorter timestamps?

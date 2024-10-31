@@ -6,12 +6,12 @@ use std::{
     thread,
 };
 
-use chrono::{Local, TimeDelta};
+use chrono::TimeDelta;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use crate::concepts::{Config, Filter, LogEntry, Match, Time, MFT};
+use crate::concepts::{Config, Filter, Match, Time};
 
 mod lowlevel;
 mod tests;
@@ -23,6 +23,25 @@ const LOG_DB_NEW_NAME: &str = "./reaction-matches.new.db";
 const FLUSH_DB_NAME: &str = "./reaction-flushes.db";
 
 const MAX_WRITES: u32 = 500_000;
+
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub m: Match,
+    pub f: &'static Filter,
+    pub t: Time,
+    pub exec: bool,
+}
+
+impl PartialEq for LogEntry {
+    #[allow(clippy::unwrap_used)] // 1 second is obviously less seconds than i64::MAX
+    fn eq(&self, other: &Self) -> bool {
+        self.exec == other.exec
+            && self.m == other.m
+            && self.f == other.f
+            // We loose subsecond precision while encoding LogEntry
+            && (self.t - other.t) < TimeDelta::new(1, 0).unwrap()
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum DBError {
@@ -64,7 +83,7 @@ macro_rules! flush_or_die {
 pub fn database_manager(
     config: &'static Config,
     mut log_rx: mpsc::Receiver<DatabaseManagerInput>,
-    matches_tx: BTreeMap<&'static Filter, mpsc::Sender<MFT>>,
+    matches_tx: BTreeMap<&'static Filter, mpsc::Sender<(Match, Time)>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let (mut log_db, mut flush_db) = match rotate_db(config, Some(matches_tx)) {
@@ -111,7 +130,7 @@ pub fn database_manager(
 
 fn rotate_db(
     config: &'static Config,
-    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
+    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<(Match, Time)>>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
     let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
         Some(db) => db,
@@ -166,7 +185,7 @@ fn rotate_db(
 }
 
 fn _rotate_db(
-    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<MFT>>>,
+    matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<(Match, Time)>>>,
     log_read_db: &mut ReadDB,
     flush_read_db: &mut ReadDB,
     log_write_db: &mut WriteDB,
@@ -230,7 +249,7 @@ fn _rotate_db(
                     if let Some(tx) = matches_tx.get(entry.f) {
                         debug!("DB sending match from DB: {:?}", entry.m);
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
-                        tx.blocking_send(entry.clone().into()).unwrap();
+                        tx.blocking_send((entry.m.clone(), entry.t)).unwrap();
                     }
                 }
 

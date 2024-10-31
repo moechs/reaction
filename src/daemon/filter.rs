@@ -8,11 +8,14 @@ use regex::Regex;
 use tokio::sync::{mpsc, Semaphore};
 
 use crate::{
-    concepts::{Filter, LogEntry, Match, Pattern, Time, MFT},
+    concepts::{Filter, Match, Pattern, Time},
     protocol::{Order, PatternStatus},
 };
 
-use super::{action::ActionManager, database::DatabaseManagerInput};
+use super::{
+    action::ActionManager,
+    database::{DatabaseManagerInput, LogEntry},
+};
 
 pub struct FilterManager {
     filter: &'static Filter,
@@ -45,9 +48,9 @@ impl FilterManager {
         }
     }
 
-    pub async fn handle_db_entries(mut self, mut match_rx: mpsc::Receiver<MFT>) -> Self {
-        while let Some(mft) = match_rx.recv().await {
-            self.handle_match(mft.m, mft.t, false).await;
+    pub async fn handle_db_entries(mut self, mut match_rx: mpsc::Receiver<(Match, Time)>) -> Self {
+        while let Some((m, t)) = match_rx.recv().await {
+            self.handle_match(m, t, false).await;
         }
         self
     }

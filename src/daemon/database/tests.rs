@@ -5,7 +5,8 @@ use chrono::Local;
 
 use super::{ReadDB, WriteDB};
 use crate::{
-    concepts::{Config, Filter, LogEntry},
+    concepts::{Config, Filter},
+    daemon::database::LogEntry,
     tests::Fixture,
 };
 
