@@ -166,4 +166,29 @@ async fn simple() {
         scenario1,
         scenario2
     );
+
+    // Third part of the test
+    // Check we can capture both stdout and stderr from spawned processes
+
+    // New directory to avoid to load the database from previous tests
+    let dir = TempDir::new().unwrap();
+    env::set_current_dir(&dir).unwrap();
+
+    // echo numbers twice, once on stdout, once on stderr
+    config_with_cmd(
+        config_path,
+        "for i in 1 2 3 4 5 6 7 8 9; do echo here is $i; echo here is $i 1>&2; sleep 0.1; done; sleep 1",
+    );
+
+    file_with_contents(out_path, "");
+
+    let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
+    eprintln!("daemon exit with {:?}", daemon_exit);
+    assert!(daemon_exit.is_err());
+
+    // make sure all numbers appear in the output
+    assert_eq!(
+        get_file_content(out_path).trim(),
+        "1\n2\n3\n4\n5\n6\n7\n8\n9".to_owned()
+    );
 }
