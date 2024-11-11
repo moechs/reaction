@@ -1,7 +1,8 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs, io,
+    path::PathBuf,
     process::exit,
     thread,
 };
@@ -18,9 +19,36 @@ mod tests;
 
 use lowlevel::{ReadDB, WriteDB};
 
-const LOG_DB_NAME: &str = "./reaction-matches.db";
-const LOG_DB_NEW_NAME: &str = "./reaction-matches.new.db";
-const FLUSH_DB_NAME: &str = "./reaction-flushes.db";
+enum DatabaseNames {
+    LogDbName,
+    LogDbNewName,
+    FlushDbName,
+}
+impl DatabaseNames {
+    fn basename(&self) -> &'static str {
+        match self {
+            DatabaseNames::LogDbName => "reaction-matches.db",
+            DatabaseNames::LogDbNewName => "reaction-matches.new.db",
+            DatabaseNames::FlushDbName => "reaction-flushes.db",
+        }
+    }
+}
+impl Display for DatabaseNames {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.basename())
+    }
+}
+
+impl Config {
+    fn path_of(&self, name: DatabaseNames) -> PathBuf {
+        if self.state_directory().is_empty() {
+            name.basename().into()
+        } else {
+            PathBuf::from(self.state_directory()).join(name.basename())
+        }
+    }
+}
+use DatabaseNames::*;
 
 const MAX_WRITES: u32 = 500_000;
 
@@ -132,23 +160,23 @@ fn rotate_db(
     config: &'static Config,
     matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<(Match, Time)>>>,
 ) -> Result<(WriteDB, WriteDB), DBError> {
-    let mut log_read_db = match ReadDB::open(LOG_DB_NAME, config)? {
+    let mut log_read_db = match ReadDB::open(&config.path_of(LogDbName), config)? {
         Some(db) => db,
         None => {
             return Ok((
-                WriteDB::create(LOG_DB_NAME, config),
-                WriteDB::create(FLUSH_DB_NAME, config),
+                WriteDB::create(&config.path_of(LogDbName), config),
+                WriteDB::create(&config.path_of(FlushDbName), config),
             ));
         }
     };
-    let mut flush_read_db = match ReadDB::open(FLUSH_DB_NAME, config)? {
+    let mut flush_read_db = match ReadDB::open(&config.path_of(FlushDbName), config)? {
         Some(db) => db,
         None => {
             warn!(
-                "Strange! Found a {} but no {}, opening /dev/null instead",
-                LOG_DB_NAME, FLUSH_DB_NAME
+                "Strange! Found a {:?} but no {:?}, opening /dev/null instead",
+                &config.path_of(LogDbName), &config.path_of(FlushDbName)
             );
-            match ReadDB::open("/dev/null", config)? {
+            match ReadDB::open(&PathBuf::from("/dev/null"), config)? {
                 Some(db) => db,
                 None => {
                     return Err(DBError::Error("/dev/null is not accessible".into()));
@@ -157,7 +185,7 @@ fn rotate_db(
         }
     };
 
-    let mut log_write_db = WriteDB::create(LOG_DB_NEW_NAME, config);
+    let mut log_write_db = WriteDB::create(&config.path_of(LogDbNewName), config);
 
     _rotate_db(
         matches_tx,
@@ -169,18 +197,18 @@ fn rotate_db(
     drop(log_read_db);
     drop(flush_read_db);
 
-    if let Err(err) = fs::rename(LOG_DB_NEW_NAME, LOG_DB_NAME) {
+    if let Err(err) = fs::rename(&config.path_of(LogDbNewName), &config.path_of(LogDbName)) {
         return Err(DBError::Error(format!(
             "Failed to replace old DB with new one: {}",
             err
         )));
     }
 
-    if let Err(err) = fs::remove_file(FLUSH_DB_NAME) {
+    if let Err(err) = fs::remove_file(&config.path_of(FlushDbName)) {
         return Err(DBError::Error(format!("Failed to delete old DB: {}", err)));
     }
 
-    let flush_write_db = WriteDB::create(FLUSH_DB_NAME, config);
+    let flush_write_db = WriteDB::create(&config.path_of(FlushDbName), config);
     Ok((log_write_db, flush_write_db))
 }
 
@@ -250,7 +278,11 @@ fn _rotate_db(
                         debug!("DB sending match from DB: {:?}", entry.m);
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         tx.blocking_send((entry.m.clone(), entry.t)).unwrap();
+                    } else {
+                        dbg!("no tx for ", entry.f);
                     }
+                } else {
+                    dbg!("no matches_tx");
                 }
 
                 write_or_die!(log_write_db, entry);

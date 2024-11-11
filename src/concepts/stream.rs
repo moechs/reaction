@@ -5,6 +5,7 @@ use serde::Deserialize;
 use super::{Filter, Patterns};
 
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     cmd: Vec<String>,
@@ -62,6 +63,15 @@ impl Stream {
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn from_filters(filters: BTreeMap<String, Filter>, name: &str) -> Self {
+        Self {
+            filters,
+            name: name.to_string(),
+            ..Default::default()
+        }
     }
 }
 

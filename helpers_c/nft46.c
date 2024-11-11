@@ -80,7 +80,7 @@ void adapt_args(char *tab) {
 	exit(1);
 }
 
-int exec(char *str, char **argv) {
+void exec(char *str, char **argv) {
 	argv[0] = str;
 	execvp(str, argv);
 	// returns only if fails

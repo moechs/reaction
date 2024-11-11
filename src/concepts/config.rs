@@ -16,6 +16,7 @@ use super::{Filter, Pattern, Stream};
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     patterns: Patterns,
@@ -29,6 +30,9 @@ pub struct Config {
     start: Vec<Vec<String>>,
     #[serde(default)]
     stop: Vec<Vec<String>>,
+
+    #[serde(default)]
+    state_directory: String,
 }
 
 impl Config {
@@ -42,6 +46,10 @@ impl Config {
 
     pub fn concurrency(&self) -> usize {
         self.concurrency
+    }
+
+    pub fn state_directory(&self) -> &str {
+        &self.state_directory
     }
 
     pub fn filters(&self) -> Vec<&Filter> {
@@ -118,6 +126,15 @@ impl Config {
         config.setup().map_err(ConfigError::BadConfig)?;
 
         Ok(config)
+    }
+
+    #[cfg(test)]
+    pub fn from_streams(streams: BTreeMap<String, Stream>, dir: &str) -> Self {
+        Self {
+            streams,
+            state_directory: dir.to_string(),
+            ..Default::default()
+        }
     }
 }
 
@@ -211,19 +228,9 @@ mod tests {
 
     use super::*;
 
-    fn default_config() -> Config {
-        Config {
-            concurrency: 0,
-            patterns: BTreeMap::new(),
-            streams: BTreeMap::new(),
-            start: Vec::new(),
-            stop: Vec::new(),
-        }
-    }
-
     #[test]
     fn config_missing() {
-        let mut config = default_config();
+        let mut config = Config::default();
         assert!(config.setup().is_err());
     }
 }

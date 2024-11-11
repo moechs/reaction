@@ -16,3 +16,5 @@ debian-packaging/*
 export-go-db/export-go-db
 import-rust-db/target
 /target
+/local
+.ccls-cache
