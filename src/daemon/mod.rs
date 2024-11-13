@@ -9,10 +9,9 @@ use std::{
 };
 
 use tokio::{
-    process::Child,
     select,
     signal::unix::{signal, SignalKind},
-    sync::{broadcast, mpsc, oneshot, Mutex, Semaphore},
+    sync::{broadcast, mpsc, Mutex, Semaphore},
 };
 use tracing::info;
 
@@ -50,7 +49,6 @@ pub async fn daemon(
         return Err("a start command failed, exiting.".into());
     }
 
-    let mut stream_process_child_handles = Vec::new();
     let mut stream_task_handles = Vec::new();
 
     let (log_tx, log_rx) = mpsc::channel(234560);
@@ -106,26 +104,18 @@ pub async fn daemon(
     let stream_filter_managers = Arc::new(stream_filter_managers);
 
     for (stream, filter_managers) in stream_filter_managers.s.iter() {
-        let (child_tx, child_rx) = oneshot::channel();
         let filter_managers = filter_managers.clone();
         let stream = *stream;
 
+        let stream_shutdow_rx = shutdown_rx.resubscribe();
         stream_task_handles.push(tokio::spawn(async move {
-            stream_manager(stream, child_tx, filter_managers).await
+            stream_manager(stream, filter_managers, stream_shutdow_rx).await
         }));
-
-        if let Ok(Some(child)) = child_rx.await {
-            stream_process_child_handles.push(child);
-        }
     }
 
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
-    handle_signals(
-        stream_process_child_handles,
-        shutdown_tx.clone(),
-        signal_received.clone(),
-    )?;
+    handle_signals(shutdown_tx.clone(), signal_received.clone())?;
 
     let socket_manager_task_handle = {
         let socket = socket.to_owned();
@@ -155,7 +145,6 @@ pub async fn daemon(
 }
 
 fn handle_signals(
-    stream_process_child_handles: Vec<Child>,
     shutdown_tx: broadcast::Sender<()>,
     signal_received: Arc<AtomicBool>,
 ) -> tokio::io::Result<()> {
@@ -168,13 +157,9 @@ fn handle_signals(
             _ = sigint.recv() => "SIGINT",
             _ = sigterm.recv() => "SIGTERM",
         };
+        info!("received {signal}, closing streams...");
         let _ = shutdown_tx.send(());
         signal_received.store(true, Ordering::SeqCst);
-        info!("received {signal}, closing streams...");
-        // Kill stream subprocesses
-        for mut child_handle in stream_process_child_handles.into_iter() {
-            tokio::spawn(async move { child_handle.kill().await });
-        }
     });
     Ok(())
 }

@@ -1,11 +1,11 @@
 use std::{collections::HashMap, process::Stdio, sync::Arc, task::Poll};
 
-use futures::StreamExt;
+use futures::{pin_mut, FutureExt, StreamExt};
 use tokio::{
     io::{AsyncBufReadExt, BufReader, Lines},
     pin,
-    process::{Child, Command},
-    sync::{oneshot, Mutex},
+    process::Command,
+    sync::{broadcast, Mutex},
 };
 use tracing::{error, info};
 
@@ -28,8 +28,8 @@ fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
 
 pub async fn stream_manager(
     stream: &'static Stream,
-    child_tx: oneshot::Sender<Option<Child>>,
     filter_managers: Arc<Mutex<HashMap<&'static Filter, FilterManager>>>,
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     info!("{}: start {:?}", stream.name(), stream.cmd());
     let mut child = match Command::new(&stream.cmd()[0])
@@ -42,7 +42,6 @@ pub async fn stream_manager(
         Ok(child) => child,
         Err(err) => {
             error!("could not execute stream {} cmd: {}", stream.name(), err);
-            let _ = child_tx.send(None);
             return;
         }
     };
@@ -58,33 +57,34 @@ pub async fn stream_manager(
     // aggregate outputs, will end when both streams end
     let mut lines = futures::stream::select(lines_stdout, lines_stderr);
 
-    // let main handle the child process
-    let _ = child_tx.send(Some(child));
+    // fuse the future right after the first and only message we expect on this channel
+    let shutdown_watch = shutdown_rx.recv().fuse();
+    pin_mut!(shutdown_watch);
+
+    let mut child_killed = false;
 
     loop {
-        match lines.next().await {
-            Some(Ok(line)) => {
-                futures::future::join_all(
-                    filter_managers
-                        .lock()
-                        .await
-                        .values_mut()
-                        .map(|manager| manager.handle_line(&line)),
-                )
-                .await;
+        futures::select!(
+            _ = shutdown_watch => {
+                // reaction is shutting down, kill child process, we'll reap it after
+                // processing the remaining I/O
+                let _ = child.start_kill();
+                child_killed = true;
+            },
+            line = lines.next() => {
+                if handle_io(line, &filter_managers, stream.name(), child_killed).await.is_err() {
+                    break;
+                }
             }
-            Some(Err(err)) => {
-                error!(
-                    "impossible to read output from stream {}: {}",
-                    stream.name(),
-                    err
-                );
-                break;
-            }
-            None => {
-                error!("stream {} exited: its command returned.", stream.name());
-                break;
-            }
+        );
+    }
+
+    // reap the child process if already dead or kill it (might issue sigkill twice with the one
+    // above).
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        _ => {
+            let _ = child.kill().await;
         }
     }
 
@@ -93,4 +93,40 @@ pub async fn stream_manager(
         .await
         .values_mut()
         .for_each(|manager| manager.quit());
+}
+
+async fn handle_io(
+    line: Option<Result<String, std::io::Error>>,
+    filter_managers: &Arc<Mutex<HashMap<&'static Filter, FilterManager>>>,
+    stream_name: &str,
+    child_killed: bool,
+) -> Result<(), ()> {
+    match line {
+        Some(Ok(line)) => {
+            futures::future::join_all(
+                filter_managers
+                    .lock()
+                    .await
+                    .values_mut()
+                    .map(|manager| manager.handle_line(&line)),
+            )
+            .await;
+            Ok(())
+        }
+        Some(Err(err)) => {
+            if !child_killed {
+                error!(
+                    "impossible to read output from stream {}: {}",
+                    stream_name, err
+                );
+            }
+            Err(())
+        }
+        None => {
+            if !child_killed {
+                error!("stream {} exited: its command returned.", stream_name);
+            }
+            Err(())
+        }
+    }
 }
