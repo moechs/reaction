@@ -50,7 +50,7 @@ See usage examples, service configurations and good practices on the wiki: https
     }
 
     println!("cargo::rerun-if-changed=build.rs");
-    println!("cargo::rerun-if-changed=src/utils/cli.rs");
+    println!("cargo::rerun-if-changed=src/cli.rs");
     println!("cargo::rerun-if-changed=helpers_c/ip46tables.c");
     println!("cargo::rerun-if-changed=helpers_c/nft46.c");
 
