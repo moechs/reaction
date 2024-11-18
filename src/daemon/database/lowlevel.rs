@@ -1,5 +1,10 @@
 use std::{
-    collections::BTreeMap, fmt::Debug, fs::File, io::{self, BufReader, BufWriter, Read, Write}, path::Path, process::exit
+    collections::BTreeMap,
+    fmt::Debug,
+    fs::File,
+    io::{self, BufReader, BufWriter, Read, Write},
+    path::Path,
+    process::exit,
 };
 
 use bincode::Options;
@@ -54,11 +59,15 @@ impl ReadDB {
         };
 
         // Signature checking
-        // TODO if "failed to fill whole buffer", file is empty or almost empty. Ignore
         let mut signature = [0u8; 15];
-        ret.f
-            .read_exact(&mut signature)
-            .map_err(|err| DBError::Error(format!("reading database signature: {err}")))?;
+        if let Err(err) = ret.f.read_exact(&mut signature) {
+            return match err.kind() {
+                // File empty is ok
+                io::ErrorKind::UnexpectedEof => Ok(None),
+                _ => Err(DBError::Error(format!("reading database signature: {err}"))),
+            };
+        }
+
         if DB_SIGNATURE.as_bytes()[0..13] != signature[0..13] {
             return Err(DBError::Error(format!(
                 "{path:?} is not a reaction database, or it is a reaction-v1.x database.
@@ -146,6 +155,11 @@ impl WriteDB {
             .collect();
 
         if let Err(err) = ret._write(&database_header) {
+            error!("Failed to write to DB: {}", err);
+            exit(1);
+        }
+
+        if let Err(err) = ret.f.flush() {
             error!("Failed to write to DB: {}", err);
             exit(1);
         }

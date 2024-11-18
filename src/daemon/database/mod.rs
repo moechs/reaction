@@ -169,22 +169,7 @@ fn rotate_db(
             ));
         }
     };
-    let mut flush_read_db = match ReadDB::open(&config.path_of(FlushDbName), config)? {
-        Some(db) => db,
-        None => {
-            warn!(
-                "Strange! Found a {:?} but no {:?}, opening /dev/null instead",
-                &config.path_of(LogDbName),
-                &config.path_of(FlushDbName)
-            );
-            match ReadDB::open(&PathBuf::from("/dev/null"), config)? {
-                Some(db) => db,
-                None => {
-                    return Err(DBError::Error("/dev/null is not accessible".into()));
-                }
-            }
-        }
-    };
+    let mut flush_read_db = ReadDB::open(&config.path_of(FlushDbName), config)?;
 
     let mut log_write_db = WriteDB::create(&config.path_of(LogDbNewName), config);
 
@@ -216,7 +201,7 @@ fn rotate_db(
 fn _rotate_db(
     matches_tx: Option<BTreeMap<&Filter, mpsc::Sender<(Match, Time)>>>,
     log_read_db: &mut ReadDB,
-    flush_read_db: &mut ReadDB,
+    flush_read_db: &mut Option<ReadDB>,
     log_write_db: &mut WriteDB,
 ) {
     let mut discarded_errors: HashMap<String, usize> = HashMap::new();
@@ -225,17 +210,22 @@ fn _rotate_db(
 
     // Read flushes
     let mut flushes: BTreeMap<&'static Filter, BTreeMap<Match, Time>> = BTreeMap::new();
-    for flush_entry in flush_read_db {
-        match flush_entry {
-            Ok(entry) => {
-                let matches_map = flushes.entry(entry.f).or_default();
-                matches_map.insert(entry.m, entry.t);
-            }
-            Err(err) => {
-                *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
+    if let Some(flush_read_db) = flush_read_db {
+        for flush_entry in flush_read_db {
+            match flush_entry {
+                Ok(entry) => {
+                    let matches_map = flushes.entry(entry.f).or_default();
+                    matches_map.insert(entry.m, entry.t);
+                }
+                Err(err) => {
+                    *discarded_errors.entry(err.to_string()).or_insert(0) += 1;
+                }
             }
         }
     }
+    let flushes = flushes;
+    debug!("flushes: {:?}", &flushes);
+
     let last_global_flush = flushes.get(&Filter::default());
 
     // Read matches
