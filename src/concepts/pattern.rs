@@ -4,6 +4,7 @@ use regex::Regex;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Pattern {
     pub regex: String,
@@ -23,6 +24,13 @@ pub struct Pattern {
 }
 
 impl Pattern {
+    #[cfg(test)]
+    pub fn from_name(name: &str) -> Pattern {
+        Pattern {
+            name: name.into(),
+            ..Pattern::default()
+        }
+    }
     pub fn setup(&mut self, name: &str) -> Result<(), String> {
         self._setup(name)
             .map_err(|msg| format!("pattern {}: {}", name, msg))

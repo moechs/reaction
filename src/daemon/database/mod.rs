@@ -174,7 +174,8 @@ fn rotate_db(
         None => {
             warn!(
                 "Strange! Found a {:?} but no {:?}, opening /dev/null instead",
-                &config.path_of(LogDbName), &config.path_of(FlushDbName)
+                &config.path_of(LogDbName),
+                &config.path_of(FlushDbName)
             );
             match ReadDB::open(&PathBuf::from("/dev/null"), config)? {
                 Some(db) => db,
@@ -243,6 +244,7 @@ fn _rotate_db(
             Ok(mut entry) => {
                 // Check if number of patterns is in sync
                 if entry.m.len() != entry.f.patterns().len() {
+                    debug!("DB ignoring entry: nb of patterns in filter not in sync with nb of matches: {:?}", entry);
                     continue;
                 }
 
@@ -274,15 +276,12 @@ fn _rotate_db(
                 }
 
                 if let Some(matches_tx) = &matches_tx {
-                    if let Some(tx) = matches_tx.get(entry.f) {
-                        debug!("DB sending match from DB: {:?}", entry.m);
-                        #[allow(clippy::unwrap_used)] // propagating panics is ok
-                        tx.blocking_send((entry.m.clone(), entry.t)).unwrap();
-                    } else {
-                        dbg!("no tx for ", entry.f);
-                    }
-                } else {
-                    dbg!("no matches_tx");
+                    let tx = matches_tx
+                        .get(entry.f)
+                        .expect("each filter should have an associated channel Sender");
+                    debug!("DB sending match from DB: {:?}", entry.m);
+                    #[allow(clippy::unwrap_used)] // propagating panics is ok
+                    tx.blocking_send((entry.m.clone(), entry.t)).unwrap();
                 }
 
                 write_or_die!(log_write_db, entry);

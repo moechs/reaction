@@ -53,6 +53,16 @@ impl Filter {
         }
     }
 
+    #[cfg(test)]
+    pub fn from_name_and_patterns(stream_name: &str, filter_name: &str, patterns: Vec<Pattern>) -> Filter {
+        Filter {
+            stream_name: stream_name.into(),
+            name: filter_name.into(),
+            patterns: Arc::new(patterns.into_iter().map(|p| Arc::new(p)).collect()),
+            ..Filter::default()
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
