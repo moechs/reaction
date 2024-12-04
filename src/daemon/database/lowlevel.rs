@@ -10,7 +10,7 @@ use std::{
 use bincode::Options;
 use chrono::{DateTime, Local};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use crate::{
     concepts::{Config, Filter, Match},
@@ -96,7 +96,7 @@ Are you sure you're running the last version of reaction?"
 
     fn read<T: DeserializeOwned + Debug>(&mut self) -> Result<T, bincode::Error> {
         let decoded = self.bin.deserialize_from::<_, T>(&mut self.f)?;
-        debug!("reading this: {:?}", &decoded);
+        // debug!("reading this: {:?}", &decoded);
         Ok(decoded)
     }
 }

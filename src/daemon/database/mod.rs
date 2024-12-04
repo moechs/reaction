@@ -71,6 +71,20 @@ impl PartialEq for LogEntry {
     }
 }
 
+impl Display for LogEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "LogEntry {{ m: {:?}, f: '{}.{}', t: {}, exec: {} }}",
+            self.m,
+            self.f.stream_name(),
+            self.f.name(),
+            self.t,
+            self.exec
+        )
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum DBError {
     #[error("invalid filter: {0}")]
@@ -244,7 +258,7 @@ fn _rotate_db(
                 if let Some(map) = last_global_flush {
                     if let Some(time) = map.get(&entry.m) {
                         if time > &entry.t {
-                            debug!("DB ignoring global match: {:?}", entry.m);
+                            debug!("DB ignoring global match: {}", entry);
                             continue;
                         }
                     }
@@ -252,14 +266,14 @@ fn _rotate_db(
                 if let Some(map) = flushes.get(&entry.f) {
                     if let Some(time) = map.get(&entry.m) {
                         if time > &entry.t {
-                            debug!("DB ignoring local match: {:?}", entry.m);
+                            debug!("DB ignoring local match: {}", entry);
                             continue;
                         }
                     }
                 }
 
                 if entry.t + entry.f.max_time_before_outdated() < now {
-                    debug!("DB ignoring outdated match: {:?}", entry);
+                    debug!("DB ignoring outdated match: {}", entry);
                     continue;
                 }
 
@@ -276,7 +290,7 @@ fn _rotate_db(
                     let tx = matches_tx
                         .get(entry.f)
                         .expect("each filter should have an associated channel Sender");
-                    debug!("DB sending match from DB: {:?}", entry.m);
+                    debug!("DB sending match from DB: {}", entry);
                     #[allow(clippy::unwrap_used)] // propagating panics is ok
                     tx.blocking_send((entry.m.clone(), entry.t)).unwrap();
                 }
