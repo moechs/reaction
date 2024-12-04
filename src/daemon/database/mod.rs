@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-use chrono::TimeDelta;
+use chrono::{Local, TimeDelta};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -228,6 +228,8 @@ fn _rotate_db(
 
     let last_global_flush = flushes.get(&Filter::default());
 
+    let now = Local::now();
+
     // Read matches
     for log_entry in log_read_db {
         match log_entry {
@@ -256,7 +258,12 @@ fn _rotate_db(
                     }
                 }
 
-                // Store match & store in db
+                if entry.t + entry.f.max_time_before_outdated() < now {
+                    debug!("DB ignoring outdated match: {:?}", entry);
+                    continue;
+                }
+
+                // Send match & store in db
                 {
                     // We loose subsecond precision when storing times, so we add those fake
                     // milliseconds to make sure each time is unique

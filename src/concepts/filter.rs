@@ -54,7 +54,11 @@ impl Filter {
     }
 
     #[cfg(test)]
-    pub fn from_name_and_patterns(stream_name: &str, filter_name: &str, patterns: Vec<Pattern>) -> Filter {
+    pub fn from_name_and_patterns(
+        stream_name: &str,
+        filter_name: &str,
+        patterns: Vec<Pattern>,
+    ) -> Filter {
         Filter {
             stream_name: stream_name.into(),
             name: filter_name.into(),
@@ -77,6 +81,14 @@ impl Filter {
 
     pub fn retry_duration(&self) -> Option<TimeDelta> {
         self.retry_duration
+    }
+
+    pub fn max_time_before_outdated(&self) -> TimeDelta {
+        if let Some(retry_duration) = self.retry_duration {
+            self.longuest_action_duration + retry_duration
+        } else {
+            self.longuest_action_duration
+        }
     }
 
     pub fn actions(&self) -> &BTreeMap<String, Action> {
