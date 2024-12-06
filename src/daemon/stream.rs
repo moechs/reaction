@@ -75,21 +75,13 @@ async fn handle_child(
     const STREAM_PROCESS_GRACE_TIME_SEC: u64 = 15;
     const STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC: u64 = 5;
 
-    enum State {
-        Kill,
-        Exited,
-    }
-
     // wait either for the child process to exit on its own or for the shutdown signal
-    match futures::select! {
-        _ = child.wait().fuse() => State::Exited,
-        _ = shutdown_rx.recv().fuse() => State::Kill,
-    } {
-        State::Exited => {
+    futures::select! {
+        _ = child.wait().fuse() => {
             error!("stream {stream_name} exited: its command returned.");
             return;
         }
-        State::Kill => {}
+        _ = shutdown_rx.recv().fuse() => {}
     }
 
     // first, try to ask nicely the child process to exit
@@ -100,12 +92,11 @@ async fn handle_child(
         // but we still need to reclaim it with Child::wait
         let _ = nix::sys::signal::kill(pid, nix::sys::signal::SIGTERM);
 
-        match futures::select! {
-            _ = child.wait().fuse() => State::Exited,
-            _ = sleep(Duration::from_secs(STREAM_PROCESS_GRACE_TIME_SEC)).fuse() => State::Kill,
-        } {
-            State::Exited => return,
-            State::Kill => {}
+        futures::select! {
+            _ = child.wait().fuse() => {
+                return;
+            },
+            _ = sleep(Duration::from_secs(STREAM_PROCESS_GRACE_TIME_SEC)).fuse() => {},
         }
     } else {
         warn!("could not get PID of child process for stream {stream_name}");
@@ -113,7 +104,7 @@ async fn handle_child(
     }
 
     // if that fails, or we cannot get the underlying PID, terminate the process.
-    // NOTE: a process killed with SIGKILL are not guaranteed to exit. It can be locked up in a
+    // NOTE: processes killed with SIGKILL are not guaranteed to exit. They can be locked up in a
     // syscall to a resource no-longer available (a notorious example is a read on a disconnected
     // NFS share)
 
