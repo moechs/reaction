@@ -1,18 +1,18 @@
 use std::cmp::Ordering;
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Pattern {
     pub regex: String,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     ignore: Vec<String>,
 
-    #[serde(default, rename = "ignoreregex")]
+    #[serde(default, rename = "ignoreregex", skip_serializing_if = "Vec::is_empty")]
     ignore_regex: Vec<String>,
     #[serde(skip)]
     compiled_ignore_regex: Vec<Regex>,

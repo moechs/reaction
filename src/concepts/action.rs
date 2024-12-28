@@ -2,23 +2,28 @@ use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 
 use chrono::TimeDelta;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-use super::parse_duration;
+use super::parse_duration::*;
 use super::{Match, Pattern};
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize , Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
     cmd: Vec<String>,
 
     // TODO one shot time deserialization
+    #[serde(skip_serializing_if = "Option::is_none")]
     after: Option<String>,
     #[serde(skip)]
     after_duration: Option<TimeDelta>,
 
-    #[serde(rename = "onexit", default = "set_false")]
+    #[serde(
+        rename = "onexit",
+        default = "set_false",
+        skip_serializing_if = "is_false"
+    )]
     on_exit: bool,
 
     #[serde(skip)]
@@ -33,6 +38,10 @@ pub struct Action {
 
 fn set_false() -> bool {
     false
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Action {

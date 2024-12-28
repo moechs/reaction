@@ -25,7 +25,7 @@ pub struct Cli {
 pub enum SubCommand {
     /// Start reaction daemon
     Start {
-        /// configuration file in json, jsonnet or yaml format. required.
+        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
         #[clap(short = 'c', long)]
         config: PathBuf,
 
@@ -90,7 +90,7 @@ Then prints the flushed matches and actions."
 Giving a configuration file permits to use its patterns in REGEX."
     )]
     TestRegex {
-        /// configuration file in json, jsonnet or yaml format. required.
+        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
         #[clap(short = 'c', long)]
         config: PathBuf,
 
@@ -101,6 +101,19 @@ Giving a configuration file permits to use its patterns in REGEX."
         /// Line to be tested
         #[clap(value_name = "LINE")]
         line: Option<String>,
+    },
+    TestConfig {
+        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        #[clap(short = 'c', long)]
+        config: PathBuf,
+
+        /// how to format output: json or yaml.
+        #[clap(short = 'f', long, default_value_t = Format::YAML)]
+        format: Format,
+
+        /// whether to output additional information
+        #[clap(short = 'v', long, default_value_t = false)]
+        verbose: bool,
     },
 }
 

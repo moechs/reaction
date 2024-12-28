@@ -8,7 +8,7 @@ use std::{
 
 use chrono::TimeDelta;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::parse_duration;
@@ -16,7 +16,7 @@ use super::{Action, Match, Pattern, Patterns};
 
 // Only names are serialized
 // Only computed fields are not deserialized
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     actions: BTreeMap<String, Action>,
@@ -31,8 +31,9 @@ pub struct Filter {
     #[serde(skip)]
     patterns: Arc<BTreeSet<Arc<Pattern>>>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     retry: Option<u32>,
-    #[serde(rename = "retryperiod")]
+    #[serde(rename = "retryperiod", skip_serializing_if = "Option::is_none")]
     retry_period: Option<String>,
     #[serde(skip)]
     retry_duration: Option<TimeDelta>,
@@ -44,6 +45,29 @@ pub struct Filter {
 }
 
 impl Filter {
+    #[cfg(test)]
+    pub fn from_name(stream_name: &str, filter_name: &str) -> Filter {
+        Filter {
+            stream_name: stream_name.into(),
+            name: filter_name.into(),
+            ..Filter::default()
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_name_and_patterns(
+        stream_name: &str,
+        filter_name: &str,
+        patterns: Vec<Pattern>,
+    ) -> Filter {
+        Filter {
+            stream_name: stream_name.into(),
+            name: filter_name.into(),
+            patterns: Arc::new(patterns.into_iter().map(|p| Arc::new(p)).collect()),
+            ..Filter::default()
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

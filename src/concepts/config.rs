@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -15,7 +15,7 @@ use super::{Filter, Pattern, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -28,12 +28,12 @@ pub struct Config {
     #[serde(default = "num_cpus::get")]
     concurrency: usize,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     start: Vec<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     stop: Vec<Vec<String>>,
 
-    #[serde(default = "dot")]
+    #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     state_directory: String,
 
     // This field only serve the purpose of having a top-level place for saving YAML variables
@@ -146,20 +146,22 @@ impl Config {
         run_commands(&self.stop, "stop")
     }
 
-    pub fn from_path(path: &Path) -> Result<(Self, Vec<String>), String> {
+    pub fn from_path_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
         match std::fs::metadata(path) {
             Err(e) => Err(format!("Error accessing {}: {e}", path.to_string_lossy())),
             Ok(m) => {
                 if m.is_file() {
-                    Self::from_file(path).map(|cfg| {
-                        let fname = path
-                            .file_name()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or("".to_string());
-                        (cfg, vec![fname])
-                    })
+                    Self::_from_file_raw(path)
+                        .map(|cfg| {
+                            let fname = path
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or("".to_string());
+                            (cfg, vec![fname])
+                        })
+                        .map_err(|e| format!("Configuration file {}: {}", path.display(), e))
                 } else if m.is_dir() {
-                    Self::from_dir(path)
+                    Self::_from_dir_raw(path)
                 } else {
                     Err(format!(
                         "Invalid file type for {}: not a file nor a directory",
@@ -170,7 +172,27 @@ impl Config {
         }
     }
 
-    pub fn from_dir(path: &Path) -> Result<(Self, Vec<String>), String> {
+    pub fn from_path(path: &Path) -> Result<(Self, Vec<String>), String> {
+        match Self::from_path_raw(path) {
+            Ok((mut cfg, files)) => {
+                cfg.setup().map_err(ConfigError::BadConfig).map_err(|e| {
+                    if path.is_dir() {
+                        format!(
+                        "{e}\nWhile reading config from {}. List of files read, in that order:\n{}",
+                        path.display(),
+                        files.join("\n"),
+                    )
+                    } else {
+                        format!("{e}\nWhile reading config from {}.", path.display())
+                    }
+                })?;
+                Ok((cfg, files))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn _from_dir_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
         let dir = std::fs::read_dir(path)
             .map_err(|e| format!("Error accessing directory {}: {e}", path.display()))?;
         let mut cfg: Option<Self> = None;
@@ -246,14 +268,7 @@ impl Config {
             }
         }
 
-        if let Some(mut cfg) = cfg {
-            cfg.setup().map_err(ConfigError::BadConfig).map_err(|e| {
-                format!(
-                    "{e}\nWhile reading files from {}. List of files read, in that order:\n{}",
-                    path.display(),
-                    read_cfg_fname.join("\n"),
-                )
-            })?;
+        if let Some(cfg) = cfg {
             Ok((cfg, read_cfg_fname))
         } else {
             Err(format!(
@@ -264,8 +279,11 @@ impl Config {
     }
 
     pub fn from_file(path: &Path) -> Result<Self, String> {
-        Config::_from_file(path)
-            .map_err(|err| format!("Configuration file {}: {}", path.display(), err))
+        match Self::_from_file_raw(path) {
+            Ok(mut cfg) => cfg.setup().map(|_| cfg).map_err(ConfigError::BadConfig),
+            Err(e) => Err(e),
+        }
+        .map_err(|err| format!("Configuration file {}: {}", path.display(), err))
     }
 
     fn _extension_to_format(extension: &str) -> Result<Format, ConfigError> {
@@ -289,7 +307,7 @@ impl Config {
         Ok(cfg)
     }
 
-    fn _from_file(path: &Path) -> Result<Self, ConfigError> {
+    fn _from_file_raw(path: &Path) -> Result<Self, ConfigError> {
         let extension = path
             .extension()
             .and_then(|ex| ex.to_str())
@@ -297,11 +315,7 @@ impl Config {
 
         let format = Self::_extension_to_format(extension)?;
 
-        let mut config: Config = Self::_load_file(path, format)?;
-
-        config.setup().map_err(ConfigError::BadConfig)?;
-
-        Ok(config)
+        Self::_load_file(path, format)
     }
 }
 

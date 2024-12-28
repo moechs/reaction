@@ -1,10 +1,10 @@
 use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Filter, Patterns};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Stream {
