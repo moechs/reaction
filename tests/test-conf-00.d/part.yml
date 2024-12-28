@@ -1,0 +1,6 @@
+start:
+  - - echo
+    - start
+stop:
+  - - echo
+    - stop

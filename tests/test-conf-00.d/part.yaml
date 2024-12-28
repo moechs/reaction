@@ -1,0 +1,15 @@
+streams:
+  common:
+    cmd:
+      - cat
+      - access.log
+    filters:
+      from_yaml:
+        regex:
+          - '^''<mypat>'''
+        actions:
+          print:
+            after: 1s
+            cmd:
+              - echo
+              - <mypat>

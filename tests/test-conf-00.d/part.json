@@ -1,0 +1,7 @@
+{
+  "patterns": {
+    "mypat": {
+      "regex": "FLAG"
+    }
+  }
+}
