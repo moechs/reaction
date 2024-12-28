@@ -8,7 +8,9 @@ use super::{Filter, Patterns};
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Stream {
+    #[serde(default)]
     cmd: Vec<String>,
+    #[serde(default)]
     filters: BTreeMap<String, Filter>,
 
     #[serde(skip)]
@@ -30,6 +32,24 @@ impl Stream {
 
     pub fn cmd(&self) -> &Vec<String> {
         &self.cmd
+    }
+
+    pub fn merge(&mut self, other: Stream) -> Result<(), String> {
+        if !(self.cmd.is_empty() || other.cmd.is_empty() || self.cmd == other.cmd) {
+            return Err("Command is already defined".into());
+        }
+
+        if self.cmd.is_empty() {
+            self.cmd = other.cmd;
+        }
+
+        for (key, filter) in other.filters.into_iter() {
+            if self.filters.insert(key.clone(), filter).is_some() {
+                return Err(format!("Filter {} already defined", key));
+            }
+        }
+
+        Ok(())
     }
 
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
