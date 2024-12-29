@@ -93,7 +93,7 @@ impl ActionManager {
                 tokio::time::sleep(dur).await;
                 #[allow(clippy::unwrap_used)] // propagating panics is ok
                 let mut state = this.state.lock().unwrap();
-                if state.remove(&m, &t) {
+                if state.remove(&m, &exec_t) {
                     this.exec_now(m);
                 }
             });
