@@ -5,64 +5,58 @@ use std::{
 
 use chrono::Local;
 use regex::Regex;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::{
     concepts::{Filter, Match, Pattern, Time},
     protocol::{Order, PatternStatus},
 };
 
-use super::{
-    action::ActionManager,
-    database::{DatabaseManagerInput, LogEntry},
-};
+use super::{action::ActionManager, SledTreeExt};
 
 pub struct FilterManager {
     filter: &'static Filter,
-    log_tx: mpsc::Sender<DatabaseManagerInput>,
     action_managers: Vec<ActionManager>,
-    matches: BTreeMap<Match, BTreeSet<Time>>,
-    ordered_times: BTreeMap<Time, Match>,
+    // BTreeMap<Match, BTreeSet<Time>>
+    matches: sled::Tree,
+    // BTreeMap<Time, Match>
+    ordered_times: sled::Tree,
 }
 
+#[allow(clippy::unwrap_used)]
 impl FilterManager {
     pub fn new(
         filter: &'static Filter,
-        matches: BTreeMap<Match, BTreeSet<Time>>,
         exec_limit: Option<Arc<Semaphore>>,
-        log_tx: mpsc::Sender<DatabaseManagerInput>,
-    ) -> Self {
-        Self {
+        db: &sled::Db,
+    ) -> Result<Self, sled::Error> {
+        let mut manager = Self {
             filter,
-            log_tx,
             action_managers: filter
                 .actions()
                 .values()
                 .map(|action| ActionManager::new(action, BTreeMap::default(), exec_limit.clone()))
                 .collect(),
-            matches: matches.clone(),
-            ordered_times: matches
-                .into_iter()
-                .flat_map(|(m, times)| times.into_iter().map(move |time| (time, m.clone())))
-                .collect(),
-        }
-    }
-
-    pub async fn handle_db_entries(mut self, mut match_rx: mpsc::Receiver<(Match, Time)>) -> Self {
-        while let Some((m, t)) = match_rx.recv().await {
-            self.handle_match(m, t, false).await;
-        }
-        self
+            matches: db.open_tree(
+                format!("matches_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
+            )?,
+            ordered_times: db.open_tree(
+                format!("ordered_times_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
+            )?,
+        };
+        let now = Local::now();
+        manager.clear_past_times(now);
+        Ok(manager)
     }
 
     pub async fn handle_line(&mut self, line: &str) {
         if let Some(match_) = self.filter.get_match(line) {
             let now = Local::now();
-            self.handle_match(match_, now, true).await;
+            self.handle_match(match_, now).await;
         }
     }
 
-    pub async fn handle_match(&mut self, m: Match, t: Time, send_log: bool) {
+    pub async fn handle_match(&mut self, m: Match, t: Time) {
         self.clear_past_times(t);
 
         let exec = match self.filter.retry() {
@@ -79,19 +73,6 @@ impl FilterManager {
             for manager in &mut self.action_managers {
                 manager.handle_exec(m.clone(), t);
             }
-        }
-
-        if send_log {
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            self.log_tx
-                .send(DatabaseManagerInput::Log(LogEntry {
-                    exec,
-                    m,
-                    f: self.filter,
-                    t,
-                }))
-                .await
-                .unwrap();
         }
     }
 
@@ -116,9 +97,15 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let matches = self.matches.clone();
-        let cs: BTreeMap<_, _> = matches
-            .into_iter()
+        let cs: BTreeMap<_, _> = self
+            .matches
+            .iter()
+            .map(|elt| {
+                let (k, v) = elt.unwrap();
+                let k: Match = bincode::deserialize(&k).unwrap();
+                let v: BTreeSet<Time> = bincode::deserialize(&v).unwrap();
+                (k, v)
+            })
             // match filtering
             .filter(|(match_, _)| is_match(match_))
             .map(|(match_, times)| {
@@ -145,32 +132,24 @@ impl FilterManager {
             acc
         });
 
-        let now = Local::now();
-        for match_ in cs.keys() {
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            self.log_tx
-                .send(DatabaseManagerInput::Flush(LogEntry {
-                    exec: false,
-                    m: match_.to_vec(),
-                    f: self.filter,
-                    t: now,
-                }))
-                .await
-                .unwrap()
-        }
-
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
 
     fn add_match(&mut self, m: &Match, t: Time) {
-        self.matches.entry(m.clone()).or_default().insert(t);
-        self.ordered_times.insert(t, m.clone());
+        self.matches
+            .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
+                let mut set = set.unwrap_or_default();
+                set.insert(t);
+                Some(set)
+            })
+            .unwrap();
+        self.ordered_times.insert_ext::<Time, Match>(&t, m).unwrap();
     }
 
     fn remove_match(&mut self, m: &Match) {
-        if let Some(times) = self.matches.remove(m) {
+        if let Some(times) = self.matches.remove_ext::<Match, BTreeSet<Time>>(m) {
             for t in times {
-                self.ordered_times.remove(&t);
+                self.ordered_times.remove_ext::<Time, Match>(&t);
             }
         }
     }
@@ -179,16 +158,25 @@ impl FilterManager {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
         while self
             .ordered_times
-            .first_key_value()
-            .is_some_and(|(k, _)| *k + retry_duration < now)
+            .first_ext::<Time, Match>()
+            .unwrap()
+            .is_some_and(|(k, _)| k + retry_duration < now)
         {
             #[allow(clippy::unwrap_used)] // we just checked in the condition that first is_some
-            let (_, m) = self.ordered_times.pop_first().unwrap();
-            self.matches.remove(&m);
+            let (_, m) = self
+                .ordered_times
+                .pop_min_ext::<Time, Match>()
+                .unwrap()
+                .unwrap();
+            self.matches.remove_ext::<Match, BTreeSet<Time>>(&m);
         }
     }
 
     fn get_times(&self, m: &Match) -> usize {
-        self.matches.get(m).map(|v| v.len()).unwrap_or(0)
+        self.matches
+            .get_ext::<Match, BTreeSet<Time>>(m)
+            .unwrap()
+            .map(|v| v.len())
+            .unwrap_or(0)
     }
 }

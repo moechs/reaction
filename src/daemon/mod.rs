@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     error::Error,
     path::PathBuf,
     sync::{
@@ -11,17 +11,17 @@ use std::{
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
-    sync::{broadcast, mpsc, Mutex, Semaphore},
+    sync::{broadcast, Mutex, Semaphore},
 };
 use tracing::info;
 
 use crate::concepts::{Config, Filter, Stream};
-use database::database_manager;
 use filter::FilterManager;
+use sledext::SledTreeExt;
 use socket::socket_manager;
 use stream::stream_manager;
 
-mod database;
+mod sledext;
 mod socket;
 
 mod action;
@@ -51,8 +51,6 @@ pub async fn daemon(
 
     let mut stream_task_handles = Vec::new();
 
-    let (log_tx, log_rx) = mpsc::channel(234560);
-
     // Shutdown channel
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
@@ -63,44 +61,23 @@ pub async fn daemon(
         None
     };
 
+    // Open Database
+    let db = sled::open(format!("{}/data", config.state_directory()))?;
+
     // Filter managers
-    let mut stream_filter_managers_handlers = HashMap::new();
-    let mut log2filter_tx = BTreeMap::new();
-    for stream in config.streams().values() {
-        let mut filter_managers_handlers = HashMap::new();
-        for filter in stream.filters().values() {
-            let manager = FilterManager::new(
-                filter,
-                BTreeMap::default(),
-                exec_limit.clone(),
-                log_tx.clone(),
-            );
-            let (tx, rx) = mpsc::channel(1);
-            let handle = tokio::spawn(async move { manager.handle_db_entries(rx).await });
-            filter_managers_handlers.insert(filter, handle);
-            log2filter_tx.insert(filter, tx);
-        }
-        stream_filter_managers_handlers.insert(stream, filter_managers_handlers);
-    }
-    drop(log_tx);
-    drop(exec_limit);
-
-    let database_manager_thread_handle = {
-        // The `thread::spawn` is done in the function, after database rotation is finished
-        database_manager(config, log_rx, log2filter_tx)
-    };
-
     let mut stream_filter_managers = SharedState { s: HashMap::new() };
-    for (stream, filter_manager_handlers) in stream_filter_managers_handlers {
+    for stream in config.streams().values() {
         let mut filter_managers = HashMap::new();
-        for (filter, filter_manager_handler) in filter_manager_handlers {
-            #[allow(clippy::unwrap_used)] // propagating panics is ok
-            filter_managers.insert(filter, filter_manager_handler.await.unwrap());
+        for filter in stream.filters().values() {
+            let manager = FilterManager::new(filter, exec_limit.clone(), &db)?;
+            filter_managers.insert(filter, manager);
         }
         stream_filter_managers
             .s
             .insert(stream, Arc::new(Mutex::new(filter_managers)));
     }
+    drop(exec_limit);
+
     let stream_filter_managers = Arc::new(stream_filter_managers);
 
     for (stream, filter_managers) in stream_filter_managers.s.iter() {
@@ -131,7 +108,6 @@ pub async fn daemon(
     let _ = shutdown_tx.send(());
 
     let _ = socket_manager_task_handle.await;
-    let _ = database_manager_thread_handle.join();
 
     let stop_ok = config.stop();
 
