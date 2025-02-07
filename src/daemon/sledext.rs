@@ -2,9 +2,68 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use sled::Result;
 
+use crate::concepts::{Action, Filter};
+
+/// This trait permits to streamline how to open the correct [`Tree`]s
+/// so that we can reliably open the same Trees in multiple places
+///
+/// [`Tree`]: https://docs.rs/sled/latest/sled/struct.Tree.html
+pub trait SledDbExt {
+    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree>;
+    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree>;
+    fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree>;
+    fn open_action_ordered_times_tree(&self, action: &Action) -> Result<sled::Tree>;
+}
+
+impl SledDbExt for sled::Db {
+    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+        self.open_tree(
+            format!("filter_matches_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
+        )
+    }
+    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+        self.open_tree(
+            format!(
+                "filter_ordered_times_{}.{}",
+                filter.stream_name(),
+                filter.name()
+            )
+            .as_bytes(),
+        )
+    }
+    fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree> {
+        self.open_tree(
+            format!(
+                "action_pending_{}.{}.{}",
+                action.stream_name(),
+                action.filter_name(),
+                action.name()
+            )
+            .as_bytes(),
+        )
+    }
+    fn open_action_ordered_times_tree(&self, action: &Action) -> Result<sled::Tree> {
+        self.open_tree(
+            format!(
+                "action_ordered_times_{}.{}.{}",
+                action.stream_name(),
+                action.filter_name(),
+                action.name()
+            )
+            .as_bytes(),
+        )
+    }
+}
+
+/// This trait just permits to have less verbose typing in the next trait
 pub trait KV: Serialize + DeserializeOwned {}
 impl<T> KV for T where T: Serialize + DeserializeOwned {}
 
+/// This trait permits to have typed Trees and avoid handling the de/serialization in business logic.
+/// key and value types must be [`Serialize`] and [`Deserialize`].
+///
+/// [`Serialize`]: https://docs.rs/serde/latest/serde/trait.Serialize.html
+/// [`Deserialize`]: https://docs.rs/serde/latest/serde/trait.Deserialize.html
 pub trait SledTreeExt {
     fn get_ext<K: KV, V: KV>(&self, k: &K) -> Result<Option<V>>;
     fn remove_ext<K: KV, V: KV>(&self, k: &K) -> Option<V>;
@@ -14,6 +73,7 @@ pub trait SledTreeExt {
     where
         F: FnMut(Option<V>) -> Option<V>;
     fn insert_ext<K: KV, V: KV>(&self, k: &K, v: &V) -> Result<Option<V>>;
+    fn iter_ext<K: KV, V: KV>(&self) -> impl Iterator<Item = (K, V)>;
 }
 
 #[allow(clippy::unwrap_used)]
@@ -74,5 +134,14 @@ impl SledTreeExt for sled::Tree {
         Ok(self
             .insert(k, v)?
             .map(|v| bincode::deserialize(&v).unwrap()))
+    }
+
+    fn iter_ext<K: KV, V: KV>(&self) -> impl Iterator<Item = (K, V)> {
+        self.iter().map(|elt| {
+            let (k, v) = elt.unwrap();
+            let k: K = bincode::deserialize(&k).unwrap();
+            let v: V = bincode::deserialize(&v).unwrap();
+            (k, v)
+        })
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     protocol::{Order, PatternStatus},
 };
 
-use super::{action::ActionManager, SledTreeExt};
+use super::{action::ActionManager, SledDbExt, SledTreeExt};
 
 pub struct FilterManager {
     filter: &'static Filter,
@@ -30,19 +30,15 @@ impl FilterManager {
         exec_limit: Option<Arc<Semaphore>>,
         db: &sled::Db,
     ) -> Result<Self, sled::Error> {
-        let mut manager = Self {
+        let manager = Self {
             filter,
             action_managers: filter
                 .actions()
                 .values()
-                .map(|action| ActionManager::new(action, BTreeMap::default(), exec_limit.clone()))
-                .collect(),
-            matches: db.open_tree(
-                format!("matches_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
-            )?,
-            ordered_times: db.open_tree(
-                format!("ordered_times_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
-            )?,
+                .map(|action| ActionManager::new(action, exec_limit.clone(), db))
+                .collect::<Result<Vec<_>, _>>()?,
+            matches: db.open_filter_matches_tree(filter)?,
+            ordered_times: db.open_filter_ordered_times_tree(filter)?,
         };
         let now = Local::now();
         manager.clear_past_times(now);
@@ -97,15 +93,9 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let cs: BTreeMap<_, _> = self
-            .matches
-            .iter()
-            .map(|elt| {
-                let (k, v) = elt.unwrap();
-                let k: Match = bincode::deserialize(&k).unwrap();
-                let v: BTreeSet<Time> = bincode::deserialize(&v).unwrap();
-                (k, v)
-            })
+        let matches = self.matches.clone();
+        let cs: BTreeMap<_, _> = matches
+            .iter_ext::<Match, BTreeSet<Time>>()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
             .map(|(match_, times)| {
@@ -136,6 +126,7 @@ impl FilterManager {
     }
 
     fn add_match(&mut self, m: &Match, t: Time) {
+        // FIXME do this in a transaction
         self.matches
             .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
                 let mut set = set.unwrap_or_default();
@@ -147,6 +138,7 @@ impl FilterManager {
     }
 
     fn remove_match(&mut self, m: &Match) {
+        // FIXME do this in a transaction
         if let Some(times) = self.matches.remove_ext::<Match, BTreeSet<Time>>(m) {
             for t in times {
                 self.ordered_times.remove_ext::<Time, Match>(&t);
@@ -154,21 +146,28 @@ impl FilterManager {
         }
     }
 
-    fn clear_past_times(&mut self, now: Time) {
+    fn clear_past_times(&self, now: Time) {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
         while self
             .ordered_times
             .first_ext::<Time, Match>()
             .unwrap()
-            .is_some_and(|(k, _)| k + retry_duration < now)
+            .is_some_and(|(t, _)| t + retry_duration < now)
         {
-            #[allow(clippy::unwrap_used)] // we just checked in the condition that first is_some
-            let (_, m) = self
+            // FIXME do this in a transaction
+            #[allow(clippy::unwrap_used)] // second unwrap: we just checked in the condition that first is_some
+            let (t, m) = self
                 .ordered_times
                 .pop_min_ext::<Time, Match>()
                 .unwrap()
                 .unwrap();
-            self.matches.remove_ext::<Match, BTreeSet<Time>>(&m);
+            self.matches
+                .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
+                    let mut set = set.unwrap();
+                    set.remove(&t);
+                    Some(set)
+                })
+                .unwrap();
         }
     }
 

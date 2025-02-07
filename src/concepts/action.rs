@@ -39,6 +39,15 @@ impl Action {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    pub fn stream_name(&self) -> &str {
+        &self.stream_name
+    }
+
+    pub fn filter_name(&self) -> &str {
+        &self.filter_name
+    }
+
     pub fn after_duration(&self) -> Option<TimeDelta> {
         self.after_duration
     }

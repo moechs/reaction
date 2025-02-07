@@ -17,7 +17,7 @@ use tracing::info;
 
 use crate::concepts::{Config, Filter, Stream};
 use filter::FilterManager;
-use sledext::SledTreeExt;
+use sledext::*;
 use socket::socket_manager;
 use stream::stream_manager;
 
