@@ -73,7 +73,7 @@ pub trait SledTreeExt {
     where
         F: FnMut(Option<V>) -> Option<V>;
     fn insert_ext<K: KV, V: KV>(&self, k: &K, v: &V) -> Result<Option<V>>;
-    fn iter_ext<K: KV, V: KV>(&self) -> impl Iterator<Item = (K, V)>;
+    fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b;
 }
 
 #[allow(clippy::unwrap_used)]
@@ -136,7 +136,9 @@ impl SledTreeExt for sled::Tree {
             .map(|v| bincode::deserialize(&v).unwrap()))
     }
 
-    fn iter_ext<K: KV, V: KV>(&self) -> impl Iterator<Item = (K, V)> {
+    // The lifetime annotations permit to decouple the lifetime of self
+    // from the limetime of the Iterator
+    fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
         self.iter().map(|elt| {
             let (k, v) = elt.unwrap();
             let k: K = bincode::deserialize(&k).unwrap();

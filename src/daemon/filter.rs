@@ -93,8 +93,7 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let matches = self.matches.clone();
-        let cs: BTreeMap<_, _> = matches
+        let cs: BTreeMap<_, _> = self.matches
             .iter_ext::<Match, BTreeSet<Time>>()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
