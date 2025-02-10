@@ -45,14 +45,14 @@ impl FilterManager {
         Ok(manager)
     }
 
-    pub async fn handle_line(&mut self, line: &str) {
+    pub async fn handle_line(&self, line: &str) {
         if let Some(match_) = self.filter.get_match(line) {
             let now = Local::now();
             self.handle_match(match_, now).await;
         }
     }
 
-    pub async fn handle_match(&mut self, m: Match, t: Time) {
+    pub async fn handle_match(&self, m: Match, t: Time) {
         self.clear_past_times(t);
 
         let exec = match self.filter.retry() {
@@ -66,20 +66,20 @@ impl FilterManager {
 
         if exec {
             self.remove_match(&m);
-            for manager in &mut self.action_managers {
+            for manager in &self.action_managers {
                 manager.handle_exec(m.clone(), t);
             }
         }
     }
 
-    pub fn quit(&mut self) {
+    pub fn quit(&self) {
         self.action_managers
-            .iter_mut()
+            .iter()
             .for_each(|manager| manager.quit());
     }
 
     pub async fn handle_order(
-        &mut self,
+        &self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,
         order: Order,
     ) -> BTreeMap<String, PatternStatus> {
@@ -124,7 +124,7 @@ impl FilterManager {
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
 
-    fn add_match(&mut self, m: &Match, t: Time) {
+    fn add_match(&self, m: &Match, t: Time) {
         // FIXME do this in a transaction
         self.matches
             .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
@@ -136,7 +136,7 @@ impl FilterManager {
         self.ordered_times.insert_ext::<Time, Match>(&t, m).unwrap();
     }
 
-    fn remove_match(&mut self, m: &Match) {
+    fn remove_match(&self, m: &Match) {
         // FIXME do this in a transaction
         if let Some(times) = self.matches.remove_ext::<Match, BTreeSet<Time>>(m) {
             for t in times {

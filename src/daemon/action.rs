@@ -42,7 +42,7 @@ impl ActionManager {
         Ok(manager)
     }
 
-    pub fn handle_exec(&mut self, m: Match, t: Time) {
+    pub fn handle_exec(&self, m: Match, t: Time) {
         let now = Local::now();
         let exec_t = t + self.action.after_duration().unwrap_or_default();
         if exec_t < now {
@@ -122,7 +122,7 @@ impl ActionManager {
         });
     }
 
-    pub fn quit(&mut self) {
+    pub fn quit(&self) {
         if self.action.on_exit() {
             #[allow(clippy::unwrap_used)] // propagating panics is ok
             self.pending
