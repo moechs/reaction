@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, fs, io, path::PathBuf, process::exit, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs, io,
+    path::PathBuf,
+    process::exit,
+    sync::Arc,
+};
 
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
@@ -11,11 +17,11 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{Config, Pattern},
+    concepts::{Config, Filter, Pattern, Stream},
     protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse},
 };
 
-use super::SharedState;
+use super::filter::FilterManager;
 
 macro_rules! err_str {
     ($expression:expr) => {
@@ -50,7 +56,7 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
 
 async fn answer_order(
     config: &'static Config,
-    shared_state: &Arc<SharedState>,
+    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
     options: ClientRequest,
 ) -> Result<ClientStatus, String> {
     // Compute options
@@ -84,7 +90,6 @@ async fn answer_order(
 
     let cs: ClientStatus = futures::stream::iter(
         shared_state
-            .s
             .iter()
             // stream filtering
             .filter(|(stream, _)| {
@@ -95,10 +100,9 @@ async fn answer_order(
             }),
     )
     .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
-        let mut filter_manager = filter_manager.lock().await;
         let inner_map = futures::stream::iter(
             filter_manager
-                .iter_mut()
+                .iter()
                 // filter filtering
                 .filter(|(filter, _)| {
                     filter_name.is_none()
@@ -144,7 +148,7 @@ macro_rules! or_next {
 pub async fn socket_manager(
     config: &'static Config,
     socket: PathBuf,
-    shared_state: Arc<SharedState>,
+    shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
     mut stop: broadcast::Receiver<()>,
 ) {
     let listener = match open_socket(socket.clone()) {

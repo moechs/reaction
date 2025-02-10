@@ -11,11 +11,11 @@ use std::{
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
-    sync::{broadcast, Mutex, Semaphore},
+    sync::{broadcast, Semaphore},
 };
 use tracing::info;
 
-use crate::concepts::{Config, Filter, Stream};
+use crate::concepts::Config;
 use filter::FilterManager;
 use sledext::*;
 use socket::socket_manager;
@@ -27,17 +27,6 @@ mod socket;
 mod action;
 mod filter;
 mod stream;
-
-// type SharedState = BTreeMap<&'static Stream, Arc<Mutex<BTreeMap<&'static Filter, FilterManager>>>>;
-struct SharedState {
-    pub s: HashMap<&'static Stream, Arc<Mutex<HashMap<&'static Filter, FilterManager>>>>,
-}
-
-// #[allow(unsafe_code)]
-// It's actually safe. It's a bug in rust that shadows the 'static reference, which ensures the
-// reference will always link to something
-// https://github.com/rust-lang/rust/issues/96865
-// unsafe impl Send for SharedState {}
 
 pub async fn daemon(
     config_path: PathBuf,
@@ -65,30 +54,21 @@ pub async fn daemon(
     let db = sled::open(format!("{}/data", config.state_directory()))?;
 
     // Filter managers
-    let mut stream_filter_managers = SharedState { s: HashMap::new() };
+    let mut state = HashMap::new();
     for stream in config.streams().values() {
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
             let manager = FilterManager::new(filter, exec_limit.clone(), &db)?;
             filter_managers.insert(filter, manager);
         }
-        stream_filter_managers
-            .s
-            .insert(stream, Arc::new(Mutex::new(filter_managers)));
-    }
-    drop(exec_limit);
-
-    let stream_filter_managers = Arc::new(stream_filter_managers);
-
-    for (stream, filter_managers) in stream_filter_managers.s.iter() {
-        let filter_managers = filter_managers.clone();
-        let stream = *stream;
+        state.insert(stream, filter_managers.clone());
 
         let stream_shutdow_rx = shutdown_rx.resubscribe();
         stream_task_handles.push(tokio::spawn(async move {
             stream_manager(stream, filter_managers, stream_shutdow_rx).await
         }));
     }
+    drop(exec_limit);
 
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
@@ -96,9 +76,7 @@ pub async fn daemon(
 
     let socket_manager_task_handle = {
         let socket = socket.to_owned();
-        tokio::spawn(async move {
-            socket_manager(config, socket, stream_filter_managers, shutdown_rx).await
-        })
+        tokio::spawn(async move { socket_manager(config, socket, state, shutdown_rx).await })
     };
 
     // Wait for all streams to quit

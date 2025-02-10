@@ -1,11 +1,11 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc, task::Poll, time::Duration};
+use std::{collections::HashMap, process::Stdio, task::Poll, time::Duration};
 
 use futures::{FutureExt, StreamExt};
 use tokio::{
     io::{AsyncBufReadExt, BufReader, Lines},
     pin,
     process::{Child, ChildStderr, ChildStdout, Command},
-    sync::{broadcast, Mutex},
+    sync::broadcast,
     time::sleep,
 };
 use tracing::{error, info, warn};
@@ -29,7 +29,7 @@ fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
 
 pub async fn stream_manager(
     stream: &'static Stream,
-    filter_managers: Arc<Mutex<HashMap<&'static Filter, FilterManager>>>,
+    mut filter_managers: HashMap<&'static Filter, FilterManager>,
     shutdown_rx: broadcast::Receiver<()>,
 ) {
     info!("{}: start {:?}", stream.name(), stream.cmd());
@@ -61,8 +61,6 @@ pub async fn stream_manager(
     );
 
     filter_managers
-        .lock()
-        .await
         .values_mut()
         .for_each(|manager| manager.quit());
 }
@@ -124,7 +122,7 @@ async fn handle_io(
     stream_name: &'static str,
     child_stdout: ChildStdout,
     child_stderr: ChildStderr,
-    filter_managers: &Arc<Mutex<HashMap<&'static Filter, FilterManager>>>,
+    filter_managers: &HashMap<&'static Filter, FilterManager>,
 ) {
     let lines_stdout = lines_to_stream(BufReader::new(child_stdout).lines());
     let lines_stderr = lines_to_stream(BufReader::new(child_stderr).lines());
@@ -136,9 +134,7 @@ async fn handle_io(
             Some(Ok(line)) => {
                 futures::future::join_all(
                     filter_managers
-                        .lock()
-                        .await
-                        .values_mut()
+                        .values()
                         .map(|manager| manager.handle_line(&line)),
                 )
                 .await;

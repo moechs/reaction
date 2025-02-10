@@ -14,6 +14,7 @@ use crate::{
 
 use super::{action::ActionManager, SledDbExt, SledTreeExt};
 
+#[derive(Clone)]
 pub struct FilterManager {
     filter: &'static Filter,
     action_managers: Vec<ActionManager>,
