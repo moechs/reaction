@@ -17,9 +17,9 @@ use super::{action::ActionManager, SledDbExt, SledTreeExt};
 pub struct FilterManager {
     filter: &'static Filter,
     action_managers: Vec<ActionManager>,
-    // BTreeMap<Match, BTreeSet<Time>>
+    /// sled::Tree quivalent to BTreeMap<Match, BTreeSet<Time>>,
     matches: sled::Tree,
-    // BTreeMap<Time, Match>
+    /// sled::Tree quivalent to BTreeMap<Time, Match>
     ordered_times: sled::Tree,
 }
 

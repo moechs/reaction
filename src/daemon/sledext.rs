@@ -12,7 +12,6 @@ pub trait SledDbExt {
     fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree>;
-    fn open_action_ordered_times_tree(&self, action: &Action) -> Result<sled::Tree>;
 }
 
 impl SledDbExt for sled::Db {
@@ -35,17 +34,6 @@ impl SledDbExt for sled::Db {
         self.open_tree(
             format!(
                 "action_pending_{}.{}.{}",
-                action.stream_name(),
-                action.filter_name(),
-                action.name()
-            )
-            .as_bytes(),
-        )
-    }
-    fn open_action_ordered_times_tree(&self, action: &Action) -> Result<sled::Tree> {
-        self.open_tree(
-            format!(
-                "action_ordered_times_{}.{}.{}",
                 action.stream_name(),
                 action.filter_name(),
                 action.name()
