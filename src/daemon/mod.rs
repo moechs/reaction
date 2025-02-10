@@ -87,9 +87,13 @@ pub async fn daemon(
 
     let _ = socket_manager_task_handle.await;
 
+    let db_ok = db.flush();
+
     let stop_ok = config.stop();
 
-    if !signal_received.load(Ordering::SeqCst) {
+    if let Err(err) = db_ok {
+        Err(format!("database was not saved, unrecoverable error: {}", err).into())
+    } else if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {
         Err("while executing stop command".into())
