@@ -31,8 +31,12 @@ pub struct Config {
     #[serde(default)]
     stop: Vec<Vec<String>>,
 
-    #[serde(default)]
+    #[serde(default = "dot")]
     state_directory: String,
+}
+
+fn dot() -> String {
+    ".".into()
 }
 
 impl Config {
