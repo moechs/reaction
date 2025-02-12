@@ -67,6 +67,9 @@ impl SledDbExt for sled::Db {
                         filter_ordered_times_tree_name(filter),
                     ])
             })
+            // plus sled's default map
+            .chain(std::iter::once("__sled__default".into()))
+            // convert as IVec which is sled's binary type
             .map(|string| sled::IVec::from(string.as_bytes()))
             .collect();
 
