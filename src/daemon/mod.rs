@@ -51,7 +51,13 @@ pub async fn daemon(
     };
 
     // Open Database
-    let db = sled::open(format!("{}/data", config.state_directory()))?;
+    let db = sled::open(format!("{}/data", config.state_directory())).map_err(|err| {
+        format!(
+            "while opening database at {}: {}",
+            config.state_directory(),
+            err
+        )
+    })?;
     db.cleanup_unused_trees(config);
 
     // Filter managers
