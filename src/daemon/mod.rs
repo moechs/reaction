@@ -52,6 +52,7 @@ pub async fn daemon(
 
     // Open Database
     let db = sled::open(format!("{}/data", config.state_directory()))?;
+    db.cleanup_unused_trees(config);
 
     // Filter managers
     let mut state = HashMap::new();

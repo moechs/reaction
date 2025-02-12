@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
+
 use serde::{de::DeserializeOwned, Serialize};
 
 use sled::Result;
 
-use crate::concepts::{Action, Filter};
+use crate::concepts::{Action, Config, Filter};
 
 /// This trait permits to streamline how to open the correct [`Tree`]s
 /// so that we can reliably open the same Trees in multiple places
@@ -12,34 +14,70 @@ pub trait SledDbExt {
     fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree>;
+    fn cleanup_unused_trees(&self, config: &Config);
+}
+
+fn filter_matches_tree_name(filter: &Filter) -> String {
+    format!("filter_matches_{}.{}", filter.stream_name(), filter.name())
+}
+
+fn filter_ordered_times_tree_name(filter: &Filter) -> String {
+    format!(
+        "filter_ordered_times_{}.{}",
+        filter.stream_name(),
+        filter.name()
+    )
+}
+
+fn action_pending_tree_name(action: &Action) -> String {
+    format!(
+        "action_pending_{}.{}.{}",
+        action.stream_name(),
+        action.filter_name(),
+        action.name()
+    )
 }
 
 impl SledDbExt for sled::Db {
     fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree> {
-        self.open_tree(
-            format!("filter_matches_{}.{}", filter.stream_name(), filter.name()).as_bytes(),
-        )
+        self.open_tree(filter_matches_tree_name(filter).as_bytes())
     }
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree> {
-        self.open_tree(
-            format!(
-                "filter_ordered_times_{}.{}",
-                filter.stream_name(),
-                filter.name()
-            )
-            .as_bytes(),
-        )
+        self.open_tree(filter_ordered_times_tree_name(filter).as_bytes())
     }
     fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree> {
-        self.open_tree(
-            format!(
-                "action_pending_{}.{}.{}",
-                action.stream_name(),
-                action.filter_name(),
-                action.name()
-            )
-            .as_bytes(),
-        )
+        self.open_tree(action_pending_tree_name(action).as_bytes())
+    }
+
+    fn cleanup_unused_trees(&self, config: &Config) {
+        let valid_tree_names: BTreeSet<_> = config
+            .streams()
+            .values()
+            // for each filter
+            .flat_map(|stream| stream.filters().values())
+            .flat_map(|filter| {
+                filter
+                    .actions()
+                    .values()
+                    // each of its action trees
+                    .map(|action| action_pending_tree_name(action))
+                    // plus its own filter trees
+                    .chain([
+                        filter_matches_tree_name(filter),
+                        filter_ordered_times_tree_name(filter),
+                    ])
+            })
+            .map(|string| sled::IVec::from(string.as_bytes()))
+            .collect();
+
+        // Remove trees that are not in the list of valid trees
+        for outdated_tree in self
+            .tree_names()
+            .into_iter()
+            .filter(|tree_name| !valid_tree_names.contains(tree_name))
+        {
+            self.drop_tree(outdated_tree).unwrap();
+        }
     }
 }
 
