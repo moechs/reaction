@@ -5,7 +5,6 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader, Lines},
     pin,
     process::{Child, ChildStderr, ChildStdout, Command},
-    sync::broadcast,
     time::sleep,
 };
 use tracing::{error, info, warn};
@@ -14,6 +13,8 @@ use crate::{
     concepts::{Filter, Stream},
     daemon::filter::FilterManager,
 };
+
+use super::shutdown::ShutdownToken;
 
 fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
     mut lines: Lines<T>,
@@ -29,8 +30,8 @@ fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
 
 pub async fn stream_manager(
     stream: &'static Stream,
-    mut filter_managers: HashMap<&'static Filter, FilterManager>,
-    shutdown_rx: broadcast::Receiver<()>,
+    filter_managers: HashMap<&'static Filter, FilterManager>,
+    shutdown: ShutdownToken,
 ) {
     info!("{}: start {:?}", stream.name(), stream.cmd());
     let mut child = match Command::new(&stream.cmd()[0])
@@ -56,20 +57,12 @@ pub async fn stream_manager(
     let child_stderr = child.stderr.take().unwrap();
 
     tokio::join!(
-        handle_child(stream.name(), child, shutdown_rx),
-        handle_io(stream.name(), child_stdout, child_stderr, &filter_managers)
+        handle_child(stream.name(), child, shutdown),
+        handle_io(stream.name(), child_stdout, child_stderr, filter_managers)
     );
-
-    filter_managers
-        .values_mut()
-        .for_each(|manager| manager.quit());
 }
 
-async fn handle_child(
-    stream_name: &'static str,
-    mut child: Child,
-    mut shutdown_rx: broadcast::Receiver<()>,
-) {
+async fn handle_child(stream_name: &'static str, mut child: Child, shutdown: ShutdownToken) {
     const STREAM_PROCESS_GRACE_TIME_SEC: u64 = 15;
     const STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC: u64 = 5;
 
@@ -79,7 +72,7 @@ async fn handle_child(
             error!("stream {stream_name} exited: its command returned.");
             return;
         }
-        _ = shutdown_rx.recv().fuse() => {}
+        _ = shutdown.wait().fuse() => {}
     }
 
     // first, try to ask nicely the child process to exit
@@ -122,7 +115,7 @@ async fn handle_io(
     stream_name: &'static str,
     child_stdout: ChildStdout,
     child_stderr: ChildStderr,
-    filter_managers: &HashMap<&'static Filter, FilterManager>,
+    filter_managers: HashMap<&'static Filter, FilterManager>,
 ) {
     let lines_stdout = lines_to_stream(BufReader::new(child_stdout).lines());
     let lines_stderr = lines_to_stream(BufReader::new(child_stderr).lines());
@@ -132,12 +125,9 @@ async fn handle_io(
     loop {
         match lines.next().await {
             Some(Ok(line)) => {
-                futures::future::join_all(
-                    filter_managers
-                        .values()
-                        .map(|manager| manager.handle_line(&line)),
-                )
-                .await;
+                for manager in filter_managers.values() {
+                    manager.handle_line(&line);
+                }
             }
             Some(Err(err)) => {
                 error!(

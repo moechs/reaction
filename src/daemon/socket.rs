@@ -9,7 +9,7 @@ use std::{
 use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio::{net::UnixListener, sync::broadcast};
+use tokio::net::UnixListener;
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
@@ -21,7 +21,7 @@ use crate::{
     protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse},
 };
 
-use super::filter::FilterManager;
+use super::{filter::FilterManager, shutdown::ShutdownToken};
 
 macro_rules! err_str {
     ($expression:expr) => {
@@ -149,7 +149,7 @@ pub async fn socket_manager(
     config: &'static Config,
     socket: PathBuf,
     shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
-    mut stop: broadcast::Receiver<()>,
+    shutdown: ShutdownToken,
 ) {
     let listener = match open_socket(socket.clone()) {
         Ok(l) => l,
@@ -162,7 +162,7 @@ pub async fn socket_manager(
     let bin = bincode_options();
     loop {
         tokio::select! {
-            _ = stop.recv() => break,
+            _ = shutdown.wait() => break,
             try_conn = listener.accept() => {
                 match try_conn {
                     Ok((conn, _)) => {

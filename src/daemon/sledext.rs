@@ -4,7 +4,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use sled::Result;
 
-use crate::concepts::{Action, Config, Filter};
+use crate::concepts::{Config, Filter};
 
 /// This trait permits to streamline how to open the correct [`Tree`]s
 /// so that we can reliably open the same Trees in multiple places
@@ -13,7 +13,7 @@ use crate::concepts::{Action, Config, Filter};
 pub trait SledDbExt {
     fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree>;
-    fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree>;
+    fn open_filter_triggers_tree(&self, filter: &Filter) -> Result<sled::Tree>;
     fn cleanup_unused_trees(&self, config: &Config);
 }
 
@@ -29,13 +29,8 @@ fn filter_ordered_times_tree_name(filter: &Filter) -> String {
     )
 }
 
-fn action_pending_tree_name(action: &Action) -> String {
-    format!(
-        "action_pending_{}.{}.{}",
-        action.stream_name(),
-        action.filter_name(),
-        action.name()
-    )
+fn filter_triggers_tree_name(filter: &Filter) -> String {
+    format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
 }
 
 impl SledDbExt for sled::Db {
@@ -45,8 +40,8 @@ impl SledDbExt for sled::Db {
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree> {
         self.open_tree(filter_ordered_times_tree_name(filter).as_bytes())
     }
-    fn open_action_pending_tree(&self, action: &Action) -> Result<sled::Tree> {
-        self.open_tree(action_pending_tree_name(action).as_bytes())
+    fn open_filter_triggers_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+        self.open_tree(filter_triggers_tree_name(filter).as_bytes())
     }
 
     fn cleanup_unused_trees(&self, config: &Config) {
@@ -56,16 +51,11 @@ impl SledDbExt for sled::Db {
             // for each filter
             .flat_map(|stream| stream.filters().values())
             .flat_map(|filter| {
-                filter
-                    .actions()
-                    .values()
-                    // each of its action trees
-                    .map(|action| action_pending_tree_name(action))
-                    // plus its own filter trees
-                    .chain([
-                        filter_matches_tree_name(filter),
-                        filter_ordered_times_tree_name(filter),
-                    ])
+                [
+                    filter_matches_tree_name(filter),
+                    filter_ordered_times_tree_name(filter),
+                    filter_triggers_tree_name(filter),
+                ]
             })
             // plus sled's default map
             .chain(std::iter::once("__sled__default".into()))

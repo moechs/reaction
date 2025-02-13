@@ -3,6 +3,7 @@
 /nft46
 reaction*.db
 reaction*.db.old
+/data
 reaction*.export.json
 /reaction*.sock
 /result

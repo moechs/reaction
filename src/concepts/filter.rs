@@ -83,6 +83,10 @@ impl Filter {
         self.retry_duration
     }
 
+    pub fn longuest_action_duration(&self) -> TimeDelta {
+        self.longuest_action_duration
+    }
+
     pub fn max_time_before_outdated(&self) -> TimeDelta {
         if let Some(retry_duration) = self.retry_duration {
             self.longuest_action_duration + retry_duration
