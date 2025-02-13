@@ -69,7 +69,8 @@ impl SledDbExt for sled::Db {
             .into_iter()
             .filter(|tree_name| !valid_tree_names.contains(tree_name))
         {
-            self.drop_tree(outdated_tree).unwrap();
+            self.drop_tree(outdated_tree)
+                .expect("Fatal error while cleaning DB on startup");
         }
     }
 }
@@ -92,6 +93,7 @@ pub trait SledTreeExt {
     where
         F: FnMut(Option<V>) -> Option<V>;
     fn insert_ext<K: KV, V: KV>(&self, k: &K, v: &V) -> Result<Option<V>>;
+    #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
     fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b;
 }
 
@@ -157,6 +159,7 @@ impl SledTreeExt for sled::Tree {
 
     // The lifetime annotations permit to decouple the lifetime of self
     // from the limetime of the Iterator
+    #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
     fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
         self.iter().map(|elt| {
             let (k, v) = elt.unwrap();

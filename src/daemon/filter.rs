@@ -53,18 +53,18 @@ impl FilterManager {
 
     pub fn handle_line(&self, line: &str) {
         if let Some(match_) = self.filter.get_match(line) {
-            let now = Local::now();
-            self.handle_match(match_, now);
+            self.handle_match(match_);
         }
     }
 
-    pub fn handle_match(&self, m: Match, t: Time) {
-        self.clear_past_matches(t);
+    fn handle_match(&self, m: Match) {
+        let now = Local::now();
+        self.clear_past_matches(now);
 
         let exec = match self.filter.retry() {
             None => true,
             Some(retry) => {
-                self.add_match(&m, t);
+                self.add_match(&m, now);
                 // Number of stored times for this match >= configured retry for this filter
                 self.get_times(&m) >= retry as usize
             }
@@ -72,9 +72,8 @@ impl FilterManager {
 
         if exec {
             self.remove_match(&m);
-            self.add_exec(&m, &t);
-            self.schedule_exec(m.clone(), t);
-            // TODO schedule trigger removal
+            self.add_exec(&m, &now);
+            self.schedule_exec(m.clone(), now);
         }
     }
 
@@ -202,14 +201,34 @@ impl FilterManager {
     }
 
     fn add_exec(&self, m: &Match, t: &Time) {
-        // FIXME do this in a transaction
-        self.triggers
-            .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
-                let mut set = set.unwrap_or_default();
-                set.insert(*t);
-                Some(set)
-            })
-            .unwrap();
+        let sleep_duration = self.filter.longuest_action_duration().to_std().unwrap();
+        // We record triggered filters only when there is an action with an `after` directive
+        if !sleep_duration.is_zero() {
+            // Add the (Match, Time) to the triggers map
+            self.triggers
+                .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
+                    let mut set = set.unwrap_or_default();
+                    set.insert(*t);
+                    Some(set)
+                })
+                .unwrap();
+
+            // Remove the (Match, Time) of the triggers map
+            // when its last action is planned
+            let triggers = self.triggers.clone();
+            let m = m.clone();
+            let t = *t;
+            tokio::spawn(async move {
+                tokio::time::sleep(sleep_duration).await;
+                triggers
+                    .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
+                        let mut set = set.unwrap_or_default();
+                        set.remove(&t);
+                        Some(set)
+                    })
+                    .unwrap();
+            });
+        }
     }
 
     fn remove_match(&self, m: &Match) {
