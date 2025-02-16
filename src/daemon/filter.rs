@@ -78,7 +78,7 @@ impl FilterManager {
         }
     }
 
-    pub async fn handle_order(
+    pub fn handle_order(
         &self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,
         order: Order,

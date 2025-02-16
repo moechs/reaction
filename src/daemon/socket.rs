@@ -54,7 +54,7 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     err_str!(UnixListener::bind(path))
 }
 
-async fn answer_order(
+fn answer_order(
     config: &'static Config,
     shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
     options: ClientRequest,
@@ -88,20 +88,17 @@ async fn answer_order(
         })
         .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
 
-    let cs: ClientStatus = futures::stream::iter(
-        shared_state
-            .iter()
-            // stream filtering
-            .filter(|(stream, _)| {
-                stream_name.is_none()
-                    || stream_name
-                        .clone()
-                        .is_some_and(|name| name == stream.name())
-            }),
-    )
-    .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| async {
-        let inner_map = futures::stream::iter(
-            filter_manager
+    let cs: ClientStatus = shared_state
+        .iter()
+        // stream filtering
+        .filter(|(stream, _)| {
+            stream_name.is_none()
+                || stream_name
+                    .clone()
+                    .is_some_and(|name| name == stream.name())
+        })
+        .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| {
+            let inner_map = filter_manager
                 .iter()
                 // filter filtering
                 .filter(|(filter, _)| {
@@ -115,20 +112,17 @@ async fn answer_order(
                     patterns
                         .iter()
                         .all(|(pattern, _)| filter.patterns().get(pattern).is_some())
-                }),
-        )
-        .then(|(filter, manager)| async {
-            (
-                filter.name().to_owned(),
-                manager.handle_order(&patterns, options.order).await,
-            )
-        })
-        .collect()
-        .await;
-        acc.insert(stream.name().to_owned(), inner_map);
-        acc
-    })
-    .await;
+                })
+                .map(|(filter, manager)| {
+                    (
+                        filter.name().to_owned(),
+                        manager.handle_order(&patterns, options.order),
+                    )
+                })
+                .collect();
+            acc.insert(stream.name().to_owned(), inner_map);
+            acc
+        });
 
     Ok(cs)
 }
@@ -181,7 +175,7 @@ pub async fn socket_manager(
                             bin.deserialize(&encoded_request)
                             );
                         // Process
-                        let response = match answer_order(config, &shared_state, request).await {
+                        let response = match answer_order(config, &shared_state, request) {
                             Ok(res) => DaemonResponse::Order(res),
                             Err(err) => DaemonResponse::Err(err),
                         };
