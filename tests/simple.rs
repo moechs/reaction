@@ -148,9 +148,12 @@ async fn simple() {
 
     file_with_contents(out_path, "");
 
-    assert!(daemon(config_path.into(), socket_path.into())
-        .await
-        .is_err());
+    let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
+    assert!(daemon_exit.is_err());
+    assert_eq!(
+        daemon_exit.unwrap_err().to_string(),
+        "quitting because all streams finished"
+    );
 
     // 36 from DB
     // 12 from DB
@@ -183,8 +186,11 @@ async fn simple() {
     file_with_contents(out_path, "");
 
     let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
-    eprintln!("daemon exit with {:?}", daemon_exit);
     assert!(daemon_exit.is_err());
+    assert_eq!(
+        daemon_exit.unwrap_err().to_string(),
+        "quitting because all streams finished"
+    );
 
     // make sure all numbers appear in the output
     assert_eq!(

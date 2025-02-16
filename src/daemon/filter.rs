@@ -218,15 +218,20 @@ impl FilterManager {
             let triggers = self.triggers.clone();
             let m = m.clone();
             let t = *t;
+            let shutdown = self.shutdown.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(sleep_duration).await;
-                triggers
-                    .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
-                        let mut set = set.unwrap_or_default();
-                        set.remove(&t);
-                        Some(set)
-                    })
-                    .unwrap();
+                if tokio::select! {
+                    _ = shutdown.wait() => false,
+                    _ = tokio::time::sleep(sleep_duration) => true
+                } {
+                    triggers
+                        .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
+                            let mut set = set.unwrap_or_default();
+                            set.remove(&t);
+                            Some(set)
+                        })
+                        .unwrap();
+                }
             });
         }
     }
