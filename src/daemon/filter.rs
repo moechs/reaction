@@ -14,20 +14,25 @@ use crate::{
     protocol::{Order, PatternStatus},
 };
 
-use super::{shutdown::ShutdownToken, SledDbExt, SledTreeExt};
+use super::{shutdown::ShutdownToken, SledDbExt, Tree};
 
 #[derive(Clone)]
 pub struct FilterManager {
+    /// the Filter managed
     filter: &'static Filter,
+    /// Has the filter at least an action with an after directive?
     has_after: bool,
+    /// Permits to limit concurrency of actions execution
     exec_limit: Option<Arc<Semaphore>>,
+    /// Permits to run pending actions on shutdown
     shutdown: ShutdownToken,
-    /// sled::Tree equivalent to BTreeMap<Match, BTreeSet<Time>>
-    matches: sled::Tree,
-    /// sled::Tree equivalent to BTreeMap<Time, Match>
-    ordered_times: sled::Tree,
-    /// sled::Tree equivalent to BTreeMap<Match, BTreeMap<Time, usize>>
-    triggers: sled::Tree,
+    /// Saves all the current Matches for this Filter
+    matches: Tree<Match, BTreeSet<Time>>,
+    /// Alternative view of the current Matches for O(1) cleaning of old Matches
+    /// without added async Tasks to remove them
+    ordered_times: Tree<Time, Match>,
+    /// Saves all the current Triggers for this Filter
+    triggers: Tree<Match, BTreeMap<Time, usize>>,
 }
 
 #[allow(clippy::unwrap_used)]
@@ -96,7 +101,7 @@ impl FilterManager {
 
         let mut cs: BTreeMap<_, _> = self
             .matches
-            .iter_ext::<Match, BTreeSet<Time>>()
+            .iter()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
             .map(|(match_, times)| {
@@ -116,7 +121,7 @@ impl FilterManager {
         let now = Local::now();
         for (match_, times) in self
             .triggers
-            .iter_ext::<Match, BTreeMap<Time, usize>>()
+            .iter()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
         {
@@ -189,13 +194,13 @@ impl FilterManager {
     fn add_match(&self, m: &Match, t: Time) {
         // FIXME do this in a transaction
         self.matches
-            .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
+            .fetch_and_update(m, |set| {
                 let mut set = set.unwrap_or_default();
                 set.insert(t);
                 Some(set)
             })
             .unwrap();
-        self.ordered_times.insert_ext::<Time, Match>(&t, m).unwrap();
+        self.ordered_times.insert(&t, m).unwrap();
     }
 
     fn add_trigger(&self, m: &Match, t: Time) {
@@ -203,7 +208,7 @@ impl FilterManager {
         if self.has_after {
             // Add the (Match, Time) to the triggers map
             self.triggers
-                .fetch_and_update_ext::<Match, BTreeMap<Time, usize>, _>(m, |map| {
+                .fetch_and_update(m, |map| {
                     let mut map = map.unwrap_or_default();
                     map.insert(t, self.filter.actions().len());
                     Some(map)
@@ -215,9 +220,9 @@ impl FilterManager {
     // Completely remove a Match from the matches
     fn remove_match(&self, m: &Match) {
         // FIXME do this in a transaction
-        if let Some(times) = self.matches.remove_ext::<Match, BTreeSet<Time>>(m) {
+        if let Some(times) = self.matches.remove(m) {
             for t in times {
-                self.ordered_times.remove_ext::<Time, Match>(&t);
+                self.ordered_times.remove(&t);
             }
         }
     }
@@ -225,7 +230,7 @@ impl FilterManager {
     /// Completely remove a Match from the triggers
     fn remove_trigger(&self, m: &Match) {
         // FIXME do this in a transaction
-        self.triggers.remove_ext::<Match, BTreeMap<Time, usize>>(m);
+        self.triggers.remove(m);
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
@@ -234,7 +239,7 @@ impl FilterManager {
         if self.has_after {
             let mut exec_needed = false;
             self.triggers
-                .fetch_and_update_ext::<Match, BTreeMap<Time, usize>, _>(&m, |map| {
+                .fetch_and_update(&m, |map| {
                     map.map(|mut map| {
                         if let Some(counter) = map.get(&t) {
                             exec_needed = true;
@@ -261,7 +266,7 @@ impl FilterManager {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
         while self
             .ordered_times
-            .first_ext::<Time, Match>()
+            .first()
             .unwrap()
             .is_some_and(|(t, _)| t + retry_duration < now)
         {
@@ -270,11 +275,11 @@ impl FilterManager {
             // second unwrap: we just checked in the condition that first is_some
             let (t, m) = self
                 .ordered_times
-                .pop_min_ext::<Time, Match>()
+                .pop_min()
                 .unwrap()
                 .unwrap();
             self.matches
-                .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
+                .fetch_and_update(&m, |set| {
                     let mut set = set.unwrap();
                     set.remove(&t);
                     Some(set)
@@ -285,7 +290,7 @@ impl FilterManager {
 
     fn get_times(&self, m: &Match) -> usize {
         self.matches
-            .get_ext::<Match, BTreeSet<Time>>(m)
+            .get(m)
             .unwrap()
             .map(|v| v.len())
             .unwrap_or(0)
@@ -295,7 +300,7 @@ impl FilterManager {
         let longuest_action_duration = self.filter.longuest_action_duration();
         let number_of_actions = self.filter.actions().len();
 
-        for (m, map) in self.triggers.iter_ext::<Match, BTreeMap<Time, usize>>() {
+        for (m, map) in self.triggers.iter() {
             let new_map: BTreeMap<_, _> = map
                 .into_iter()
                 // Keep only times that are still relevant
@@ -306,12 +311,12 @@ impl FilterManager {
 
             if new_map.is_empty() {
                 // No upcoming time, delete the entry from the Tree
-                self.triggers.remove_ext::<Match, BTreeMap<Time, usize>>(&m);
+                self.triggers.remove(&m);
             } else {
                 // Insert back the upcoming times
                 let _ = self
                     .triggers
-                    .insert_ext::<Match, BTreeMap<Time, usize>>(&m, &new_map);
+                    .insert(&m, &new_map);
 
                 // Schedule the upcoming times
                 for t in new_map.into_keys() {

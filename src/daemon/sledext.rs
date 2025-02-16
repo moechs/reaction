@@ -1,19 +1,26 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 use serde::{de::DeserializeOwned, Serialize};
 
 use sled::Result;
 
-use crate::concepts::{Config, Filter};
+use crate::concepts::{Config, Filter, Match, Time};
 
-/// This trait permits to streamline how to open the correct [`Tree`]s
-/// so that we can reliably open the same Trees in multiple places
-///
-/// [`Tree`]: https://docs.rs/sled/latest/sled/struct.Tree.html
+/// This trait permits to manage in a single place what are the names of [`sled::Tree`]s in
+/// reaction. It streamlines [`sled::Tree`]s opening so that we can reliably open the same Trees in
+/// multiple places.
+/// It also permits to manage the cleanup of unused trees.
 pub trait SledDbExt {
-    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree>;
-    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree>;
-    fn open_filter_triggers_tree(&self, filter: &Filter) -> Result<sled::Tree>;
+    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<Tree<Match, BTreeSet<Time>>>;
+    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<Tree<Time, Match>>;
+    fn open_filter_triggers_tree(
+        &self,
+        filter: &Filter,
+    ) -> Result<Tree<Match, BTreeMap<Time, usize>>>;
+
     fn cleanup_unused_trees(&self, config: &Config);
 }
 
@@ -34,14 +41,22 @@ fn filter_triggers_tree_name(filter: &Filter) -> String {
 }
 
 impl SledDbExt for sled::Db {
-    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<Tree<Match, BTreeSet<Time>>> {
         self.open_tree(filter_matches_tree_name(filter).as_bytes())
+            .map(|tree| Tree::new(tree))
     }
-    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+
+    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<Tree<Time, Match>> {
         self.open_tree(filter_ordered_times_tree_name(filter).as_bytes())
+            .map(|tree| Tree::new(tree))
     }
-    fn open_filter_triggers_tree(&self, filter: &Filter) -> Result<sled::Tree> {
+
+    fn open_filter_triggers_tree(
+        &self,
+        filter: &Filter,
+    ) -> Result<Tree<Match, BTreeMap<Time, usize>>> {
         self.open_tree(filter_triggers_tree_name(filter).as_bytes())
+            .map(|tree| Tree::new(tree))
     }
 
     fn cleanup_unused_trees(&self, config: &Config) {
@@ -75,44 +90,41 @@ impl SledDbExt for sled::Db {
     }
 }
 
-/// This trait just permits to have less verbose typing in the next trait
-pub trait KV: Serialize + DeserializeOwned {}
-impl<T> KV for T where T: Serialize + DeserializeOwned {}
-
-/// This trait permits to have typed Trees and avoid handling the de/serialization in business logic.
-/// key and value types must be [`Serialize`] and [`Deserialize`].
-///
-/// [`Serialize`]: https://docs.rs/serde/latest/serde/trait.Serialize.html
-/// [`Deserialize`]: https://docs.rs/serde/latest/serde/trait.Deserialize.html
-pub trait SledTreeExt {
-    fn get_ext<K: KV, V: KV>(&self, k: &K) -> Result<Option<V>>;
-    fn remove_ext<K: KV, V: KV>(&self, k: &K) -> Option<V>;
-    fn first_ext<K: KV, V: KV>(&self) -> Result<Option<(K, V)>>;
-    fn pop_min_ext<K: KV, V: KV>(&self) -> Result<Option<(K, V)>>;
-    fn fetch_and_update_ext<K: KV, V: KV, F>(&self, k: &K, f: F) -> Result<Option<V>>
-    where
-        F: FnMut(Option<V>) -> Option<V>;
-    fn insert_ext<K: KV, V: KV>(&self, k: &K, v: &V) -> Result<Option<V>>;
-    #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
-    fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b;
+/// This [`sled::Tree`] wrapper permits to have typed Trees and avoid handling the de/serialization in
+/// business logic.
+/// Key and value types must be [`serde::Serialize`] and [`serde::Deserialize`].
+#[derive(Clone)]
+pub struct Tree<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> {
+    tree: sled::Tree,
+    _k_marker: PhantomData<K>,
+    _v_marker: PhantomData<V>,
 }
 
 #[allow(clippy::unwrap_used)]
-impl SledTreeExt for sled::Tree {
-    fn get_ext<K: KV, V: KV>(&self, k: &K) -> Result<Option<V>> {
-        let k = bincode::serialize(k).unwrap();
-        Ok(self.get(k)?.map(|v| bincode::deserialize(&v).unwrap()))
+impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V> {
+    fn new(tree: sled::Tree) -> Self {
+        Self {
+            tree,
+            _k_marker: PhantomData::<K>,
+            _v_marker: PhantomData::<V>,
+        }
     }
 
-    fn remove_ext<K: KV, V: KV>(&self, key: &K) -> Option<V> {
+    pub fn get(&self, k: &K) -> Result<Option<V>> {
+        let k = bincode::serialize(k).unwrap();
+        Ok(self.tree.get(k)?.map(|v| bincode::deserialize(&v).unwrap()))
+    }
+
+    pub fn remove(&self, key: &K) -> Option<V> {
         let key = bincode::serialize(key).unwrap();
-        self.remove(key)
+        self.tree
+            .remove(key)
             .unwrap()
             .map(|value| bincode::deserialize(&value).unwrap())
     }
 
-    fn first_ext<K: KV, V: KV>(&self) -> Result<Option<(K, V)>> {
-        let option = self.first()?;
+    pub fn first(&self) -> Result<Option<(K, V)>> {
+        let option = self.tree.first()?;
         match option {
             None => Ok(None),
             Some((k, v)) => {
@@ -123,8 +135,8 @@ impl SledTreeExt for sled::Tree {
         }
     }
 
-    fn pop_min_ext<K: KV, V: KV>(&self) -> Result<Option<(K, V)>> {
-        let option = self.pop_min()?;
+    pub fn pop_min(&self) -> Result<Option<(K, V)>> {
+        let option = self.tree.pop_min()?;
         match option {
             None => Ok(None),
             Some((k, v)) => {
@@ -135,7 +147,7 @@ impl SledTreeExt for sled::Tree {
         }
     }
 
-    fn fetch_and_update_ext<K: KV, V: KV, F>(&self, k: &K, mut f: F) -> Result<Option<V>>
+    pub fn fetch_and_update<F>(&self, k: &K, mut f: F) -> Result<Option<V>>
     where
         F: FnMut(Option<V>) -> Option<V>,
     {
@@ -145,14 +157,16 @@ impl SledTreeExt for sled::Tree {
             f(v).map(|v| bincode::serialize(&v).unwrap())
         };
         Ok(self
+            .tree
             .fetch_and_update(k, f)?
             .map(|v| bincode::deserialize::<V>(&v).unwrap()))
     }
 
-    fn insert_ext<K: KV, V: KV>(&self, k: &K, v: &V) -> Result<Option<V>> {
+    pub fn insert(&self, k: &K, v: &V) -> Result<Option<V>> {
         let k = bincode::serialize(k).unwrap();
         let v = bincode::serialize(v).unwrap();
         Ok(self
+            .tree
             .insert(k, v)?
             .map(|v| bincode::deserialize(&v).unwrap()))
     }
@@ -160,8 +174,8 @@ impl SledTreeExt for sled::Tree {
     // The lifetime annotations permit to decouple the lifetime of self
     // from the limetime of the Iterator
     #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
-    fn iter_ext<'a, 'b, K: KV, V: KV>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
-        self.iter().map(|elt| {
+    pub fn iter<'a, 'b>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
+        self.tree.iter().map(|elt| {
             let (k, v) = elt.unwrap();
             let k: K = bincode::deserialize(&k).unwrap();
             let v: V = bincode::deserialize(&v).unwrap();
