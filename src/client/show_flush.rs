@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use tokio::net::UnixStream;
 use tokio_util::{
@@ -13,7 +12,7 @@ use tokio_util::{
 
 use crate::{
     cli::Format,
-    protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse, Order},
+    protocol::{Cleanable, ClientRequest, ClientStatus, DaemonResponse, Order},
 };
 
 macro_rules! or_quit {
@@ -23,14 +22,13 @@ macro_rules! or_quit {
 }
 
 async fn send_retrieve(socket: &Path, req: &ClientRequest) -> Result<DaemonResponse, String> {
-    let bin = bincode_options();
     let conn = or_quit!(
         "opening connection to daemon",
         UnixStream::connect(socket).await
     );
     // Encode
     let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-    let encoded_request = or_quit!("failed to encode request", bin.serialize(req));
+    let encoded_request = or_quit!("failed to encode request", serde_json::to_string(req));
     or_quit!(
         "failed to send request",
         transport.send(Bytes::from(encoded_request)).await
@@ -43,11 +41,12 @@ async fn send_retrieve(socket: &Path, req: &ClientRequest) -> Result<DaemonRespo
     let encoded_response = or_quit!("failed to decode response", encoded_response);
     Ok(or_quit!(
         "failed to decode response",
-        bin.deserialize::<DaemonResponse>(&encoded_response)
+        serde_json::from_slice::<DaemonResponse>(&encoded_response)
     ))
 }
 
 fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {
+    let cs = cs.clean();
     let encoded = match format {
         Format::JSON => serde_json::to_string_pretty(&cs)?,
         Format::YAML => serde_yaml::to_string(&cs)?,

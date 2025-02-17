@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use bincode::Options;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
 use tokio::net::UnixListener;
@@ -18,7 +17,7 @@ use tracing::{error, warn};
 
 use crate::{
     concepts::{Config, Filter, Pattern, Stream},
-    protocol::{bincode_options, ClientRequest, ClientStatus, DaemonResponse},
+    protocol::{ClientRequest, ClientStatus, DaemonResponse},
 };
 
 use super::{filter::FilterManager, shutdown::ShutdownToken};
@@ -153,7 +152,6 @@ pub async fn socket_manager(
         }
     };
 
-    let bin = bincode_options();
     loop {
         tokio::select! {
             _ = shutdown.wait() => break,
@@ -172,7 +170,7 @@ pub async fn socket_manager(
                         };
                         let request = or_next!(
                             "failed to decode request",
-                            bin.deserialize(&encoded_request)
+                            serde_json::from_slice(&encoded_request)
                             );
                         // Process
                         let response = match answer_order(config, &shared_state, request) {
@@ -181,7 +179,7 @@ pub async fn socket_manager(
                         };
                         // Encode
                         let encoded_response =
-                            or_next!("failed to serialize response", bin.serialize::<DaemonResponse>(&response));
+                            or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
                         or_next!(
                             "failed to send response:",
                             transport.send(Bytes::from(encoded_response)).await

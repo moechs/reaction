@@ -40,34 +40,45 @@ pub type ClientStatus = BTreeMap<String, BTreeMap<String, BTreeMap<String, Patte
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PatternStatus {
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub matches: usize,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub actions: BTreeMap<String, Vec<String>>,
 }
 
-// impl Serialize for PatternStatus {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         // We only skip serializing emptiness if we're on a human-readable format
-//         // This means we're printing for user, not exchanging it over a socket
-//         if serializer.is_human_readable() {
-//             let ser_matches = self.matches != 0;
-//             let ser_actions = !self.actions.is_empty();
-//             let mut state =
-//                 serializer.serialize_map(Some(ser_matches as usize + ser_actions as usize))?;
-//             if ser_matches {
-//                 state.serialize_entry("matches", &self.matches)?;
-//             }
-//             if ser_actions {
-//                 state.serialize_entry("actions", &self.actions)?;
-//             }
-//             state.end()
-//         } else {
-//             let mut state = serializer.serialize_struct("PatternStatus", 2)?;
-//             state.serialize_field("matches", &self.matches)?;
-//             state.serialize_field("actions", &self.actions)?;
-//             state.end()
-//         }
-//     }
-// }
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+pub trait Cleanable {
+    /// Remove empty fields
+    fn clean(self) -> Self;
+}
+
+impl Cleanable for ClientStatus {
+    fn clean(self) -> Self {
+        self.into_iter()
+            .map(|(key, value)| {
+                (
+                    key,
+                    value
+                        .into_iter()
+                        .map(|(key, value)| {
+                            (
+                                key,
+                                value
+                                    .into_iter()
+                                    .filter(|(_, value)| {
+                                        value.matches != 0 || !value.actions.is_empty()
+                                    })
+                                    .collect::<BTreeMap<_, _>>(),
+                            )
+                        })
+                        .filter(|(_, value)| !value.is_empty())
+                        .collect::<BTreeMap<_, _>>(),
+                )
+            })
+            .filter(|(_, value)| !value.is_empty())
+            .collect()
+    }
+}
