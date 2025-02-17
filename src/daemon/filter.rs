@@ -19,13 +19,14 @@ use super::{shutdown::ShutdownToken, SledDbExt, SledTreeExt};
 #[derive(Clone)]
 pub struct FilterManager {
     filter: &'static Filter,
+    has_after: bool,
     exec_limit: Option<Arc<Semaphore>>,
     shutdown: ShutdownToken,
     /// sled::Tree equivalent to BTreeMap<Match, BTreeSet<Time>>
     matches: sled::Tree,
     /// sled::Tree equivalent to BTreeMap<Time, Match>
     ordered_times: sled::Tree,
-    /// sled::Tree equivalent to BTreeMap<Match, BTreeSet<Time>>
+    /// sled::Tree equivalent to BTreeMap<Match, BTreeMap<Time, usize>>
     triggers: sled::Tree,
 }
 
@@ -39,6 +40,7 @@ impl FilterManager {
     ) -> Result<Self, sled::Error> {
         let manager = Self {
             filter,
+            has_after: !filter.longuest_action_duration().is_zero(),
             exec_limit,
             shutdown,
             matches: db.open_filter_matches_tree(filter)?,
@@ -72,7 +74,7 @@ impl FilterManager {
 
         if exec {
             self.remove_match(&m);
-            self.add_exec(&m, &now);
+            self.add_trigger(&m, now);
             self.schedule_exec(m.clone(), now);
         }
     }
@@ -114,26 +116,26 @@ impl FilterManager {
         let now = Local::now();
         for (match_, times) in self
             .triggers
-            .iter_ext::<Match, BTreeSet<Time>>()
+            .iter_ext::<Match, BTreeMap<Time, usize>>()
             // match filtering
             .filter(|(match_, _)| is_match(match_))
         {
             // Remove the match from the triggers
             if let Order::Flush = order {
-                self.remove_exec(&match_);
+                self.remove_trigger(&match_);
             }
 
             let pattern_status = cs.entry(match_.clone()).or_default();
 
             for action in self.filter.actions().values() {
                 let mut action_times = Vec::new();
-                for time in &times {
+                for time in times.keys() {
                     let action_time = *time + action.after_duration().unwrap_or_default();
                     if action_time > now {
                         action_times.push(action_time.to_rfc3339().chars().take(19).collect());
                         // Execute the action early
                         if let Order::Flush = order {
-                            Self::exec_now(self.exec_limit.clone(), action, match_.clone());
+                            self.exec_now(action, match_.clone());
                         }
                     }
                 }
@@ -155,14 +157,14 @@ impl FilterManager {
         let now = Local::now();
         for action in self.filter.actions().values() {
             let exec_time = t + action.after_duration().unwrap_or_default();
-            let exec_limit = self.exec_limit.clone();
             let m = m.clone();
 
             if exec_time < now {
-                Self::exec_now(exec_limit, action, m);
+                if self.decrement_trigger(&m, t) {
+                    self.exec_now(action, m);
+                }
             } else {
-                let triggers = self.triggers.clone();
-                let shutdown = self.shutdown.clone();
+                let this = self.clone();
                 tokio::spawn(async move {
                     let dur = (exec_time - now)
                         .to_std()
@@ -173,15 +175,11 @@ impl FilterManager {
                     // or reaction exiting
                     let exiting = tokio::select! {
                         _ = tokio::time::sleep(dur) => false,
-                        _ = shutdown.wait() => true,
+                        _ = this.shutdown.wait() => true,
                     };
-                    if (!exiting || action.on_exit())
-                        && triggers
-                            .get_ext::<Match, BTreeSet<Time>>(&m)
-                            .unwrap()
-                            .is_some_and(|set| set.contains(&t))
-                    {
-                        Self::exec_now(exec_limit, action, m);
+                    // Exec action if triggered hasn't been already flushed
+                    if (!exiting || action.on_exit()) && this.decrement_trigger(&m, t) {
+                        this.exec_now(action, m);
                     }
                 });
             }
@@ -200,42 +198,21 @@ impl FilterManager {
         self.ordered_times.insert_ext::<Time, Match>(&t, m).unwrap();
     }
 
-    fn add_exec(&self, m: &Match, t: &Time) {
-        let sleep_duration = self.filter.longuest_action_duration().to_std().unwrap();
+    fn add_trigger(&self, m: &Match, t: Time) {
         // We record triggered filters only when there is an action with an `after` directive
-        if !sleep_duration.is_zero() {
+        if self.has_after {
             // Add the (Match, Time) to the triggers map
             self.triggers
-                .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(m, |set| {
-                    let mut set = set.unwrap_or_default();
-                    set.insert(*t);
-                    Some(set)
+                .fetch_and_update_ext::<Match, BTreeMap<Time, usize>, _>(m, |map| {
+                    let mut map = map.unwrap_or_default();
+                    map.insert(t, self.filter.actions().len());
+                    Some(map)
                 })
                 .unwrap();
-
-            // Remove the (Match, Time) of the triggers map
-            // when its last action is planned
-            let triggers = self.triggers.clone();
-            let m = m.clone();
-            let t = *t;
-            let shutdown = self.shutdown.clone();
-            tokio::spawn(async move {
-                if tokio::select! {
-                    _ = shutdown.wait() => false,
-                    _ = tokio::time::sleep(sleep_duration) => true
-                } {
-                    triggers
-                        .fetch_and_update_ext::<Match, BTreeSet<Time>, _>(&m, |set| {
-                            let mut set = set.unwrap_or_default();
-                            set.remove(&t);
-                            Some(set)
-                        })
-                        .unwrap();
-                }
-            });
         }
     }
 
+    // Completely remove a Match from the matches
     fn remove_match(&self, m: &Match) {
         // FIXME do this in a transaction
         if let Some(times) = self.matches.remove_ext::<Match, BTreeSet<Time>>(m) {
@@ -245,9 +222,39 @@ impl FilterManager {
         }
     }
 
-    fn remove_exec(&self, m: &Match) {
+    /// Completely remove a Match from the triggers
+    fn remove_trigger(&self, m: &Match) {
         // FIXME do this in a transaction
-        self.triggers.remove_ext::<Match, BTreeSet<Time>>(m);
+        self.triggers.remove_ext::<Match, BTreeMap<Time, usize>>(m);
+    }
+
+    /// Returns whether we should still execute an action for this (Match, Time) trigger
+    fn decrement_trigger(&self, m: &Match, t: Time) -> bool {
+        // We record triggered filters only when there is an action with an `after` directive
+        if self.has_after {
+            let mut exec_needed = false;
+            self.triggers
+                .fetch_and_update_ext::<Match, BTreeMap<Time, usize>, _>(&m, |map| {
+                    map.map(|mut map| {
+                        if let Some(counter) = map.get(&t) {
+                            exec_needed = true;
+                            // We're the last action to run
+                            if *counter <= 1 {
+                                map.remove(&t);
+                            } else {
+                                map.insert(t, counter - 1);
+                            }
+                        }
+                        map
+                    })
+                    // Remove empty maps
+                    .filter(|map| !map.is_empty())
+                })
+                .unwrap();
+            exec_needed
+        } else {
+            true
+        }
     }
 
     fn clear_past_matches(&self, now: Time) {
@@ -286,35 +293,39 @@ impl FilterManager {
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration();
+        let number_of_actions = self.filter.actions().len();
 
-        for (m, set) in self.triggers.iter_ext::<Match, BTreeSet<Time>>() {
-            // Keep only times that are still relevant
-            let new_set: BTreeSet<_> = set
+        for (m, map) in self.triggers.iter_ext::<Match, BTreeMap<Time, usize>>() {
+            let new_map: BTreeMap<_, _> = map
                 .into_iter()
-                .filter(|t| *t + longuest_action_duration > now)
+                // Keep only times that are still relevant
+                .filter(|(t, _)| *t + longuest_action_duration > now)
+                // Reset the action counter
+                .map(|(t, _)| (t, number_of_actions))
                 .collect();
 
-            if new_set.is_empty() {
+            if new_map.is_empty() {
                 // No upcoming time, delete the entry from the Tree
-                self.triggers.remove_ext::<Match, BTreeSet<Time>>(&m);
+                self.triggers.remove_ext::<Match, BTreeMap<Time, usize>>(&m);
             } else {
                 // Insert back the upcoming times
                 let _ = self
                     .triggers
-                    .insert_ext::<Match, BTreeSet<Time>>(&m, &new_set);
+                    .insert_ext::<Match, BTreeMap<Time, usize>>(&m, &new_map);
 
                 // Schedule the upcoming times
-                for t in new_set.into_iter() {
+                for t in new_map.into_keys() {
                     self.schedule_exec(m.clone(), t);
                 }
             }
         }
     }
 
-    fn exec_now(semaphore: Option<Arc<Semaphore>>, action: &'static Action, m: Match) {
+    fn exec_now(&self, action: &'static Action, m: Match) {
+        let exec_limit = self.exec_limit.clone();
         tokio::spawn(async move {
             // Wait for semaphore's permission, if it is Some
-            let _permit = match semaphore {
+            let _permit = match exec_limit {
                 #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
                 Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
                 None => None,
