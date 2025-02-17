@@ -33,6 +33,10 @@ pub struct Config {
 
     #[serde(default = "dot")]
     state_directory: String,
+
+    // This field only serve the purpose of having a top-level place for saving YAML variables
+    #[serde(default, skip_serializing, rename = "definitions")]
+    _definitions: serde_json::Value,
 }
 
 fn dot() -> String {
@@ -73,6 +77,9 @@ impl Config {
         if self.concurrency == 0 {
             self.concurrency = num_cpus::get();
         }
+
+        // Nullify this useless field
+        self._definitions = serde_json::Value::Null;
 
         let mut new_patterns = BTreeMap::new();
         for (key, value) in &self.patterns {
