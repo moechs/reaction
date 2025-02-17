@@ -139,6 +139,3 @@ fn parse_log_level(s: &str) -> Result<Level, String> {
         _ => Err("must be one of ERROR, WARN, INFO, DEBUG".into()),
     }
 }
-
-// TODO generate completion
-// TODO generate a man page https://rust-cli.github.io/book/in-depth/docs.html
