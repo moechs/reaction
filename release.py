@@ -1,6 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign cargo-cross
-import base64
+#!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign cargo-cross rustup
 import http.client
 import json
 import os
@@ -26,7 +25,7 @@ def main():
     tag = ""
     try:
         tag = cmd.stdout.strip().split("\n")[-1]
-    except:
+    except Exception:
         pass
     if tag == "":
         print("could not retrieve last git tag.")
@@ -38,8 +37,8 @@ def main():
         sys.exit(1)
 
     # Git push
-    cmd = subprocess.run(["git", "push", "--tags"])
-    quit_if(cmd)
+    # cmd = subprocess.run(["git", "push", "--tags"])
+    # quit_if(cmd)
 
     cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
     quit_if(cmd)
@@ -48,21 +47,19 @@ def main():
     all_files = []
 
     architectures = [
-        ("x86_64-unknown-linux-gnu", "amd64"),
+        "x86_64-unknown-linux-gnu",
         # "x86_64-unknown-openbsd", # not supported by cross
-        ("armv7-unknown-linux-gnueabihf", "arm"),
+        "armv7-unknown-linux-gnueabihf",
     ]
 
-    for archs in architectures:
-        go_arch = archs[1]
-        architecture = archs[0]
+    for architecture in architectures:
 
         # Install toolchain
-        # cmd = subprocess.run([
-        #     "rustup", "toolchain", "install", "stable",
-        #     "-t", architecture,
-        #     "--profile", "minimal"])
-        # quit_if(cmd)
+        cmd = subprocess.run([
+            "rustup", "toolchain", "install", "stable",
+            "-t", architecture,
+            "--profile", "minimal"])
+        quit_if(cmd)
 
         # Build
         cmd = subprocess.run([
@@ -70,70 +67,9 @@ def main():
         ])
         quit_if(cmd)
 
-        # Build rust import db
-        os.chdir("./import-rust-db")
-        cmd = subprocess.run([
-            "cross", "build", "--release", "--target", architecture
-        ])
-        quit_if(cmd)
-        with open(f"./target/{architecture}/release/import-rust-db", "rb") as file:
-            rust_contents = base64.standard_b64encode(file.read())
-        os.chdir("..")
-
-        # Build go export db
-        os.chdir("./export-go-db")
-        cmd = subprocess.run(
-            ["go", "build", "export-go-db.go"],
-            env=os.environ.update({"GOARCH": go_arch})
-        )
-        quit_if(cmd)
-        with open("./export-go-db", "rb") as file:
-            go_contents = base64.standard_b64encode(file.read())
-        os.chdir("..")
-
-        # Build glue script
-        contents = """
-function main() {
-    set -eu -o pipefail
-    DIR="$(mktemp -d)"
-    echo "$GOBIN" | base64 -d > "$DIR/gobin"
-    echo "$RUBIN" | base64 -d > "$DIR/rubin"
-    chmod +x "$DIR/gobin" "$DIR/rubin"
-    "$DIR/gobin"
-    "$DIR/rubin"
-    rm "$DIR/gobin" "$DIR/rubin"
-    rmdir "$DIR"
-}
-
-GOBIN=""".encode() + go_contents + """
-RUBIN=""".encode() + rust_contents + """
-
-main
-""".encode()
-        del go_contents
-        del rust_contents
-
-        with open(f"./target/{architecture}/release/migrate_reaction_db", "bw+") as file:
-            file.write(contents)
-
-        del contents
-
-        # # Build
-        # cmd = subprocess.run([
-        #     "docker", "run", "-it", "--rm",
-        #     "-e", "HOME=/tmp/",
-        #     "-v", f"{os.getcwd()}:/tmp/code",
-        #     "-w", "/tmp/code",
-        #     "-u", str(os.getuid()),
-        #     "rust",
-        #     "make", f"reaction_{tag}-1_amd64.deb", "reaction", "ip46tables", "nft46"
-        # ])
-        # quit_if(cmd)
-
         # File lists
         binary_files = [
             ("reaction", architecture, f"reaction ({architecture})", "package"),
-            ("migrate_reaction_db", architecture, f"db migration script ({architecture})", "package"),
             ("nft46", architecture, f"nft46 ({architecture})", "package"),
             ("ip46tables", architecture, f"ip46tables ({architecture})", "package"),
             # (f"reaction_{tag}-1_amd64.deb", architecture, f"reaction.deb ({architecture})", "package")
@@ -178,7 +114,7 @@ main
         all_files.extend(sig_files)
 
         # Copy only one time the text files, which are architecture-independant
-        if archs == architectures[-1]:
+        if architecture == architectures[-1]:
             text_files = [
                 ("reaction.bash", "", "bash completion file", "other"),
                 ("reaction.fish", "", "fish completion file", "other"),
