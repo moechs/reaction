@@ -8,7 +8,7 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 ## Current project status
 
-reaction just reached v2.0.0-rc1 version, which is a complete rust rewrite of reaction.
+reaction just reached v2.0.0-rc2 version, which is a complete rust rewrite of reaction.
 It's in feature parity with the Go version, and breaking changes should be small.
 
 See https://reaction.ppom.me/migrate-to-v2.html
@@ -160,44 +160,15 @@ We recommend that you read the ***Good Practices*** chapters before starting.
 
 ### Binaries
 
-Executables are provided [here](https://framagit.org/ppom/reaction/-/releases/), for a standard x86-64 linux machine.
+Executables and .deb packages are provided [in the releases page](https://framagit.org/ppom/reaction/-/releases/), for x86-64/amd64 linux and aarch64/arm64 linux.
 
-A standard place to put such executables is `/usr/local/bin/`.
+Signature verification and installation instructions are provided in the releases page.
 
-> Provided binaries in the previous section are compiled this way:
-```shell
-$ docker run -it --rm -e HOME=/tmp/ -v $(pwd):/tmp/code -w /tmp/code -u $(id -u) rust make clean reaction.deb
-$ make signatures
-```
-#### Signature verification
-
-Starting at v1.0.3, all binaries are signed with public key `RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX`. You can check their authenticity with minisign:
-```bash
-minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m nft46
-minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m ip46tables
-minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m reaction
-# or
-minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m reaction.deb
-```
-
-#### Debian
-
-The releases also contain a `reaction*.deb` file, which packages reaction & ip46tables.
-You can install it using `sudo apt install ./reaction*.deb`.
-You'll have to create a configuration at `/etc/reaction.jsonnet`.
-
-If you want to use another configuration format (YAML or JSON), you can override systemd's `ExecStart` command in `/etc/systemd/system/reaction.service` like this:
-```systemd
-[Service]
-# First an empty directive to reset the default one
-ExecStart=
-# Then put what you want
-ExecStart=/usr/bin/reaction start -c /etc/reaction.yml
-```
+> Provided binaries are compiled by running `nix-shell release.py` on a NixOS machine with docker installed.
 
 #### NixOS
 
-[not yet upstreamed **module**](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix)
+reaction is packaged, but the [**module**](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix) has not yet been upstreamed.
 
 #### OpenBSD
 

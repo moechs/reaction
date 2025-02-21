@@ -4,24 +4,25 @@ import http.client
 import json
 import os
 import subprocess
+import shutil
 import sys
 import tempfile
 
-def quit_if(cmd):
-    if cmd.returncode != 0:
-        print(f"{' '.join(cmd.args)} failed with exit code {cmd.returncode}")
-        sys.exit(1)
 
-def add_path(files, architecture):
-    return [
-        (f"./target/{architecture}/release/{file[0]}", file[1], file[2], file[3])
-        for file in files
-    ]
+def run_command(args, **kwargs):
+    print(f"\033[36mCMD: {args}\033[0m")
+    cmd = subprocess.run(args, **kwargs)
+    if cmd.returncode != 0:
+        print(f"\033[31mCMD failed with exit code {cmd.returncode}\033[0m")
+        sys.exit(1)
+    return cmd
+
 
 def main():
     # Git tag
-    cmd = subprocess.run(["git", "tag", "--sort=v:refname"], capture_output=True, text=True)
-    quit_if(cmd)
+    cmd = run_command(
+        ["git", "tag", "--sort=v:refname"], capture_output=True, text=True
+    )
     tag = ""
     try:
         tag = cmd.stdout.strip().split("\n")[-1]
@@ -32,158 +33,199 @@ def main():
         sys.exit(1)
 
     # Ask user
-    if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
-        print("exiting.")
-        sys.exit(1)
+    # if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
+    #     print("exiting.")
+    #     sys.exit(1)
 
     # Git push
-    # cmd = subprocess.run(["git", "push", "--tags"])
-    # quit_if(cmd)
+    # run_command(["git", "push", "--tags"])
 
+    # Minisign password
     cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
-    quit_if(cmd)
     minisign_password = cmd.stdout
+
+    # Create directory
+    run_command(
+        [
+            "ssh",
+            "akesi",
+            # "-J", "pica01",
+            "mkdir",
+            "-p",
+            f"/var/www/static/reaction/releases/{tag}/",
+        ]
+    )
+
+    architectures = {
+        "x86_64-unknown-linux-musl": "amd64",
+        "aarch64-unknown-linux-musl": "arm64",
+    }
+
+    root_dir = os.getcwd()
 
     all_files = []
 
-    architectures = [
-        "x86_64-unknown-linux-gnu",
-        # "x86_64-unknown-openbsd", # not supported by cross
-        "armv7-unknown-linux-gnueabihf",
+    instructions = [
+        "## Changes",
+        """
+## Instructions
+
+You'll need to install minisign to check the authenticity of the package.
+
+After installing reaction, create your configuration file at
+`/etc/reaction.json`, `/etc/reaction.jsonnet` or `/etc/reaction.yml`.
+See <https://reaction.ppom.me> for documentation.
+
+Reload systemd:
+```bash
+$ sudo systemctl daemon-reload
+```
+
+Then enable and start reaction with this command
+```bash
+# replace `reaction.jsonnet` with the name of your configuration file in /etc/
+$ sudo systemctl enable --now reaction@reaction.jsonnet.service
+```
+""".strip(),
     ]
 
-    for architecture in architectures:
+    for architecture in architectures.keys():
+        # Cargo clean
+        run_command(["cargo", "clean"])
 
         # Install toolchain
-        cmd = subprocess.run([
-            "rustup", "toolchain", "install", "stable",
-            "-t", architecture,
-            "--profile", "minimal"])
-        quit_if(cmd)
+        run_command(
+            [
+                "rustup",
+                "toolchain",
+                "install",
+                f"stable-{architecture}",
+                "--force-non-host",  # I know, I know!
+                "--profile",
+                "minimal",
+            ]
+        )
 
         # Build
-        cmd = subprocess.run([
-            "cross", "build", "--release", "--target", architecture
-        ])
-        quit_if(cmd)
+        run_command(["cross", "build", "--release", "--target", architecture])
 
-        # File lists
-        binary_files = [
-            ("reaction", architecture, f"reaction ({architecture})", "package"),
-            ("nft46", architecture, f"nft46 ({architecture})", "package"),
-            ("ip46tables", architecture, f"ip46tables ({architecture})", "package"),
-            # (f"reaction_{tag}-1_amd64.deb", architecture, f"reaction.deb ({architecture})", "package")
+        # Build .deb
+        cmd = run_command(
+            ["cargo-deb", f"--target={architecture}", "--no-build", "--no-strip"]
+        )
+
+        deb_dir = os.path.join("./target", architecture, "debian")
+        deb_name = [f for f in os.listdir(deb_dir) if f.endswith(".deb")][0]
+        deb_path = os.path.join(deb_dir, deb_name)
+
+        # Archive
+        files_path = os.path.join("./target", architecture, "release")
+        pkg_name = f"reaction-{tag}-{architectures[architecture]}"
+        tar_name = f"{pkg_name}.tar.gz"
+        tar_path = os.path.join(files_path, tar_name)
+
+        os.chdir(files_path)
+        try:
+            os.mkdir(pkg_name)
+        except FileExistsError:
+            pass
+
+        files = [
+            # Binaries
+            "reaction",
+            "nft46",
+            "ip46tables",
+            # Shell completion
+            "reaction.bash",
+            "reaction.fish",
+            "_reaction",
+            # Man pages
+            "reaction.1",
+            "reaction-flush.1",
+            "reaction-show.1",
+            "reaction-start.1",
+            "reaction-test-regex.1",
         ]
+        for file in files:
+            shutil.copy(file, pkg_name)
 
-        sig_files = [
-            (f"{file[0]}.minisig", architecture, f"{file[0]}.minisig ({architecture})", "other")
-            for file
-            in binary_files
-        ]
+        makefile = os.path.join(root_dir, "packaging", "Makefile")
+        shutil.copy(makefile, pkg_name)
 
-        binary_files = add_path(binary_files, architecture)
-        sig_files = add_path(sig_files, architecture)
+        systemd = os.path.join(root_dir, "config", "reaction.service")
+        shutil.copy(systemd, pkg_name)
+
+        run_command(["tar", "czf", tar_name, pkg_name])
+
+        os.chdir(root_dir)
 
         # Sign
-        cmd = subprocess.run(
-            ["minisign", "-Sm"]
-            + [ file[0] for file in binary_files ],
-            text=True,
-            input=minisign_password
+        run_command(
+            ["minisign", "-Sm", deb_path, tar_path], text=True, input=minisign_password
         )
-        quit_if(cmd)
-
-        # Create directory
-        cmd = subprocess.run([
-            "ssh", "akesi",
-            "-J", "pica01",
-            "mkdir", "-p", f"/var/www/static/reaction/releases/{tag}/{architecture}/"
-        ])
-        quit_if(cmd)
+        deb_sig = f"{deb_path}.minisig"
+        tar_sig = f"{tar_path}.minisig"
 
         # Push
-        cmd = subprocess.run([
-            "rsync",
-            "-avze", "ssh -J pica01", ]
-            + [ file[0] for file in binary_files + sig_files ]
-            + [ f"akesi:/var/www/static/reaction/releases/{tag}/{architecture}/"
-        ])
-        quit_if(cmd)
-
-        all_files.extend(binary_files)
-        all_files.extend(sig_files)
-
-        # Copy only one time the text files, which are architecture-independant
-        if architecture == architectures[-1]:
-            text_files = [
-                ("reaction.bash", "", "bash completion file", "other"),
-                ("reaction.fish", "", "fish completion file", "other"),
-                ("_reaction", "", "zsh completion file", "other"),
-                ("reaction.1", False, False, False),
-                ("reaction-flush.1", False, False, False),
-                ("reaction-show.1", False, False, False),
-                ("reaction-start.1", False, False, False),
-                ("reaction-test-regex.1", False, False, False),
-            ]
-            text_files = add_path(text_files, architecture)
-            all_files.extend(text_files)
-
-            cmd = subprocess.run([
+        run_command(
+            [
                 "rsync",
-                "-avze", "ssh -J pica01" ]
-                + [ file[0] for file in text_files ]
-                + [ f"akesi:/var/www/static/reaction/releases/{tag}/"
-            ])
-            quit_if(cmd)
+                "-az",  # "-e", "ssh -J pica01",
+                tar_path,
+                tar_sig,
+                deb_path,
+                deb_sig,
+                f"akesi:/var/www/static/reaction/releases/{tag}/",
+            ]
+        )
+        all_files.extend([tar_path, tar_sig, deb_path, deb_sig])
+
+        # Instructions
+
+        instructions.append(
+            f"""
+## Tar installation ({architectures[architecture]} linux)
+
+```bash
+curl -O https://static.ppom.me/reaction/releases/{tag}/{tar_name} \\
+     -O https://static.ppom.me/reaction/releases/{tag}/{tar_name}.minisig \\
+        && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {tar_name} \\
+        && rm {tar_name}.minisig \\
+        && cd {tar_name} \\
+        && sudo make install
+```
+        """.strip()
+        )
+
+        instructions.append(
+            f"""
+## Debian installation ({architectures[architecture]} linux)
+
+```bash
+curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
+     -O https://static.ppom.me/reaction/releases/{tag}/{deb_name}.minisig \\
+        && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_name} \\
+        && rm {deb_name}.minisig \\
+        && sudo apt install ./{deb_name}
+```
+        """.strip()
+        )
 
     # Release
-
-    cmd = subprocess.run(["rbw", "get", "framagit.org", "token"], capture_output=True, text=True)
-    quit_if(cmd)
+    cmd = run_command(
+        ["rbw", "get", "framagit.org", "token"], capture_output=True, text=True
+    )
     token = cmd.stdout.strip()
     if token == "":
         print("Could not retrieve token")
         sys.exit(1)
 
-    description = f"""
-## Changes
-
-## Direct download
-
-```bash
-wget https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/nft46 \\
-     https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/reaction \\
-     https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/ip46tables \\
-     https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/nft46.minisig \\
-     https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/reaction.minisig \\
-     https://static.ppom.me/reaction/releases/{architectures[0][0]}/{tag}/ip46tables.minisig
-for i in nft46 ip46tables reaction
-do
-    minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m $i && rm $i.minisig
-done
-```
-
-<!--
-## Debian Installation
-
-```bash
-wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \\
-     https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb.minisig \\
-    && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX \\
-                -m reaction_{tag}-1_amd64.deb \\
-    && rm reaction_{tag}-1_amd64.deb.minisig \\
-    && apt install ./reaction_{tag}-1_amd64.deb
--->
-```
-"""
-
     # Make user edit the description
     tmpdir = tempfile.TemporaryDirectory()
     desc_path = tmpdir.name + "/description.md"
     with open(desc_path, "w+") as desc_file:
-        desc_file.write(description)
-    cmd = subprocess.run(["vi", desc_path])
-    quit_if(cmd)
+        desc_file.write("\n\n".join(instructions))
+    run_command(["vi", desc_path])
 
     with open(desc_path) as desc_file:
         description = desc_file.read().strip()
@@ -194,24 +236,27 @@ wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \
         sys.exit(1)
 
     # Construct JSON payload
-    files = [ file for file in all_files if file[2] != False ]
+    files = [os.path.basename(file) for file in all_files]
     data = {
         "tag_name": tag,
         "description": description,
         "assets": {
             "links": [
                 {
-                    "url": "https://" + f"static.ppom.me/reaction/releases/{tag}/{file[1]}/{os.path.basename(file[0])}".replace("//", "/"),
-                    "name": file[2],
-                    "link_type": file[3],
+                    "url": "https://"
+                    + f"static.ppom.me/reaction/releases/{tag}/{os.path.basename(file)}".replace(
+                        "//", "/"
+                    ),
+                    "name": file,
+                    "link_type": "other" if file.endswith(".minisig") else "package",
                 }
-                for file
-                in files
+                for file in files
             ]
-        }
+        },
     }
 
     body = json.dumps(data)
+    print(body)
 
     # Send POST request
     headers = {
@@ -225,7 +270,10 @@ wget https://static.ppom.me/reaction/releases/{tag}/reaction_{tag}-1_amd64.deb \
     response = conn.getresponse()
 
     if response.status != 200:
-        print(f"sending message failed: status: {response.status}, reason: {response.reason}")
+        print(
+            f"sending message failed: status: {response.status}, reason: {response.reason}"
+        )
         sys.exit(1)
+
 
 main()

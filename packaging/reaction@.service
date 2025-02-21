@@ -2,15 +2,12 @@
 [Unit]
 Description=A daemon that scans program outputs for repeated patterns, and takes action.
 Documentation=https://reaction.ppom.me
-
-[Install]
-WantedBy=multi-user.target
 # Ensure reaction will insert its chain after docker has inserted theirs. Only useful when iptables & docker are used
 # After=docker.service
 
 # See `man systemd.exec` and `man systemd.service` for most options below
 [Service]
-ExecStart=/usr/bin/reaction start -c /etc/reaction.jsonnet
+ExecStart=/usr/bin/reaction start -c /etc/%i
 
 # Ask systemd to create /var/lib/reaction (/var/lib/ is implicit)
 StateDirectory=reaction
@@ -18,3 +15,6 @@ StateDirectory=reaction
 RuntimeDirectory=reaction
 # Start reaction in its state directory
 WorkingDirectory=/var/lib/reaction
+
+[Install]
+WantedBy=multi-user.target
