@@ -269,7 +269,7 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
     conn.request("POST", "/api/v4/projects/90566/releases", body=body, headers=headers)
     response = conn.getresponse()
 
-    if response.status != 200:
+    if response.status != 201:
         print(
             f"sending message failed: status: {response.status}, reason: {response.reason}"
         )
