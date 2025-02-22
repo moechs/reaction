@@ -20,3 +20,6 @@ install: reaction
 install_systemd: install
 	install -m644 packaging/reaction.service $(SYSTEMDDIR)/system/reaction.service
 	sed -i 's#/usr/local/bin#$(DESTDIR)$(BINDIR)#' $(SYSTEMDDIR)/system/reaction.service
+
+release:
+	nix-shell release.py
