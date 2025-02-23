@@ -54,7 +54,7 @@ pub struct ShutdownToken {
 }
 
 impl ShutdownToken {
-    pub fn new(shutdown_notifyer: CancellationToken, _task_tracker: mpsc::Sender<()>) -> Self {
+    fn new(shutdown_notifyer: CancellationToken, _task_tracker: mpsc::Sender<()>) -> Self {
         Self {
             shutdown_notifyer,
             _task_tracker,

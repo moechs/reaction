@@ -239,7 +239,7 @@ impl FilterManager {
         if self.has_after {
             let mut exec_needed = false;
             self.triggers
-                .fetch_and_update(&m, |map| {
+                .fetch_and_update(m, |map| {
                     map.map(|mut map| {
                         if let Some(counter) = map.get(&t) {
                             exec_needed = true;
@@ -273,11 +273,7 @@ impl FilterManager {
             // FIXME do this in a transaction
             #[allow(clippy::unwrap_used)]
             // second unwrap: we just checked in the condition that first is_some
-            let (t, m) = self
-                .ordered_times
-                .pop_min()
-                .unwrap()
-                .unwrap();
+            let (t, m) = self.ordered_times.pop_min().unwrap().unwrap();
             self.matches
                 .fetch_and_update(&m, |set| {
                     let mut set = set.unwrap();
@@ -289,11 +285,7 @@ impl FilterManager {
     }
 
     fn get_times(&self, m: &Match) -> usize {
-        self.matches
-            .get(m)
-            .unwrap()
-            .map(|v| v.len())
-            .unwrap_or(0)
+        self.matches.get(m).unwrap().map(|v| v.len()).unwrap_or(0)
     }
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
@@ -314,9 +306,7 @@ impl FilterManager {
                 self.triggers.remove(&m);
             } else {
                 // Insert back the upcoming times
-                let _ = self
-                    .triggers
-                    .insert(&m, &new_map);
+                let _ = self.triggers.insert(&m, &new_map);
 
                 // Schedule the upcoming times
                 for t in new_map.into_keys() {

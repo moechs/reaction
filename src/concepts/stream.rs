@@ -66,7 +66,7 @@ impl Stream {
     }
 
     #[cfg(test)]
-    pub fn from_filters(filters: BTreeMap<String, Filter>, name: &str) -> Self {
+    fn from_filters(filters: BTreeMap<String, Filter>, name: &str) -> Self {
         Self {
             filters,
             name: name.to_string(),
@@ -98,7 +98,7 @@ impl Hash for Stream {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
 
     use super::*;
     use crate::concepts::filter::tests::ok_filter;
@@ -111,7 +111,7 @@ pub mod tests {
         }
     }
 
-    pub fn ok_stream() -> Stream {
+    fn ok_stream() -> Stream {
         let mut stream = default_stream();
         stream.cmd = vec!["command".into()];
         stream.filters.insert("name".into(), ok_filter());

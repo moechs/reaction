@@ -43,12 +43,12 @@ fn filter_triggers_tree_name(filter: &Filter) -> String {
 impl SledDbExt for sled::Db {
     fn open_filter_matches_tree(&self, filter: &Filter) -> Result<Tree<Match, BTreeSet<Time>>> {
         self.open_tree(filter_matches_tree_name(filter).as_bytes())
-            .map(|tree| Tree::new(tree))
+            .map(Tree::new)
     }
 
     fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<Tree<Time, Match>> {
         self.open_tree(filter_ordered_times_tree_name(filter).as_bytes())
-            .map(|tree| Tree::new(tree))
+            .map(Tree::new)
     }
 
     fn open_filter_triggers_tree(
@@ -56,7 +56,7 @@ impl SledDbExt for sled::Db {
         filter: &Filter,
     ) -> Result<Tree<Match, BTreeMap<Time, usize>>> {
         self.open_tree(filter_triggers_tree_name(filter).as_bytes())
-            .map(|tree| Tree::new(tree))
+            .map(Tree::new)
     }
 
     fn cleanup_unused_trees(&self, config: &Config) {

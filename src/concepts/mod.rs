@@ -8,7 +8,7 @@ mod stream;
 pub use action::Action;
 pub use config::{Config, Patterns};
 pub use filter::Filter;
-pub use parse_duration::parse_duration;
+use parse_duration::parse_duration;
 pub use pattern::Pattern;
 pub use stream::Stream;
 

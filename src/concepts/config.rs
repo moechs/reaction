@@ -11,7 +11,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tracing::{error, info};
 
-use super::{Filter, Pattern, Stream};
+use super::{Pattern, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -60,20 +60,7 @@ impl Config {
         &self.state_directory
     }
 
-    pub fn filters(&self) -> Vec<&Filter> {
-        self.streams
-            .values()
-            .flat_map(|stream| stream.filters().values())
-            .collect()
-    }
-
-    pub fn get_filter(&self, name: &(String, String)) -> Option<&Filter> {
-        self.streams
-            .get(&name.0)
-            .and_then(|stream| stream.get_filter(&name.1))
-    }
-
-    pub fn setup(&mut self) -> Result<(), String> {
+    fn setup(&mut self) -> Result<(), String> {
         if self.concurrency == 0 {
             self.concurrency = num_cpus::get();
         }
@@ -137,15 +124,6 @@ impl Config {
         config.setup().map_err(ConfigError::BadConfig)?;
 
         Ok(config)
-    }
-
-    #[cfg(test)]
-    pub fn from_streams(streams: BTreeMap<String, Stream>, dir: &str) -> Self {
-        Self {
-            streams,
-            state_directory: dir.to_string(),
-            ..Default::default()
-        }
     }
 }
 

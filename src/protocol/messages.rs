@@ -6,8 +6,6 @@ use serde::{
     Serialize,
 };
 
-use crate::concepts::Match;
-
 // We don't need protocol versionning here because
 // client and daemon are the same binary
 
@@ -22,12 +20,6 @@ pub struct ClientRequest {
     pub order: Order,
     pub stream_filter: Option<String>,
     pub patterns: Vec<(String, String)>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct FlushOptions {
-    pub m: Match,
-    pub f: (String, String),
 }
 
 #[derive(Serialize, Deserialize)]
