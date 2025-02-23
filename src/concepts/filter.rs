@@ -44,7 +44,6 @@ pub struct Filter {
 }
 
 impl Filter {
-
     pub fn name(&self) -> &str {
         &self.name
     }
