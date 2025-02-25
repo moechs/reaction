@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
 };
 
+use chrono::Local;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
 use tokio::net::UnixListener;
@@ -87,6 +88,7 @@ fn answer_order(
         })
         .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
 
+    let now = Local::now();
     let cs: ClientStatus = shared_state
         .iter()
         // stream filtering
@@ -115,7 +117,7 @@ fn answer_order(
                 .map(|(filter, manager)| {
                     (
                         filter.name().to_owned(),
-                        manager.handle_order(&patterns, options.order),
+                        manager.handle_order(&patterns, options.order, now),
                     )
                 })
                 .collect();

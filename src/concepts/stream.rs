@@ -64,15 +64,6 @@ impl Stream {
 
         Ok(())
     }
-
-    #[cfg(test)]
-    fn from_filters(filters: BTreeMap<String, Filter>, name: &str) -> Self {
-        Self {
-            filters,
-            name: name.to_string(),
-            ..Default::default()
-        }
-    }
 }
 
 impl PartialEq for Stream {

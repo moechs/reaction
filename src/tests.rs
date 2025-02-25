@@ -55,3 +55,24 @@ impl Deref for Fixture {
         self.path.deref()
     }
 }
+
+pub struct TempDb {
+    db: sled::Db,
+    _tempdir: TempDir,
+}
+
+impl TempDb {
+    pub fn new() -> Self {
+        let _tempdir = TempDir::new().unwrap();
+        let db = sled::open(_tempdir.path()).unwrap();
+        TempDb { _tempdir, db }
+    }
+}
+
+impl Deref for TempDb {
+    type Target = sled::Db;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}

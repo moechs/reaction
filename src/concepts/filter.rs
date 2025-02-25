@@ -232,6 +232,50 @@ impl Hash for Filter {
     }
 }
 
+#[cfg(test)]
+impl Filter {
+    /// Test-only constructor designed to be easy to call
+    pub fn new(
+        actions: Vec<Action>,
+        regex: Vec<&str>,
+        retry: Option<u32>,
+        retry_period: Option<&str>,
+        stream_name: &str,
+        name: &str,
+        config_patterns: &Patterns,
+    ) -> Self {
+        let mut filter = Self {
+            actions: actions.into_iter().map(|a| (a.name().into(), a)).collect(),
+            regex: regex.into_iter().map(|s| s.into()).collect(),
+            retry,
+            retry_period: retry_period.map(|s| s.into()),
+            ..Default::default()
+        };
+        filter.setup(&stream_name, &name, config_patterns).unwrap();
+        filter
+    }
+
+    pub fn new_static(
+        actions: Vec<Action>,
+        regex: Vec<&str>,
+        retry: Option<u32>,
+        retry_period: Option<&str>,
+        stream_name: &str,
+        name: &str,
+        config_patterns: &Patterns,
+    ) -> &'static Self {
+        Box::leak(Box::new(Self::new(
+            actions,
+            regex,
+            retry,
+            retry_period,
+            stream_name,
+            name,
+            config_patterns,
+        )))
+    }
+}
+
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {

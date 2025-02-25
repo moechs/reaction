@@ -94,14 +94,14 @@ impl SledDbExt for sled::Db {
 /// business logic.
 /// Key and value types must be [`serde::Serialize`] and [`serde::Deserialize`].
 #[derive(Clone)]
-pub struct Tree<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> {
+pub struct Tree<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> {
     tree: sled::Tree,
     _k_marker: PhantomData<K>,
     _v_marker: PhantomData<V>,
 }
 
 #[allow(clippy::unwrap_used)]
-impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V> {
+impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Tree<K, V> {
     fn new(tree: sled::Tree) -> Self {
         Self {
             tree,
@@ -181,5 +181,85 @@ impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V
             let v: V = bincode::deserialize(&v).unwrap();
             (k, v)
         })
+    }
+
+    #[cfg(test)]
+    pub fn as_map(&self) -> BTreeMap<K, V> {
+        self.iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use chrono::{Local, TimeDelta};
+
+    use super::SledDbExt;
+    use crate::{concepts::filter_tests::ok_filter, tests::TempDb};
+
+    #[test]
+    fn tree_crud() {
+        let filter = ok_filter();
+        let db = TempDb::new();
+        let triggers = db.open_filter_triggers_tree(&filter).unwrap();
+        assert_eq!(BTreeMap::default(), triggers.as_map());
+
+        let now = Local::now();
+        let then = now + TimeDelta::seconds(2);
+
+        let k1 = vec!["a".into()];
+        let k2 = vec!["a".into(), "b".into()];
+
+        let v1 = BTreeMap::from([(now, 4)]);
+        let v2 = BTreeMap::from([(then, 2)]);
+
+        let map_1 = BTreeMap::from([(k1.clone(), v1.clone())]);
+        let map_2 = BTreeMap::from([(k2.clone(), v2.clone())]);
+        let map_1_2 = BTreeMap::from([(k1.clone(), v1.clone()), (k2.clone(), v2.clone())]);
+
+        triggers.insert(&k1, &v1).unwrap();
+        assert_eq!(triggers.as_map(), map_1);
+        assert_eq!(triggers.get(&k1).unwrap(), Some(v1.clone()));
+        assert_eq!(triggers.get(&k2).unwrap(), None);
+
+        triggers.insert(&k2, &v2).unwrap();
+        assert_eq!(triggers.as_map(), map_1_2);
+        assert_eq!(triggers.get(&k1).unwrap(), Some(v1.clone()));
+        assert_eq!(triggers.get(&k2).unwrap(), Some(v2.clone()));
+
+        assert_eq!(triggers.remove(&k1), Some(v1.clone()));
+        assert_eq!(triggers.as_map(), map_2);
+        assert_eq!(triggers.get(&k1).unwrap(), None);
+        assert_eq!(triggers.get(&k2).unwrap(), Some(v2.clone()));
+
+        // Add back
+        triggers
+            .fetch_and_update(&k1, |map| {
+                let mut map = map.unwrap_or_default();
+                map.insert(now, 4);
+                Some(map)
+            })
+            .unwrap();
+        assert_eq!(triggers.as_map(), map_1_2);
+        assert_eq!(triggers.get(&k1).unwrap(), Some(v1.clone()));
+        assert_eq!(triggers.get(&k2).unwrap(), Some(v2.clone()));
+
+        // Remove
+        triggers
+            .fetch_and_update(&k1, |map| match map {
+                Some(_) => None,
+                None => Some(v1.clone()),
+            })
+            .unwrap();
+        assert_eq!(triggers.as_map(), map_2);
+        assert_eq!(triggers.get(&k1).unwrap(), None);
+        assert_eq!(triggers.get(&k2).unwrap(), Some(v2.clone()));
+
+        // Remove
+        triggers.fetch_and_update(&k2, |_| None).unwrap();
+        assert_eq!(triggers.as_map(), BTreeMap::default());
+        assert_eq!(triggers.get(&k1).unwrap(), None);
+        assert_eq!(triggers.get(&k2).unwrap(), None);
     }
 }

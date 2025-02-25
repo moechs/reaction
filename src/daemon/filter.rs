@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use chrono::Local;
 use regex::Regex;
 use tokio::sync::Semaphore;
 use tracing::{error, info};
@@ -42,6 +41,7 @@ impl FilterManager {
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
         db: &sled::Db,
+        now: Time,
     ) -> Result<Self, sled::Error> {
         let manager = Self {
             filter,
@@ -52,20 +52,21 @@ impl FilterManager {
             ordered_times: db.open_filter_ordered_times_tree(filter)?,
             triggers: db.open_filter_triggers_tree(filter)?,
         };
-        let now = Local::now();
         manager.clear_past_matches(now);
         manager.clear_past_triggers_and_schedule_future_actions(now);
         Ok(manager)
     }
 
-    pub fn handle_line(&self, line: &str) {
+    pub fn handle_line(&self, line: &str, now: Time) -> bool {
         if let Some(match_) = self.filter.get_match(line) {
-            self.handle_match(match_);
+            self.handle_match(match_, now);
+            true
+        } else {
+            false
         }
     }
 
-    fn handle_match(&self, m: Match) {
-        let now = Local::now();
+    fn handle_match(&self, m: Match, now: Time) {
         self.clear_past_matches(now);
 
         let exec = match self.filter.retry() {
@@ -80,7 +81,7 @@ impl FilterManager {
         if exec {
             self.remove_match(&m);
             self.add_trigger(&m, now);
-            self.schedule_exec(m.clone(), now);
+            self.schedule_exec(m.clone(), now, now);
         }
     }
 
@@ -88,6 +89,7 @@ impl FilterManager {
         &self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,
         order: Order,
+        now: Time,
     ) -> BTreeMap<String, PatternStatus> {
         let is_match = |match_: &Match| {
             match_
@@ -118,7 +120,6 @@ impl FilterManager {
             })
             .collect();
 
-        let now = Local::now();
         for (match_, times) in self
             .triggers
             .iter()
@@ -158,13 +159,12 @@ impl FilterManager {
     /// Schedule execution for a given Action and Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    fn schedule_exec(&self, m: Match, t: Time) {
-        let now = Local::now();
+    fn schedule_exec(&self, m: Match, t: Time, now: Time) {
         for action in self.filter.actions().values() {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();
 
-            if exec_time < now {
+            if exec_time <= now {
                 if self.decrement_trigger(&m, t) {
                     self.exec_now(action, m);
                 }
@@ -310,7 +310,7 @@ impl FilterManager {
 
                 // Schedule the upcoming times
                 for t in new_map.into_keys() {
-                    self.schedule_exec(m.clone(), t);
+                    self.schedule_exec(m.clone(), t, now);
                 }
             }
         }
@@ -341,4 +341,359 @@ impl FilterManager {
             }
         });
     }
+}
+
+#[allow(clippy::unwrap_used)]
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs::read_to_string,
+        sync::Arc,
+        time::Duration,
+    };
+
+    use chrono::{Local, TimeDelta};
+    use tempfile::TempPath;
+    use tokio::sync::Semaphore;
+
+    use super::{FilterManager, SledDbExt};
+    use crate::{
+        concepts::{Action, Filter, Match, Pattern, Patterns, Time},
+        daemon::{shutdown::ShutdownController, Tree},
+    };
+
+    struct TestBed {
+        pub _out_path: TempPath,
+        pub out_file: String,
+        pub az_patterns: Patterns,
+    }
+
+    impl TestBed {
+        fn new() -> Self {
+            let _out_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+            let out_file = _out_path.to_str().unwrap().to_string();
+
+            let az_patterns = Pattern::new_map("az", "[a-z]+").unwrap();
+            Self {
+                _out_path,
+                out_file,
+                az_patterns,
+            }
+        }
+
+        fn part2(self, filter: &'static Filter, now: Time) -> TestBed2 {
+            let db = crate::tests::TempDb::new();
+            let controller = ShutdownController::new();
+            let semaphore = Arc::new(Semaphore::new(1));
+            TestBed2 {
+                _out_path: self._out_path,
+                out_file: self.out_file,
+                now,
+                matches: db.open_filter_matches_tree(filter).unwrap(),
+                ordered_times: db.open_filter_ordered_times_tree(filter).unwrap(),
+                triggers: db.open_filter_triggers_tree(filter).unwrap(),
+                manager: FilterManager::new(
+                    &filter,
+                    Some(semaphore.clone()),
+                    controller.token(),
+                    &db,
+                    now,
+                )
+                .unwrap(),
+                // db,
+                // controller,
+                semaphore,
+            }
+        }
+    }
+
+    struct TestBed2 {
+        pub _out_path: TempPath,
+        pub out_file: String,
+        // pub db: TempDb,
+        // pub controller: ShutdownController,
+        pub semaphore: Arc<Semaphore>,
+        pub now: Time,
+        pub matches: Tree<Match, BTreeSet<Time>>,
+        pub ordered_times: Tree<Time, Match>,
+        pub triggers: Tree<Match, BTreeMap<Time, usize>>,
+        pub manager: FilterManager,
+    }
+
+    impl TestBed2 {
+        fn assert_empty_trees(&self) {
+            assert!(
+                self.matches.iter().next().is_none(),
+                "matches must be empty"
+            );
+            assert!(
+                self.ordered_times.iter().next().is_none(),
+                "ordered_times must be empty"
+            );
+            assert!(
+                self.triggers.iter().next().is_none(),
+                "triggers must be empty"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn three_matches_then_action_then_delayed_action() {
+        let bed = TestBed::new();
+        let filter = Filter::new_static(
+            vec![
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                    None,
+                    false,
+                    "test",
+                    "test",
+                    "a1",
+                    &bed.az_patterns,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                    Some("100ms"),
+                    false,
+                    "test",
+                    "test",
+                    "a2",
+                    &bed.az_patterns,
+                ),
+            ],
+            vec!["test <az>"],
+            Some(3),
+            Some("2s"),
+            "test",
+            "test",
+            &bed.az_patterns,
+        );
+
+        let bed = bed.part2(filter, Local::now());
+
+        let now = bed.now;
+        let now1s = bed.now + TimeDelta::seconds(1);
+        let now2s = bed.now + TimeDelta::seconds(2);
+
+        // No match
+        assert!(!bed.manager.handle_line("test 131", now));
+        bed.assert_empty_trees();
+
+        // First match
+        assert!(bed.manager.handle_line("test one", now));
+        let one = vec!["one".to_string()];
+        assert_eq!(
+            bed.matches.as_map(),
+            BTreeMap::from([(one.clone(), BTreeSet::from([now]))]),
+            "the match has been added to matches"
+        );
+        assert_eq!(
+            bed.ordered_times.as_map(),
+            BTreeMap::from([(now, one.clone())]),
+            "the match has been added to ordered_times"
+        );
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers is still empty"
+        );
+
+        // Second match
+        assert!(bed.manager.handle_line("test one", now1s));
+        assert_eq!(
+            bed.matches.as_map(),
+            BTreeMap::from([(one.clone(), BTreeSet::from([now, now1s]))]),
+            "a second match is present in matches"
+        );
+        assert_eq!(
+            bed.ordered_times.as_map(),
+            BTreeMap::from([(now, one.clone()), (now1s, one.clone())]),
+            "a second match is present in ordered_times"
+        );
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers is still empty"
+        );
+
+        // Third match, exec
+        let _block = bed.semaphore.acquire().await.unwrap();
+        bed.manager.handle_line("test one", now2s);
+        assert!(
+            bed.matches.iter().next().is_none(),
+            "matches are emptied after trigger"
+        );
+        assert!(
+            bed.ordered_times.iter().next().is_none(),
+            "ordered_times are emptied after trigger"
+        );
+        assert_eq!(
+            bed.triggers.as_map(),
+            BTreeMap::from([(one.clone(), BTreeMap::from([(now2s, 1)]))]),
+            "triggers now contain the triggered match with 1 action left" // 1 and not 2 because the decrement_trigger() doesn't wait for the semaphore
+        );
+        drop(_block);
+
+        // Now the first action executes
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        // Check first action
+        assert_eq!(
+            bed.triggers.as_map(),
+            BTreeMap::from([(one.clone(), BTreeMap::from([(now2s, 1)]))]),
+            "triggers still contain the triggered match with 1 action left"
+        );
+        assert_eq!(
+            "a1 one\n",
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file contains the result of the first action"
+        );
+
+        // Now the second action executes
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Check second action
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers are empty again"
+        );
+        assert_eq!(
+            "a1 one\na2 one\n",
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file contains the result of the 2 actions"
+        );
+
+        bed.assert_empty_trees();
+    }
+
+    #[tokio::test]
+    async fn one_match_one_action() {
+        let bed = TestBed::new();
+        let filter = Filter::new_static(
+            vec![Action::new(
+                vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                None,
+                false,
+                "test",
+                "test",
+                "a1",
+                &bed.az_patterns,
+            )],
+            vec!["test <az>"],
+            None,
+            None,
+            "test",
+            "test",
+            &bed.az_patterns,
+        );
+
+        let bed = bed.part2(filter, Local::now());
+        let now = bed.now;
+
+        // No match
+        assert!(!bed.manager.handle_line("test 131", now));
+        assert!(
+            bed.matches.iter().next().is_none(),
+            "matches must be initially empty"
+        );
+        assert!(
+            bed.ordered_times.iter().next().is_none(),
+            "ordered_times must be initially empty"
+        );
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers must be initially empty"
+        );
+
+        // match
+        assert!(bed.manager.handle_line("test one", now));
+        assert!(bed.matches.iter().next().is_none(), "matches stay empty");
+        assert!(
+            bed.ordered_times.iter().next().is_none(),
+            "ordered_times stay empty"
+        );
+        assert!(bed.triggers.iter().next().is_none(), "triggers stay empty");
+
+        // the action executes
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert_eq!(
+            "a1 one\n",
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file contains the result of the first action"
+        );
+
+        bed.assert_empty_trees();
+    }
+
+    #[tokio::test]
+    async fn one_match_one_delayed_action() {
+        let bed = TestBed::new();
+        let filter = Filter::new_static(
+            vec![Action::new(
+                vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                Some("100ms"),
+                false,
+                "test",
+                "test",
+                "a1",
+                &bed.az_patterns,
+            )],
+            vec!["test <az>"],
+            None,
+            None,
+            "test",
+            "test",
+            &bed.az_patterns,
+        );
+
+        let bed = bed.part2(filter, Local::now());
+        let now = bed.now;
+
+        // No match
+        assert!(!bed.manager.handle_line("test 131", now));
+        assert!(
+            bed.matches.iter().next().is_none(),
+            "matches must be initially empty"
+        );
+        assert!(
+            bed.ordered_times.iter().next().is_none(),
+            "ordered_times must be initially empty"
+        );
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers must be initially empty"
+        );
+
+        // Match
+        let one = vec!["one".to_string()];
+        assert!(bed.manager.handle_line("test one", now));
+        assert!(bed.matches.iter().next().is_none(), "matches stay empty");
+        assert!(
+            bed.ordered_times.iter().next().is_none(),
+            "ordered_times stay empty"
+        );
+        assert_eq!(
+            bed.triggers.as_map(),
+            BTreeMap::from([(one.clone(), BTreeMap::from([(now, 1)]))]),
+            "triggers still contain the triggered match with 1 action left"
+        );
+        assert_eq!(
+            "",
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file is empty"
+        );
+
+        // The action executes
+        tokio::time::sleep(Duration::from_millis(140)).await;
+        assert!(
+            bed.triggers.iter().next().is_none(),
+            "triggers are empty again"
+        );
+        assert_eq!(
+            "a1 one\n",
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file contains the result of the action"
+        );
+
+        bed.assert_empty_trees();
+    }
+
+    // TODO test persistance, ie. FilterManagers created with non-empty db
 }

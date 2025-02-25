@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+use chrono::Local;
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
@@ -61,11 +62,13 @@ pub async fn daemon(
     db.cleanup_unused_trees(config);
 
     // Filter managers
+    let now = Local::now();
     let mut state = HashMap::new();
     for stream in config.streams().values() {
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
-            let manager = FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &db)?;
+            let manager =
+                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &db, now)?;
             filter_managers.insert(filter, manager);
         }
         state.insert(stream, filter_managers.clone());

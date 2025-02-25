@@ -1,5 +1,6 @@
 use std::{collections::HashMap, process::Stdio, task::Poll, time::Duration};
 
+use chrono::Local;
 use futures::{FutureExt, StreamExt};
 use tokio::{
     io::{AsyncBufReadExt, BufReader, Lines},
@@ -125,8 +126,9 @@ async fn handle_io(
     loop {
         match lines.next().await {
             Some(Ok(line)) => {
+                let now = Local::now();
                 for manager in filter_managers.values() {
-                    manager.handle_line(&line);
+                    manager.handle_line(&line, now);
                 }
             }
             Some(Err(err)) => {

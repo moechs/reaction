@@ -16,3 +16,6 @@ use chrono::{DateTime, Local};
 
 pub type Time = DateTime<Local>;
 pub type Match = Vec<String>;
+
+#[cfg(test)]
+pub use filter::tests as filter_tests;

@@ -8,7 +8,7 @@ use tokio::process::Command;
 use super::parse_duration;
 use super::{Match, Pattern};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
     cmd: Vec<String>,
@@ -146,6 +146,40 @@ impl PartialOrd for Action {
 impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.stream_name, self.filter_name, self.name)
+    }
+}
+
+#[cfg(test)]
+impl Action {
+    /// Test-only constructor designed to be easy to call
+    pub fn new(
+        cmd: Vec<&str>,
+        after: Option<&str>,
+        on_exit: bool,
+        stream_name: &str,
+        filter_name: &str,
+        name: &str,
+        config_patterns: &super::Patterns,
+    ) -> Self {
+        let mut action = Self {
+            cmd: cmd.into_iter().map(|s| s.into()).collect(),
+            after: after.map(|s| s.into()),
+            on_exit,
+            ..Default::default()
+        };
+        action
+            .setup(
+                stream_name,
+                filter_name,
+                name,
+                config_patterns
+                    .clone()
+                    .into_values()
+                    .collect::<BTreeSet<_>>()
+                    .into(),
+            )
+            .unwrap();
+        action
     }
 }
 

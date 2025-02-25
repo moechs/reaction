@@ -12,15 +12,14 @@ pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
     if i == 0 {
         return Err(format!("duration '{}' doesn't start with digits", d));
     }
-    let ok_secs = |mul: u32| -> Result<TimeDelta, String> {
-        Ok(TimeDelta::seconds(mul as i64 * value as i64))
-    };
+    let ok_as = |func: fn(i64) -> TimeDelta| -> Result<_, String> { Ok(func(value as i64)) };
 
     match d_trimmed[i..].trim() {
-        "s" | "sec" | "secs" | "second" | "seconds" => ok_secs(1),
-        "m" | "min" | "mins" | "minute" | "minutes" => ok_secs(60),
-        "h" | "hour" | "hours" => ok_secs(60 * 60),
-        "d" | "day" | "days" => ok_secs(24 * 60 * 60),
+        "ms" | "millis" | "millisecond" | "milliseconds" => ok_as(TimeDelta::milliseconds),
+        "s" | "sec" | "secs" | "second" | "seconds" => ok_as(TimeDelta::seconds),
+        "m" | "min" | "mins" | "minute" | "minutes" => ok_as(TimeDelta::minutes),
+        "h" | "hour" | "hours" => ok_as(TimeDelta::hours),
+        "d" | "day" | "days" => ok_as(TimeDelta::days),
         unit => Err(format!(
             "unit {} not recognised. must be one of s/sec/seconds, m/min/minutes, h/hours, d/days",
             unit

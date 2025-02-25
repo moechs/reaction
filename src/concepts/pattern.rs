@@ -116,6 +116,25 @@ impl PartialEq for Pattern {
     }
 }
 
+#[cfg(test)]
+impl Pattern {
+    /// Test-only constructor designed to be easy to call
+    pub fn new(name: &str, regex: &str) -> Result<Self, String> {
+        let mut pattern = Self {
+            regex: regex.into(),
+            ..Default::default()
+        };
+        pattern.setup(name)?;
+        Ok(pattern)
+    }
+
+    /// Test-only constructor designed to be easy to call.
+    /// Constructs a full super::Paterns collection with one given pattern
+    pub fn new_map(name: &str, regex: &str) -> Result<super::Patterns, String> {
+        Ok(std::iter::once((name.into(), Self::new(name, regex)?.into())).collect())
+    }
+}
+
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {
