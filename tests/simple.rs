@@ -35,7 +35,7 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
                 filter1: {
                     regex: ['here is <num>'],
                     retry: 2,
-                    retryperiod: '20s',
+                    retryperiod: '2s',
                     actions: {
                         // Don't mix code and data at home!
                         // You may permit arbitrary execution from vilains,
@@ -46,7 +46,7 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
                         },
                         action2: {
                             cmd: ['sh', '-c', 'echo del <num> >> ./out.txt'],
-                            after: '3min',
+                            after: '30s',
                             onexit: false,
                         },
                     }
@@ -76,7 +76,7 @@ async fn simple() {
 
     config_with_cmd(
         config_path,
-        "for i in 12 24 36 24 36 12 12 24 56 67; do echo here is $i; sleep 0.1; done; sleep 2",
+        "for i in 12 24 36 24 36 12 12 24 56 67; do echo here is $i; sleep 0.01; done; sleep 0.15",
     );
 
     file_with_contents(out_path, "");
@@ -95,12 +95,9 @@ async fn simple() {
 
     // Run the flushes
 
-    // We sleep for the time the echoes are finished + 1 second
-    // This ensures that the subsecond precision lost from de/serialization
-    // never causes the flush to be interpreted as anterior to the match
-
+    // We sleep for the time the echoes are finished + a bit (100ms)
     let handle2 = tokio::spawn(async move {
-        sleep(Duration::from_millis(2500)).await;
+        sleep(Duration::from_millis(200)).await;
         request(
             socket_path.into(),
             Format::JSON,
@@ -112,7 +109,7 @@ async fn simple() {
     });
 
     let handle3 = tokio::spawn(async move {
-        sleep(Duration::from_millis(2500)).await;
+        sleep(Duration::from_millis(220)).await;
         request(
             socket_path.into(),
             Format::JSON,
@@ -143,7 +140,7 @@ async fn simple() {
 
     config_with_cmd(
         config_path,
-        "for i in 12 24 36 56 67; do echo here is $i; sleep 0.1; done",
+        "for i in 12 24 36 56 67; do echo here is $i; sleep 0.01; done",
     );
 
     file_with_contents(out_path, "");
@@ -180,7 +177,7 @@ async fn simple() {
     // echo numbers twice, once on stdout, once on stderr
     config_with_cmd(
         config_path,
-        "for i in 1 2 3 4 5 6 7 8 9; do echo here is $i; echo here is $i 1>&2; sleep 0.1; done; sleep 1",
+        "for i in 1 2 3 4 5 6 7 8 9; do echo here is $i; echo here is $i 1>&2; sleep 0.01; done",
     );
 
     file_with_contents(out_path, "");
