@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn tree_crud() {
         let filter = ok_filter();
-        let db = TempDb::new();
+        let db = TempDb::default();
         let triggers = db.open_filter_triggers_tree(&filter).unwrap();
         assert_eq!(BTreeMap::default(), triggers.as_map());
 

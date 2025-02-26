@@ -16,6 +16,7 @@ use crate::{
     tests::TempDb,
 };
 
+#[allow(clippy::type_complexity)]
 fn open_trees(
     db: &TempDb,
     filter: &Filter,
@@ -51,7 +52,7 @@ impl TestBed {
     }
 
     fn part2(self, filter: &'static Filter, now: Time, db: Option<TempDb>) -> TestBed2 {
-        let db = db.unwrap_or_else(|| TempDb::new());
+        let db = db.unwrap_or_default();
         let controller = ShutdownController::new();
         let semaphore = Arc::new(Semaphore::new(1));
         TestBed2 {
@@ -62,7 +63,7 @@ impl TestBed {
             ordered_times: db.open_filter_ordered_times_tree(filter).unwrap(),
             triggers: db.open_filter_triggers_tree(filter).unwrap(),
             manager: FilterManager::new(
-                &filter,
+                filter,
                 Some(semaphore.clone()),
                 controller.token(),
                 &db,
@@ -362,7 +363,7 @@ async fn one_db_match_one_runtime_match_one_action() {
         &bed.az_patterns,
     );
 
-    let db = TempDb::new();
+    let db = TempDb::default();
     let (matches, ordered_times, _) = open_trees(&db, filter);
 
     // Pre-add match
@@ -421,7 +422,7 @@ async fn one_outdated_db_match() {
         &bed.az_patterns,
     );
 
-    let db = TempDb::new();
+    let db = TempDb::default();
     let (matches, ordered_times, _) = open_trees(&db, filter);
 
     // Pre-add match

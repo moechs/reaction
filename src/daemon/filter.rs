@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     process::Stdio,
@@ -278,11 +281,7 @@ impl FilterManager {
                 .fetch_and_update(&m, |set| {
                     let mut set = set.unwrap();
                     set.remove(&t);
-                    if set.is_empty() {
-                        None
-                    } else {
-                        Some(set)
-                    }
+                    (!set.is_empty()).then_some(set)
                 })
                 .unwrap();
         }
@@ -346,7 +345,3 @@ impl FilterManager {
         });
     }
 }
-
-#[allow(clippy::unwrap_used)]
-#[cfg(test)]
-mod tests;

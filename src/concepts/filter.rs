@@ -251,7 +251,7 @@ impl Filter {
             retry_period: retry_period.map(|s| s.into()),
             ..Default::default()
         };
-        filter.setup(&stream_name, &name, config_patterns).unwrap();
+        filter.setup(stream_name, name, config_patterns).unwrap();
         filter
     }
 
@@ -276,7 +276,6 @@ impl Filter {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {
     use crate::concepts::action::tests::{ok_action, ok_action_with_after};

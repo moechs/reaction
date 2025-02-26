@@ -135,7 +135,6 @@ impl Pattern {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod tests {
 

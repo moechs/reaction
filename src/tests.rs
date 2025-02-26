@@ -1,4 +1,3 @@
-#![allow(clippy::unwrap_used)]
 #![cfg(test)]
 
 use std::{
@@ -61,8 +60,8 @@ pub struct TempDb {
     _tempdir: TempDir,
 }
 
-impl TempDb {
-    pub fn new() -> Self {
+impl Default for TempDb {
+    fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
         let db = sled::open(_tempdir.path()).unwrap();
         TempDb { _tempdir, db }
