@@ -15,8 +15,10 @@ build = "build.rs"
 maintainer-scripts = "packaging/"
 systemd-units = { enable = false }
 assets = [
-	# Executable
+	# Executables
 	[ "target/release/reaction", "/usr/bin/reaction", "755" ],
+	[ "target/release/ip46tables", "/usr/bin/ip46tables", "755" ],
+	[ "target/release/nft46", "/usr/bin/nft46", "755" ],
 	# Man pages
 	[ "target/release/reaction*.1", "/usr/share/man/man1/", "644" ],
 	# Shell completions
