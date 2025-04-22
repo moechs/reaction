@@ -59,7 +59,7 @@ int guess_type(int len, char *tab[]) {
 	return 0;
 }
 
-int exec(char *str, char **argv) {
+void exec(char *str, char **argv) {
 	argv[0] = str;
 	execvp(str, argv);
 	// returns only if fails
