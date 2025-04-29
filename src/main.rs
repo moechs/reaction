@@ -28,12 +28,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let (is_daemon, level) = if let SubCommand::Start {
-        config: _,
-        loglevel,
-        socket: _,
-    } = cli.command
-    {
+    let (is_daemon, level) = if let SubCommand::Start { loglevel, .. } = cli.command {
         (true, loglevel)
     } else {
         (false, Level::DEBUG)
@@ -57,8 +52,8 @@ async fn main() {
     let result = match cli.command {
         SubCommand::Start {
             config,
-            loglevel: _,
             socket,
+            ..
         } => daemon(config, socket).await,
         SubCommand::Show {
             socket,
