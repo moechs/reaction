@@ -19,13 +19,14 @@ use tracing::{debug, info};
 use crate::concepts::Config;
 use filter::FilterManager;
 use shutdown::{ShutdownController, ShutdownDelegate};
-use sledext::*;
+use heedext::*;
 use socket::socket_manager;
 use stream::stream_manager;
 
 mod filter;
 mod shutdown;
 mod sledext;
+mod heedext;
 mod socket;
 mod stream;
 
@@ -59,6 +60,19 @@ pub async fn daemon(
         )
     })?;
     db.cleanup_unused_trees(config);
+
+    #[allow(unsafe_code)]
+    let db = unsafe {
+        heed::EnvOpenOptions::new()
+            .open(format!("{}/lmdb", config.state_directory()))
+            .map_err(|err| {
+                format!(
+                    "while opening database at {}: {}",
+                    config.state_directory(),
+                    err
+                )
+            })
+    }?;
 
     // Filter managers
     let now = Local::now();

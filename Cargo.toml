@@ -31,6 +31,7 @@ assets = [
 bincode = "1.3.3"
 chrono = { version = "0.4.38", features = ["std", "clock", "serde"] }
 clap = { version = "4.5.4", features = ["derive"] }
+heed = "0.22.0"
 jrsonnet-evaluator = "0.4.2"
 nix = { version = "0.29.0", features = ["signal"] }
 num_cpus = "1.16.0"
