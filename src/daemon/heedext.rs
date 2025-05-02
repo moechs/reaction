@@ -1,32 +1,45 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use heed::{
-    types::{DecodeIgnore, Str},
-    Database, Result,
+    types::{DecodeIgnore, SerdeBincode, Str},
+    Database, DatabaseFlags, Result,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::concepts::{Config, Filter, Match, Time};
+
+#[derive(Serialize, Deserialize)]
+pub struct MatchTime {
+    pub m: Match,
+    pub t: Time,
+}
 
 /// This trait permits to manage in a single place what are the names of [`heed::Database`]s in
 /// reaction. It streamlines [`heed::Database`]s opening so that we can reliably open the same
 /// Databases in multiple places.
 /// It also permits to manage the cleanup of unused databases.
 pub trait EnvExt {
-    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<Database<Match, BTreeSet<Time>>>;
-    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<Database<Time, Match>>;
-    fn open_filter_triggers_tree(
+    fn open_filter_matches_db(
         &self,
         filter: &Filter,
-    ) -> Result<Database<Match, BTreeMap<Time, usize>>>;
+    ) -> Result<Database<SerdeBincode<Match>, SerdeBincode<Time>>>;
+    fn open_filter_ordered_times_db(
+        &self,
+        filter: &Filter,
+    ) -> Result<Database<SerdeBincode<Time>, SerdeBincode<Match>>>;
+    fn open_filter_triggers_db(
+        &self,
+        filter: &Filter,
+    ) -> Result<Database<SerdeBincode<MatchTime>, usize>>;
 
-    fn cleanup_unused_trees(&self, config: &Config) -> Result<()>;
+    fn cleanup_unused_dbs(&self, config: &Config) -> Result<()>;
 }
 
-fn filter_matches_tree_name(filter: &Filter) -> String {
+fn filter_matches_db_name(filter: &Filter) -> String {
     format!("filter_matches_{}.{}", filter.stream_name(), filter.name())
 }
 
-fn filter_ordered_times_tree_name(filter: &Filter) -> String {
+fn filter_ordered_times_db_name(filter: &Filter) -> String {
     format!(
         "filter_ordered_times_{}.{}",
         filter.stream_name(),
@@ -34,55 +47,61 @@ fn filter_ordered_times_tree_name(filter: &Filter) -> String {
     )
 }
 
-fn filter_triggers_tree_name(filter: &Filter) -> String {
+fn filter_triggers_db_name(filter: &Filter) -> String {
     format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
 }
 
 impl EnvExt for heed::Env {
-    fn open_filter_matches_tree(&self, filter: &Filter) -> Result<Database<Match, BTreeSet<Time>>> {
-        let mut wtxn = self.write_txn()?;
-        let res = self.create_database::<Match, BTreeSet<Time>>(
-            &mut wtxn,
-            Some(&filter_matches_tree_name(filter)),
-        );
-        wtxn.commit()?;
-        res
-    }
-
-    fn open_filter_ordered_times_tree(&self, filter: &Filter) -> Result<Database<Time, Match>> {
-        let mut wtxn = self.write_txn()?;
-        let res = self.create_database::<Time, Match>(
-            &mut wtxn,
-            Some(&filter_ordered_times_tree_name(filter)),
-        );
-        wtxn.commit()?;
-        res
-    }
-
-    fn open_filter_triggers_tree(
+    fn open_filter_matches_db(
         &self,
         filter: &Filter,
-    ) -> Result<Database<Match, BTreeMap<Time, usize>>> {
+    ) -> Result<Database<SerdeBincode<Match>, SerdeBincode<Time>>> {
         let mut wtxn = self.write_txn()?;
-        let res = self.create_database::<Match, BTreeMap<Time, usize>>(
+        let res = self
+            .database_options()
+            .name(&filter_matches_db_name(filter))
+            // We allow duplicates on this database
+            .flags(DatabaseFlags::DUP_SORT)
+            .types::<SerdeBincode<Match>, SerdeBincode<Time>>()
+            .create(&mut wtxn);
+        wtxn.commit()?;
+        res
+    }
+
+    fn open_filter_ordered_times_db(
+        &self,
+        filter: &Filter,
+    ) -> Result<Database<SerdeBincode<Time>, SerdeBincode<Match>>> {
+        let mut wtxn = self.write_txn()?;
+        let res = self.create_database(&mut wtxn, Some(&filter_ordered_times_db_name(filter)));
+        wtxn.commit()?;
+        res
+    }
+
+    fn open_filter_triggers_db(
+        &self,
+        filter: &Filter,
+    ) -> Result<Database<SerdeBincode<MatchTime>, usize>> {
+        let mut wtxn = self.write_txn()?;
+        let res = self.create_database::<SerdeBincode<MatchTime>, usize>(
             &mut wtxn,
-            Some(&filter_triggers_tree_name(filter)),
+            Some(&filter_triggers_db_name(filter)),
         );
         wtxn.commit()?;
         res
     }
 
-    fn cleanup_unused_trees(&self, config: &Config) -> Result<()> {
-        let valid_tree_names: BTreeSet<_> = config
+    fn cleanup_unused_dbs(&self, config: &Config) -> Result<()> {
+        let valid_db_names: BTreeSet<_> = config
             .streams()
             .values()
             // for each filter
             .flat_map(|stream| stream.filters().values())
             .flat_map(|filter| {
                 [
-                    filter_matches_tree_name(filter),
-                    filter_ordered_times_tree_name(filter),
-                    filter_triggers_tree_name(filter),
+                    filter_matches_db_name(filter),
+                    filter_ordered_times_db_name(filter),
+                    filter_triggers_db_name(filter),
                 ]
             })
             // plus sled's default map
@@ -96,17 +115,27 @@ impl EnvExt for heed::Env {
             .open_database(&rtxn, None)?
             .expect("the unnamed database always exists");
 
-        // Remove trees that are not in the list of valid trees
-        for outdated_tree in unnamed
+        let mut wtxn = self.write_txn()?;
+        // Remove dbs that are not in the list of valid dbs
+        for outdated_db in unnamed
             .iter(&rtxn)?
             .filter(|key| key.is_ok())
+            // unwrap because we only kept `Result::Ok`s
             .map(|key| key.unwrap().0)
-            .filter(|tree_name| !valid_tree_names.contains(*tree_name))
+            .filter(|db_name| !valid_db_names.contains(*db_name))
         {
-            self.remove_database(outdated_tree)
-                .expect("Fatal error while cleaning DB on startup");
+            if let Some(db) =
+                self.open_database::<DecodeIgnore, DecodeIgnore>(&wtxn, Some(outdated_db))?
+            {
+                // FIXME Waiting for this PR to land in a stable release
+                // https://github.com/meilisearch/heed/pull/330
+                // For now we're just clearing it
+                db.clear(&mut wtxn)?;
+                // db.remove(&mut write_txn)?
+            }
         }
 
+        wtxn.commit()?;
         Ok(())
     }
 }

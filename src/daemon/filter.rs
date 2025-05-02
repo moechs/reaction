@@ -1,12 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    process::Stdio,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
+use heed::{types::SerdeBincode, Database};
 use regex::Regex;
 use tokio::sync::Semaphore;
 use tracing::{error, info};
@@ -16,7 +13,7 @@ use crate::{
     protocol::{Order, PatternStatus},
 };
 
-use super::{shutdown::ShutdownToken, SledDbExt, Tree};
+use super::{shutdown::ShutdownToken, EnvExt as _, MatchTime};
 
 #[derive(Clone)]
 pub struct FilterManager {
@@ -28,13 +25,16 @@ pub struct FilterManager {
     exec_limit: Option<Arc<Semaphore>>,
     /// Permits to run pending actions on shutdown
     shutdown: ShutdownToken,
+    /// LMDB environment, necessary to create transactions
+    env: heed::Env,
     /// Saves all the current Matches for this Filter
-    matches: Tree<Match, BTreeSet<Time>>,
+    /// Has duplicate values for a key
+    matches: Database<SerdeBincode<Match>, SerdeBincode<Time>>,
     /// Alternative view of the current Matches for O(1) cleaning of old Matches
     /// without added async Tasks to remove them
-    ordered_times: Tree<Time, Match>,
+    ordered_times: Database<SerdeBincode<Time>, SerdeBincode<Match>>,
     /// Saves all the current Triggers for this Filter
-    triggers: Tree<Match, BTreeMap<Time, usize>>,
+    triggers: Database<SerdeBincode<MatchTime>, usize>,
 }
 
 #[allow(clippy::unwrap_used)]
@@ -43,17 +43,18 @@ impl FilterManager {
         filter: &'static Filter,
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
-        db: &sled::Db,
+        env: &heed::Env,
         now: Time,
-    ) -> Result<Self, sled::Error> {
+    ) -> Result<Self, heed::Error> {
         let manager = Self {
             filter,
             has_after: !filter.longuest_action_duration().is_zero(),
             exec_limit,
             shutdown,
-            matches: db.open_filter_matches_tree(filter)?,
-            ordered_times: db.open_filter_ordered_times_tree(filter)?,
-            triggers: db.open_filter_triggers_tree(filter)?,
+            env: env.clone(),
+            matches: env.open_filter_matches_db(filter)?,
+            ordered_times: env.open_filter_ordered_times_db(filter)?,
+            triggers: env.open_filter_triggers_db(filter)?,
         };
         manager.clear_past_matches(now);
         manager.clear_past_triggers_and_schedule_future_actions(now);
@@ -83,8 +84,8 @@ impl FilterManager {
 
         if exec {
             self.remove_match(&m);
-            self.add_trigger(&m, now);
-            self.schedule_exec(m.clone(), now, now);
+            self.add_trigger(m.clone(), now);
+            self.schedule_exec(m, now, now);
         }
     }
 
@@ -104,11 +105,15 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
+        let read_txn = self.env.read_txn().unwrap();
         let mut cs: BTreeMap<_, _> = self
             .matches
-            .iter()
+            .iter(&read_txn)
+            .unwrap()
+            .map(|result| result.unwrap())
             // match filtering
             .filter(|(match_, _)| is_match(match_))
+            // FIXME aggregate keys before this map
             .map(|(match_, times)| {
                 if let Order::Flush = order {
                     self.remove_match(&match_);
@@ -116,7 +121,8 @@ impl FilterManager {
                 (
                     match_,
                     PatternStatus {
-                        matches: times.len(),
+                        // matches: times.len(),
+                        matches: 1,
                         ..Default::default()
                     },
                 )
@@ -125,13 +131,16 @@ impl FilterManager {
 
         for (match_, times) in self
             .triggers
-            .iter()
+            .iter(&read_txn)
+            .unwrap()
+            .map(|result| result.unwrap())
             // match filtering
             .filter(|(match_, _)| is_match(match_))
         {
             // Remove the match from the triggers
             if let Order::Flush = order {
-                self.remove_trigger(&match_);
+                // FIXME delete specific (Match, Time) tuple
+                // self.remove_trigger(&match_);
             }
 
             let pattern_status = cs.entry(match_.clone()).or_default();
@@ -195,45 +204,49 @@ impl FilterManager {
     }
 
     fn add_match(&self, m: &Match, t: Time) {
-        // FIXME do this in a transaction
-        self.matches
-            .fetch_and_update(m, |set| {
-                let mut set = set.unwrap_or_default();
-                set.insert(t);
-                Some(set)
-            })
-            .unwrap();
-        self.ordered_times.insert(&t, m).unwrap();
+        let mut wtxn = self.env.write_txn().unwrap();
+        self.matches.put(&mut wtxn, m, &t);
+        self.ordered_times.put(&mut wtxn, &t, m).unwrap();
+        wtxn.commit().unwrap();
     }
 
-    fn add_trigger(&self, m: &Match, t: Time) {
+    fn add_trigger(&self, m: Match, t: Time) {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
+            let mut wtxn = self.env.write_txn().unwrap();
             self.triggers
-                .fetch_and_update(m, |map| {
-                    let mut map = map.unwrap_or_default();
-                    map.insert(t, self.filter.actions().len());
-                    Some(map)
-                })
-                .unwrap();
+                .put(&mut wtxn, &MatchTime { m, t }, &self.filter.actions().len());
+            wtxn.commit().unwrap();
         }
     }
 
     // Completely remove a Match from the matches
     fn remove_match(&self, m: &Match) {
-        // FIXME do this in a transaction
-        if let Some(times) = self.matches.remove(m) {
-            for t in times {
-                self.ordered_times.remove(&t);
+        let rtxn = self.env.read_txn().unwrap();
+        let mut wtxn = self.env.write_txn().unwrap();
+        if let Some(iter) = self.matches.get_duplicates(&rtxn, m).unwrap() {
+            for t in iter {
+                let t = t.unwrap().1;
+                self.ordered_times.delete(&mut wtxn, &t);
             }
         }
+        self.matches.delete(&mut wtxn, m).unwrap();
+        wtxn.commit().unwrap();
     }
 
     /// Completely remove a Match from the triggers
-    fn remove_trigger(&self, m: &Match) {
+    fn remove_trigger(&self, m: &Match, t: &Time) {
         // FIXME do this in a transaction
-        self.triggers.remove(m);
+        let mut wtxn = self.env.write_txn().unwrap();
+        self.triggers.delete(
+            &mut wtxn,
+            &MatchTime {
+                m: m.clone(),
+                t: *t,
+            },
+        );
+        wtxn.commit().unwrap();
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
@@ -241,24 +254,16 @@ impl FilterManager {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             let mut exec_needed = false;
-            self.triggers
-                .fetch_and_update(m, |map| {
-                    map.map(|mut map| {
-                        if let Some(counter) = map.get(&t) {
-                            exec_needed = true;
-                            // We're the last action to run
-                            if *counter <= 1 {
-                                map.remove(&t);
-                            } else {
-                                map.insert(t, counter - 1);
-                            }
-                        }
-                        map
-                    })
-                    // Remove empty maps
-                    .filter(|map| !map.is_empty())
-                })
-                .unwrap();
+            let mut wtxn = self.env.write_txn().unwrap();
+            let mt = MatchTime { m: m.clone(), t };
+            let count = self.triggers.get(&wtxn, &mt).unwrap();
+            if let Some(count) = count {
+                exec_needed = true;
+                if count <= 1 {
+                    self.triggers.delete(&mut wtxn, &mt);
+                }
+                wtxn.commit().unwrap();
+            }
             exec_needed
         } else {
             true
@@ -267,56 +272,49 @@ impl FilterManager {
 
     fn clear_past_matches(&self, now: Time) {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
+        let mut wtxn = self.env.write_txn().unwrap();
         while self
             .ordered_times
-            .first()
+            .first(&wtxn)
             .unwrap()
             .is_some_and(|(t, _)| t + retry_duration < now)
         {
-            // FIXME do this in a transaction
             #[allow(clippy::unwrap_used)]
             // second unwrap: we just checked in the condition that first is_some
-            let (t, m) = self.ordered_times.pop_min().unwrap().unwrap();
-            self.matches
-                .fetch_and_update(&m, |set| {
-                    let mut set = set.unwrap();
-                    set.remove(&t);
-                    (!set.is_empty()).then_some(set)
-                })
-                .unwrap();
+            let (t, m) = self.ordered_times.first(&wtxn).unwrap().unwrap();
+            self.ordered_times.delete(&mut wtxn, &t);
+            self.matches.delete_one_duplicate(&mut wtxn, &m, &t);
+            wtxn.commit().unwrap();
+            wtxn = self.env.write_txn().unwrap();
         }
     }
 
     fn get_times(&self, m: &Match) -> usize {
-        self.matches.get(m).unwrap().map(|v| v.len()).unwrap_or(0)
+        let rtxn = self.env.read_txn().unwrap();
+        self.matches
+            .get_duplicates(&rtxn, m)
+            .unwrap()
+            .map(|iter| iter.count())
+            .unwrap_or(0)
     }
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration();
         let number_of_actions = self.filter.actions().len();
 
-        for (m, map) in self.triggers.iter() {
-            let new_map: BTreeMap<_, _> = map
-                .into_iter()
-                // Keep only times that are still relevant
-                .filter(|(t, _)| *t + longuest_action_duration > now)
-                // Reset the action counter
-                .map(|(t, _)| (t, number_of_actions))
-                .collect();
-
-            if new_map.is_empty() {
-                // No upcoming time, delete the entry from the Tree
-                self.triggers.remove(&m);
-            } else {
+        let rtxn = self.env.read_txn().unwrap();
+        let mut wtxn = self.env.write_txn().unwrap();
+        for (mt, remaining) in self.triggers.iter(&rtxn).unwrap().map(|elt| elt.unwrap()) {
+            if mt.t + longuest_action_duration > now {
                 // Insert back the upcoming times
-                let _ = self.triggers.insert(&m, &new_map);
-
+                self.triggers.put(&mut wtxn, &mt, &number_of_actions);
                 // Schedule the upcoming times
-                for t in new_map.into_keys() {
-                    self.schedule_exec(m.clone(), t, now);
-                }
+                self.schedule_exec(mt.m, mt.t, now);
+            } else {
+                self.triggers.delete(&mut wtxn, &mt);
             }
         }
+        wtxn.commit().unwrap();
     }
 
     fn exec_now(&self, action: &'static Action, m: Match) {

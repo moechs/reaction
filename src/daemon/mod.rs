@@ -18,15 +18,15 @@ use tracing::{debug, info};
 
 use crate::concepts::Config;
 use filter::FilterManager;
-use shutdown::{ShutdownController, ShutdownDelegate};
 use heedext::*;
+use shutdown::{ShutdownController, ShutdownDelegate};
 use socket::socket_manager;
 use stream::stream_manager;
 
 mod filter;
+mod heedext;
 mod shutdown;
 mod sledext;
-mod heedext;
 mod socket;
 mod stream;
 
@@ -52,27 +52,18 @@ pub async fn daemon(
     };
 
     // Open Database
-    let db = sled::open(format!("{}/data", config.state_directory())).map_err(|err| {
-        format!(
-            "while opening database at {}: {}",
-            config.state_directory(),
-            err
-        )
-    })?;
-    db.cleanup_unused_trees(config);
-
-    #[allow(unsafe_code)]
-    let db = unsafe {
-        heed::EnvOpenOptions::new()
-            .open(format!("{}/lmdb", config.state_directory()))
+    #[allow(unsafe_code)] // We have no choice but to use unsafe,
+    // as the library exposes unsafe code
+    let env =
+        unsafe { heed::EnvOpenOptions::new().open(format!("{}/lmdb", config.state_directory())) }
             .map_err(|err| {
-                format!(
-                    "while opening database at {}: {}",
-                    config.state_directory(),
-                    err
-                )
-            })
-    }?;
+            format!(
+                "while opening database at {}: {}",
+                config.state_directory(),
+                err
+            )
+        })?;
+    env.cleanup_unused_dbs(config);
 
     // Filter managers
     let now = Local::now();
@@ -81,7 +72,7 @@ pub async fn daemon(
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
             let manager =
-                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &db, now)?;
+                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &env, now)?;
             filter_managers.insert(filter, manager);
         }
         state.insert(stream, filter_managers.clone());
@@ -114,7 +105,7 @@ pub async fn daemon(
     debug!("Waiting for all tasks to quit...");
     shutdown.wait_shutdown().await;
 
-    let db_ok = db.flush();
+    let db_ok = env.force_sync();
 
     let stop_ok = config.stop();
 
