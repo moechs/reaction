@@ -93,13 +93,14 @@ pub async fn daemon(
     debug!("Waiting for all tasks to quit...");
     shutdown.wait_shutdown().await;
 
-    let db_ok = env.force_sync();
+    debug!("Closing DB...");
+    let _db_ok = env.prepare_for_closing().wait();
 
     let stop_ok = config.stop();
 
-    if let Err(err) = db_ok {
+    /*if let Err(err) = db_ok {
         Err(format!("database was not saved, unrecoverable error: {}", err).into())
-    } else if !signal_received.load(Ordering::SeqCst) {
+    } else*/ if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {
         Err("while executing stop command".into())
