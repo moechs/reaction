@@ -45,10 +45,9 @@ pub async fn daemon(
     let shutdown = ShutdownController::new();
 
     // Semaphore limiting action execution concurrency
-    let exec_limit = if config.concurrency() > 0 {
-        Some(Arc::new(Semaphore::new(config.concurrency())))
-    } else {
-        None
+    let exec_limit = match config.concurrency() {
+        0 => None,
+        n => Some(Arc::new(Semaphore::new(n))),
     };
 
     // Open Database
