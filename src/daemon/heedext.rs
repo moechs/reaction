@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 
 use heed::{
-    types::{DecodeIgnore, SerdeBincode, Str},
-    Database, DatabaseFlags, Result,
+    byteorder::LittleEndian, types::{DecodeIgnore, SerdeBincode, Str, U64}, Database, DatabaseFlags, Result
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +29,7 @@ pub trait EnvExt {
     fn open_filter_triggers_db(
         &self,
         filter: &Filter,
-    ) -> Result<Database<SerdeBincode<MatchTime>, usize>>;
+    ) -> Result<Database<SerdeBincode<MatchTime>, U64<LittleEndian>>>;
 
     fn cleanup_unused_dbs(&self, config: &Config) -> Result<()>;
 }
@@ -81,9 +80,9 @@ impl EnvExt for heed::Env {
     fn open_filter_triggers_db(
         &self,
         filter: &Filter,
-    ) -> Result<Database<SerdeBincode<MatchTime>, usize>> {
+    ) -> Result<Database<SerdeBincode<MatchTime>, U64<LittleEndian>>> {
         let mut wtxn = self.write_txn()?;
-        let res = self.create_database::<SerdeBincode<MatchTime>, usize>(
+        let res = self.create_database::<SerdeBincode<MatchTime>, U64<LittleEndian>>(
             &mut wtxn,
             Some(&filter_triggers_db_name(filter)),
         );

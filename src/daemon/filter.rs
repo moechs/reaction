@@ -3,7 +3,11 @@ mod tests;
 
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
-use heed::{types::SerdeBincode, Database};
+use heed::{
+    byteorder::LittleEndian,
+    types::{SerdeBincode, U64},
+    Database,
+};
 use regex::Regex;
 use tokio::sync::Semaphore;
 use tracing::{error, info};
@@ -34,7 +38,7 @@ pub struct FilterManager {
     /// without added async Tasks to remove them
     ordered_times: Database<SerdeBincode<Time>, SerdeBincode<Match>>,
     /// Saves all the current Triggers for this Filter
-    triggers: Database<SerdeBincode<MatchTime>, usize>,
+    triggers: Database<SerdeBincode<MatchTime>, U64<LittleEndian>>,
 }
 
 #[allow(clippy::unwrap_used)]
@@ -111,6 +115,11 @@ impl FilterManager {
             .iter(&read_txn)
             .unwrap()
             .map(|result| result.unwrap())
+            // aggregate by key
+            .fold(BTreeMap::new(), |acc, (k, v)| {
+                let // TODO
+                
+            })
             // match filtering
             .filter(|(match_, _)| is_match(match_))
             // FIXME aggregate keys before this map
@@ -129,7 +138,7 @@ impl FilterManager {
             })
             .collect();
 
-        for (match_, times) in self
+        for (mt, times) in self
             .triggers
             .iter(&read_txn)
             .unwrap()
@@ -143,7 +152,7 @@ impl FilterManager {
                 // self.remove_trigger(&match_);
             }
 
-            let pattern_status = cs.entry(match_.clone()).or_default();
+            let pattern_status = cs.entry(mt.clone()).or_default();
 
             for action in self.filter.actions().values() {
                 let mut action_times = Vec::new();
@@ -153,7 +162,7 @@ impl FilterManager {
                         action_times.push(action_time.to_rfc3339().chars().take(19).collect());
                         // Execute the action early
                         if let Order::Flush = order {
-                            self.exec_now(action, match_.clone());
+                            self.exec_now(action, mt.clone());
                         }
                     }
                 }
