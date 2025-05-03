@@ -1,7 +1,11 @@
 #[cfg(test)]
 mod tests;
 
-use std::{collections::BTreeMap, process::Stdio, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    process::Stdio,
+    sync::Arc,
+};
 
 use heed::{
     byteorder::LittleEndian,
@@ -109,12 +113,24 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let rtxn = self.env.read_txn().unwrap();
         let mut cs = BTreeMap::new();
         {
+            // We're collecting the whole matches keys here to avoid having an open read
+            // transaction. We will open another in remove_match() and can't have two open
+            // read transactions in the same thread
+            let rtxn = self.env.read_txn().unwrap();
+            let matches_keys = self
+                .matches
+                .iter(&rtxn)
+                .unwrap()
+                .map(|result| result.unwrap().0)
+                // match filtering
+                .filter(|match_| is_match(match_))
+                .collect::<BTreeSet<_>>();
+            rtxn.commit().unwrap();
+
             let mut last_key: Option<Match> = None;
             let mut n_times = 0;
-
             let mut insert_last_key = |last_key: Option<Match>, n_times: usize| {
                 if let Some(last_key) = last_key {
                     if let Order::Flush = order {
@@ -130,14 +146,7 @@ impl FilterManager {
                 }
             };
 
-            for (k, _) in self
-                .matches
-                .iter(&rtxn)
-                .unwrap()
-                .map(|result| result.unwrap())
-                // match filtering
-                .filter(|(match_, _)| is_match(match_))
-            {
+            for k in matches_keys {
                 if last_key.clone().is_some_and(|last_key| last_key == k) {
                     n_times += 1;
                 } else {
@@ -149,19 +158,21 @@ impl FilterManager {
             insert_last_key(last_key, n_times);
         }
 
-        // We prefer closing & reopening the read transaction
-        // because it's recommended to avoid long-lived transactions
-        rtxn.commit().unwrap();
+        // We're collecting the whole matchtimes keys here to avoid having an open read
+        // transaction. We will open another in remove_match() and can't have two open
+        // read transactions in the same thread
         let rtxn = self.env.read_txn().unwrap();
-
-        for (mt, _) in self
+        let triggers_keys = self
             .triggers
             .iter(&rtxn)
             .unwrap()
-            .map(|result| result.unwrap())
+            .map(|result| result.unwrap().0)
             // match filtering
-            .filter(|(match_, _)| is_match(&match_.m))
-        {
+            .filter(|match_| is_match(&match_.m))
+            .collect::<BTreeSet<_>>();
+        rtxn.commit().unwrap();
+
+        for mt in triggers_keys {
             // Remove the match from the triggers
             if let Order::Flush = order {
                 // delete specific (Match, Time) tuple
@@ -187,7 +198,6 @@ impl FilterManager {
                 }
             }
         }
-        rtxn.commit().unwrap();
 
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
