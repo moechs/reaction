@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs::create_dir};
+use std::{collections::BTreeSet, fs::create_dir, io::ErrorKind};
 
 use heed::{
     byteorder::LittleEndian,
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::concepts::{Config, Filter, Match, Time};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MatchTime {
     pub m: Match,
     pub t: Time,
@@ -17,10 +17,36 @@ pub struct MatchTime {
 
 pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
     let lmdb_dir = format!("{}/lmdb", config.state_directory());
-    create_dir(&lmdb_dir).map_err();
+
+    match create_dir(&lmdb_dir) {
+        Ok(_) => Ok(()),
+        Err(err) => match err.kind() {
+            ErrorKind::AlreadyExists => Ok(()),
+            _ => Err(format!(
+                "while creating database directory {}: {}",
+                config.state_directory(),
+                err
+            )),
+        },
+    }?;
+
+    let max_dbs = config
+        .streams()
+        .values()
+        .map(|stream| stream.filters().len())
+        // We have 3 databases per filter
+        .fold(0, |acc, elt| acc + 3 * elt);
+
     // We have no choice but to use unsafe, as the library exposes unsafe code
     #[allow(unsafe_code)]
-    let env = unsafe { heed::EnvOpenOptions::new().open(lmdb_dir) }.map_err(|err| {
+    let env = unsafe {
+        heed::EnvOpenOptions::new()
+            // safety: if you have more than 1.4 billion filters,
+            // you searched for this overflow :smirk:
+            .max_dbs(max_dbs as u32)
+            .open(lmdb_dir)
+    }
+    .map_err(|err| {
         format!(
             "while opening database at {}: {}",
             config.state_directory(),

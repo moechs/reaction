@@ -4,6 +4,7 @@
 reaction*.db
 reaction*.db.old
 /data
+/lmdb
 reaction*.export.json
 /reaction*.sock
 /result

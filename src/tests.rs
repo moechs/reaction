@@ -55,23 +55,29 @@ impl Deref for Fixture {
     }
 }
 
-pub struct TempDb {
-    db: sled::Db,
+pub struct TempEnv {
+    env: heed::Env,
     _tempdir: TempDir,
 }
 
-impl Default for TempDb {
+impl Default for TempEnv {
     fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
-        let db = sled::open(_tempdir.path()).unwrap();
-        TempDb { _tempdir, db }
+        #[allow(unsafe_code)]
+        let env = unsafe {
+            heed::EnvOpenOptions::new()
+                .max_dbs(20)
+                .open(_tempdir.path())
+        }
+        .unwrap();
+        TempEnv { _tempdir, env }
     }
 }
 
-impl Deref for TempDb {
-    type Target = sled::Db;
+impl Deref for TempEnv {
+    type Target = heed::Env;
 
     fn deref(&self) -> &Self::Target {
-        &self.db
+        &self.env
     }
 }
