@@ -194,11 +194,22 @@ To install the systemd file as well
 make install_systemd
 ```
 
-## Development
+## Contributing
 
-Contributions are welcome. For any substantial feature, please file an issue first, to be assured that we agree on the feature, and to avoid unnecessary work.
+> We, as participants in the open source ecosystem, are ethically responsible for the software
+> and hardware we help create - as it can be used to perpetuate inequalities or help empower
+> marginalized communities, and fight against patriarchy, capitalism, sexism, gender violence,
+> racism, ableism, homophobia, colonialism, fascism, surveillance, and oppressive control.
 
-I recommend reading [`ARCHITECTURE.md`](ARCHITECTURE.md) first. This is a tour of the codebase, which should save time to new contributors.
+- [NGI's Diversity and Inclusion Guide](https://nlnet.nl/NGI0/bestpractices/DiversityAndInclusionGuide-v4.pdf)
+
+I'll do my best to maintain a safe contribution place, as free as possible from discrimination and elitism.
+Your ideas are welcome in the issues.
+Contributions are welcome.
+
+For any substantial feature, please file an issue first, to be assured that we agree on the feature, and to avoid unnecessary work.
+
+I recommend reading [`ARCHITECTURE.md`](ARCHITECTURE.md) first. This is a quick tour of the codebase, which should save time to new contributors.
 
 ## Funding
 
