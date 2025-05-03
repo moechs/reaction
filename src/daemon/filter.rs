@@ -110,66 +110,100 @@ impl FilterManager {
         };
 
         let read_txn = self.env.read_txn().unwrap();
-        let mut cs: BTreeMap<_, _> = self
-            .matches
-            .iter(&read_txn)
-            .unwrap()
-            .map(|result| result.unwrap())
-            // aggregate by key
-            .fold(BTreeMap::new(), |acc, (k, v)| {
-                let // TODO
-                
-            })
-            // match filtering
-            .filter(|(match_, _)| is_match(match_))
-            // FIXME aggregate keys before this map
-            .map(|(match_, times)| {
-                if let Order::Flush = order {
-                    self.remove_match(&match_);
+        let mut cs = BTreeMap::new();
+        {
+            let mut last_key: Option<Match> = None;
+            let mut n_times = 0;
+
+            // let mut insert_last_key = |last_key: &Option<&Match>, n_times: usize| {
+            //     if let Some(last_key) = last_key {
+            //         if let Order::Flush = order {
+            //             self.remove_match(&last_key);
+            //         }
+            //         let last_key = *(last_key.clone());
+            //         cs.insert(
+            //             last_key,
+            //             PatternStatus {
+            //                 matches: n_times,
+            //                 ..Default::default()
+            //             },
+            //         );
+            //     }
+            // };
+
+            for (k, _) in self
+                .matches
+                .iter(&read_txn)
+                .unwrap()
+                .map(|result| result.unwrap())
+                // match filtering
+                .filter(|(match_, _)| is_match(match_))
+            {
+                if last_key.clone().is_some_and(|last_key| last_key == k) {
+                    n_times += 1;
+                } else {
+                    // insert_last_key(&last_key, n_times);
+                    if let Some(last_key) = last_key {
+                        if let Order::Flush = order {
+                            self.remove_match(&last_key);
+                        }
+                        cs.insert(
+                            last_key.clone(),
+                            PatternStatus {
+                                matches: n_times,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    n_times = 0;
+                    last_key = Some(k);
                 }
-                (
-                    match_,
+            }
+            if let Some(last_key) = last_key {
+                if let Order::Flush = order {
+                    self.remove_match(&last_key);
+                }
+                cs.insert(
+                    last_key.clone(),
                     PatternStatus {
-                        // matches: times.len(),
-                        matches: 1,
+                        matches: n_times,
                         ..Default::default()
                     },
-                )
-            })
-            .collect();
+                );
+            }
+            // insert_last_key(&last_key, n_times);
+        }
 
-        for (mt, times) in self
+        for (mt, _) in self
             .triggers
             .iter(&read_txn)
             .unwrap()
             .map(|result| result.unwrap())
             // match filtering
-            .filter(|(match_, _)| is_match(match_))
+            .filter(|(match_, _)| is_match(&match_.m))
         {
             // Remove the match from the triggers
             if let Order::Flush = order {
-                // FIXME delete specific (Match, Time) tuple
-                // self.remove_trigger(&match_);
+                // delete specific (Match, Time) tuple
+                self.remove_trigger(&mt.m, &mt.t);
             }
 
-            let pattern_status = cs.entry(mt.clone()).or_default();
+            let m = mt.m.clone();
+            let pattern_status = cs.entry(m).or_default();
 
             for action in self.filter.actions().values() {
-                let mut action_times = Vec::new();
-                for time in times.keys() {
-                    let action_time = *time + action.after_duration().unwrap_or_default();
-                    if action_time > now {
-                        action_times.push(action_time.to_rfc3339().chars().take(19).collect());
-                        // Execute the action early
-                        if let Order::Flush = order {
-                            self.exec_now(action, mt.clone());
-                        }
+                let action_times = pattern_status
+                    .actions
+                    .entry(action.name().into())
+                    .or_default();
+
+                let action_time = mt.t + action.after_duration().unwrap_or_default();
+                if action_time > now {
+                    action_times.push(action_time.to_rfc3339().chars().take(19).collect());
+                    // Execute the action early
+                    if let Order::Flush = order {
+                        self.exec_now(action, mt.m.clone());
                     }
-                }
-                if !action_times.is_empty() {
-                    pattern_status
-                        .actions
-                        .insert(action.name().into(), action_times);
                 }
             }
         }
@@ -214,7 +248,7 @@ impl FilterManager {
 
     fn add_match(&self, m: &Match, t: Time) {
         let mut wtxn = self.env.write_txn().unwrap();
-        self.matches.put(&mut wtxn, m, &t);
+        self.matches.put(&mut wtxn, m, &t).unwrap();
         self.ordered_times.put(&mut wtxn, &t, m).unwrap();
         wtxn.commit().unwrap();
     }
@@ -224,8 +258,11 @@ impl FilterManager {
         if self.has_after {
             // Add the (Match, Time) to the triggers map
             let mut wtxn = self.env.write_txn().unwrap();
-            self.triggers
-                .put(&mut wtxn, &MatchTime { m, t }, &self.filter.actions().len());
+            self.triggers.put(
+                &mut wtxn,
+                &MatchTime { m, t },
+                &(self.filter.actions().len() as u64),
+            ).unwrap();
             wtxn.commit().unwrap();
         }
     }
@@ -237,7 +274,7 @@ impl FilterManager {
         if let Some(iter) = self.matches.get_duplicates(&rtxn, m).unwrap() {
             for t in iter {
                 let t = t.unwrap().1;
-                self.ordered_times.delete(&mut wtxn, &t);
+                self.ordered_times.delete(&mut wtxn, &t).unwrap();
             }
         }
         self.matches.delete(&mut wtxn, m).unwrap();
@@ -254,7 +291,7 @@ impl FilterManager {
                 m: m.clone(),
                 t: *t,
             },
-        );
+        ).unwrap();
         wtxn.commit().unwrap();
     }
 
@@ -269,7 +306,7 @@ impl FilterManager {
             if let Some(count) = count {
                 exec_needed = true;
                 if count <= 1 {
-                    self.triggers.delete(&mut wtxn, &mt);
+                    self.triggers.delete(&mut wtxn, &mt).unwrap();
                 }
                 wtxn.commit().unwrap();
             }
@@ -291,8 +328,8 @@ impl FilterManager {
             #[allow(clippy::unwrap_used)]
             // second unwrap: we just checked in the condition that first is_some
             let (t, m) = self.ordered_times.first(&wtxn).unwrap().unwrap();
-            self.ordered_times.delete(&mut wtxn, &t);
-            self.matches.delete_one_duplicate(&mut wtxn, &m, &t);
+            self.ordered_times.delete(&mut wtxn, &t).unwrap();
+            self.matches.delete_one_duplicate(&mut wtxn, &m, &t).unwrap();
             wtxn.commit().unwrap();
             wtxn = self.env.write_txn().unwrap();
         }
@@ -314,13 +351,14 @@ impl FilterManager {
         let rtxn = self.env.read_txn().unwrap();
         let mut wtxn = self.env.write_txn().unwrap();
         for (mt, remaining) in self.triggers.iter(&rtxn).unwrap().map(|elt| elt.unwrap()) {
-            if mt.t + longuest_action_duration > now {
+            if remaining > 0 && mt.t + longuest_action_duration > now {
                 // Insert back the upcoming times
-                self.triggers.put(&mut wtxn, &mt, &number_of_actions);
+                self.triggers
+                    .put(&mut wtxn, &mt, &(number_of_actions as u64)).unwrap();
                 // Schedule the upcoming times
                 self.schedule_exec(mt.m, mt.t, now);
             } else {
-                self.triggers.delete(&mut wtxn, &mt);
+                self.triggers.delete(&mut wtxn, &mt).unwrap();
             }
         }
         wtxn.commit().unwrap();

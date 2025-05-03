@@ -26,7 +26,6 @@ use stream::stream_manager;
 mod filter;
 mod heedext;
 mod shutdown;
-mod sledext;
 mod socket;
 mod stream;
 
@@ -52,18 +51,7 @@ pub async fn daemon(
     };
 
     // Open Database
-    #[allow(unsafe_code)] // We have no choice but to use unsafe,
-    // as the library exposes unsafe code
-    let env =
-        unsafe { heed::EnvOpenOptions::new().open(format!("{}/lmdb", config.state_directory())) }
-            .map_err(|err| {
-            format!(
-                "while opening database at {}: {}",
-                config.state_directory(),
-                err
-            )
-        })?;
-    env.cleanup_unused_dbs(config);
+    let env = open_db(config)?;
 
     // Filter managers
     let now = Local::now();

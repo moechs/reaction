@@ -1,7 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fs::create_dir};
 
 use heed::{
-    byteorder::LittleEndian, types::{DecodeIgnore, SerdeBincode, Str, U64}, Database, DatabaseFlags, Result
+    byteorder::LittleEndian,
+    types::{DecodeIgnore, SerdeBincode, Str, U64},
+    Database, DatabaseFlags, Env, Result,
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +13,28 @@ use crate::concepts::{Config, Filter, Match, Time};
 pub struct MatchTime {
     pub m: Match,
     pub t: Time,
+}
+
+pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
+    let lmdb_dir = format!("{}/lmdb", config.state_directory());
+    create_dir(&lmdb_dir).map_err();
+    // We have no choice but to use unsafe, as the library exposes unsafe code
+    #[allow(unsafe_code)]
+    let env = unsafe { heed::EnvOpenOptions::new().open(lmdb_dir) }.map_err(|err| {
+        format!(
+            "while opening database at {}: {}",
+            config.state_directory(),
+            err
+        )
+    })?;
+    env.cleanup_unused_dbs(config).map_err(|err| {
+        format!(
+            "while cleaning database on startup at {}: {}",
+            config.state_directory(),
+            err
+        )
+    })?;
+    Ok(env)
 }
 
 /// This trait permits to manage in a single place what are the names of [`heed::Database`]s in
