@@ -34,8 +34,8 @@ pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
         .streams()
         .values()
         .map(|stream| stream.filters().len())
-        // We have 3 databases per filter
-        .fold(0, |acc, elt| acc + 3 * elt);
+        // We have 3 databases per filter + 1 unnamed db
+        .fold(1, |acc, elt| acc + 3 * elt);
 
     // We have no choice but to use unsafe, as the library exposes unsafe code
     #[allow(unsafe_code)]
@@ -53,13 +53,18 @@ pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
             err
         )
     })?;
-    env.cleanup_unused_dbs(config).map_err(|err| {
-        format!(
-            "while cleaning database on startup at {}: {}",
-            config.state_directory(),
-            err
-        )
-    })?;
+
+    // FIXME not cleaning databases because it would make us open too much dbs,
+    // as we can't delete them nor close them for now.
+    // See FIXME below for more information.
+    // env.cleanup_unused_dbs(config).map_err(|err| {
+    //     format!(
+    //         "while cleaning database on startup at {}: {}",
+    //         config.state_directory(),
+    //         err
+    //     )
+    // })?;
+
     Ok(env)
 }
 
@@ -153,8 +158,6 @@ impl EnvExt for heed::Env {
                     filter_triggers_db_name(filter),
                 ]
             })
-            // plus sled's default map
-            .chain(std::iter::once("__sled__default".into()))
             // convert as IVec which is sled's binary type
             // .map(|string| sled::IVec::from(string.as_bytes()))
             .collect();
