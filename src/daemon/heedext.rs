@@ -86,6 +86,7 @@ pub trait EnvExt {
         filter: &Filter,
     ) -> Result<Database<SerdeBincode<MatchTime>, U64<LittleEndian>>>;
 
+    #[allow(dead_code)] // See FIXME
     fn cleanup_unused_dbs(&self, config: &Config) -> Result<()>;
 }
 
