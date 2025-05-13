@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fs::create_dir, io::ErrorKind};
 use heed::{
     byteorder::LittleEndian,
     types::{DecodeIgnore, SerdeBincode, Str, U64},
-    Database, DatabaseFlags, Env, Result,
+    Database, DatabaseFlags, Env, EnvFlags, Result,
 };
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +45,7 @@ pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
             // you searched for this overflow :smirk:
             .max_dbs(max_dbs as u32)
             .map_size(100000 * 4096)
+            .flags(EnvFlags::NO_SYNC)
             .open(lmdb_dir)
     }
     .map_err(|err| {
