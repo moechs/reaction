@@ -87,7 +87,6 @@ impl FilterManager {
     fn handle_match(&self, m: Match, now: Time) -> bool {
         self.clear_past_matches(now);
 
-        let rtxn = self.env.read_txn().unwrap();
         let mut wtxn = self.env.write_txn().unwrap();
 
         let exec = match self.filter.retry() {
@@ -95,17 +94,16 @@ impl FilterManager {
             Some(retry) => {
                 self.add_match(&m, now, &mut wtxn);
                 // Number of stored times for this match >= configured retry for this filter
-                self.get_times(&m, &rtxn) >= retry as usize
+                self.get_times(&m, &wtxn) >= retry as usize
             }
         };
 
         if exec {
-            self.remove_match(&m, &rtxn, &mut wtxn);
+            self.remove_match(&m, &mut wtxn);
             self.add_trigger(m.clone(), now, &mut wtxn);
             self.schedule_exec(m, now, now, &mut wtxn);
         }
 
-        rtxn.commit().unwrap();
         wtxn.commit().unwrap();
 
         exec
@@ -138,7 +136,7 @@ impl FilterManager {
             let mut insert_last_key = |last_key: Option<Match>, n_times: usize| {
                 if let Some(last_key) = last_key {
                     if let Order::Flush = order {
-                        self.remove_match(&last_key, &rtxn, &mut wtxn);
+                        self.remove_match(&last_key, &mut wtxn);
                     }
                     cs.insert(
                         last_key,
@@ -266,12 +264,17 @@ impl FilterManager {
     }
 
     // Completely remove a Match from the matches
-    fn remove_match(&self, m: &Match, rtxn: &RoTxn, wtxn: &mut RwTxn) {
-        if let Some(iter) = self.matches.get_duplicates(&rtxn, m).unwrap() {
-            for t in iter {
-                let t = t.unwrap().1;
-                self.ordered_times.delete(wtxn, &t).unwrap();
+    fn remove_match(&self, m: &Match, wtxn: &mut RwTxn) {
+        // Collect the results to avoid two references on the same transaction
+        let duplicates = {
+            let iter = self.matches.get_duplicates(&wtxn, m).unwrap();
+            match iter {
+                Some(iter) => iter.into_iter().collect::<Result<Vec<_>, _>>().unwrap(),
+                None => Vec::default(),
             }
+        };
+        for t in duplicates {
+            self.ordered_times.delete(wtxn, &t.1).unwrap();
         }
         self.matches.delete(wtxn, m).unwrap();
     }

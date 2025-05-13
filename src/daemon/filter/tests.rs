@@ -294,7 +294,7 @@ async fn one_match_one_action() {
     bed.assert_empty_trees();
 
     // match
-    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
     assert!(is_empty!(&bed.matches, &bed.env), "matches stay empty");
     assert!(
         is_empty!(&bed.ordered_times, &bed.env),
@@ -343,7 +343,7 @@ async fn one_match_one_delayed_action() {
 
     // Match
     let one = vec!["one".to_string()];
-    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
     assert!(is_empty!(&bed.matches, &bed.env), "matches stay empty");
     assert!(
         is_empty!(&bed.ordered_times, &bed.env),
@@ -431,7 +431,7 @@ async fn one_db_match_one_runtime_match_one_action() {
     assert!(is_empty!(&bed.triggers, &bed.env), "triggers stay empty");
 
     // match
-    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
     bed.assert_empty_trees();
     // the action executes
     tokio::time::sleep(Duration::from_millis(40)).await;
