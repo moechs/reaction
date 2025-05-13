@@ -6,38 +6,36 @@ use heed::{
     types::{SerdeBincode, U64},
     Database, Env,
 };
-use serde::{de::DeserializeOwned, Serialize};
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
 use super::FilterManager;
 use crate::{
     concepts::{Action, Filter, Match, Pattern, Patterns, Time},
-    daemon::{shutdown::ShutdownController, EnvExt, MatchTime},
+    daemon::{filter::React, shutdown::ShutdownController, EnvExt, MatchTime},
     tests::TempEnv,
 };
 
-fn as_map<K, V>(db: &Database<SerdeBincode<K>, SerdeBincode<V>>, env: &Env) -> BTreeMap<K, V>
-where
-    K: Serialize + DeserializeOwned + Ord,
-    V: Serialize + DeserializeOwned + Ord,
-{
-    let rtxn = env.read_txn().unwrap();
-    db.iter(&rtxn)
-        .unwrap()
-        .collect::<Result<BTreeMap<K, V>, _>>()
-        .unwrap()
+macro_rules! is_empty {
+    ($db:expr, $env:expr) => {{
+        let rtxn = $env.read_txn().unwrap();
+        let ret = $db.iter(&rtxn).unwrap().next().is_none();
+        rtxn.commit().unwrap();
+        ret
+    }};
 }
 
-fn as_map2(
-    db: &Database<SerdeBincode<MatchTime>, U64<LittleEndian>>,
-    env: &Env,
-) -> BTreeMap<MatchTime, u64> {
-    let rtxn = env.read_txn().unwrap();
-    db.iter(&rtxn)
-        .unwrap()
-        .collect::<Result<BTreeMap<MatchTime, u64>, _>>()
-        .unwrap()
+macro_rules! as_map {
+    ($db:expr, $env:expr) => {{
+        let rtxn = $env.read_txn().unwrap();
+        let ret = $db
+            .iter(&rtxn)
+            .unwrap()
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .unwrap();
+        rtxn.commit().unwrap();
+        ret
+    }};
 }
 
 #[allow(clippy::type_complexity)]
@@ -117,17 +115,13 @@ struct TestBed2 {
 
 impl TestBed2 {
     fn assert_empty_trees(&self) {
-        let rtxn = self.env.read_txn().unwrap();
+        assert!(is_empty!(&self.matches, &self.env), "matches must be empty");
         assert!(
-            self.matches.iter(&rtxn).unwrap().next().is_none(),
-            "matches must be empty"
-        );
-        assert!(
-            self.ordered_times.iter(&rtxn).unwrap().next().is_none(),
+            is_empty!(&self.ordered_times, &self.env),
             "ordered_times must be empty"
         );
         assert!(
-            self.triggers.iter(&rtxn).unwrap().next().is_none(),
+            is_empty!(&self.triggers, &self.env),
             "triggers must be empty"
         );
     }
@@ -172,63 +166,58 @@ async fn three_matches_then_action_then_delayed_action() {
     let now2s = bed.now + TimeDelta::seconds(2);
 
     // No match
-    assert!(!bed.manager.handle_line("test 131", now));
+    assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
     bed.assert_empty_trees();
 
     // First match
-    assert!(bed.manager.handle_line("test one", now));
+    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
     let one = vec!["one".to_string()];
     assert_eq!(
-        as_map(&bed.matches, &bed.env),
+        as_map!(&bed.matches, &bed.env),
         BTreeMap::from([(one.clone(), now)]),
         "the match has been added to matches"
     );
     assert_eq!(
-        as_map(&bed.ordered_times, &bed.env),
+        as_map!(&bed.ordered_times, &bed.env),
         BTreeMap::from([(now, one.clone())]),
         "the match has been added to ordered_times"
     );
-    let rtxn = bed.env.read_txn().unwrap();
     assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.triggers, &bed.env),
         "triggers is still empty"
     );
-    drop(rtxn);
 
     // Second match
-    assert!(bed.manager.handle_line("test one", now1s));
+    assert_eq!(bed.manager.handle_line("test one", now1s), React::Match);
     assert_eq!(
-        as_map(&bed.matches, &bed.env),
+        as_map!(&bed.matches, &bed.env),
         BTreeMap::from([(one.clone(), now), (one.clone(), now1s)]),
         "a second match is present in matches"
     );
     assert_eq!(
-        as_map(&bed.ordered_times, &bed.env),
+        as_map!(&bed.ordered_times, &bed.env),
         BTreeMap::from([(now, one.clone()), (now1s, one.clone())]),
         "a second match is present in ordered_times"
     );
-    let rtxn = bed.env.read_txn().unwrap();
     assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.triggers, &bed.env),
         "triggers is still empty"
     );
-    drop(rtxn);
 
     // Third match, exec
     let _block = bed.semaphore.acquire().await.unwrap();
-    bed.manager.handle_line("test one", now2s);
-    let rtxn = bed.env.read_txn().unwrap();
+    assert_eq!(bed.manager.handle_line("test one", now2s), React::Exec);
+    dbg!(as_map!(&bed.matches, &bed.env));
     assert!(
-        bed.matches.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.matches, &bed.env),
         "matches are emptied after trigger"
     );
     assert!(
-        bed.ordered_times.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.ordered_times, &bed.env),
         "ordered_times are emptied after trigger"
     );
-    drop(rtxn);
     assert_eq!(
-        as_map2(&bed.triggers, &bed.env),
+        as_map!(&bed.triggers, &bed.env),
         BTreeMap::from([(
             MatchTime {
                 m: one.clone(),
@@ -244,7 +233,7 @@ async fn three_matches_then_action_then_delayed_action() {
     tokio::time::sleep(Duration::from_millis(40)).await;
     // Check first action
     assert_eq!(
-        as_map2(&bed.triggers, &bed.env),
+        as_map!(&bed.triggers, &bed.env),
         BTreeMap::from([(
             MatchTime {
                 m: one.clone(),
@@ -263,12 +252,10 @@ async fn three_matches_then_action_then_delayed_action() {
     // Now the second action executes
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Check second action
-    let rtxn = bed.env.read_txn().unwrap();
     assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.triggers, &bed.env),
         "triggers are empty again"
     );
-    drop(rtxn);
     assert_eq!(
         "a1 one\na2 one\n",
         &read_to_string(&bed.out_file).unwrap(),
@@ -303,25 +290,17 @@ async fn one_match_one_action() {
     let now = bed.now;
 
     // No match
-    assert!(!bed.manager.handle_line("test 131", now));
+    assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
     bed.assert_empty_trees();
 
     // match
-    assert!(bed.manager.handle_line("test one", now));
-    let rtxn = bed.env.read_txn().unwrap();
+    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+    assert!(is_empty!(&bed.matches, &bed.env), "matches stay empty");
     assert!(
-        bed.matches.iter(&rtxn).unwrap().next().is_none(),
-        "matches stay empty"
-    );
-    assert!(
-        bed.ordered_times.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.ordered_times, &bed.env),
         "ordered_times stay empty"
     );
-    assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
-        "triggers stay empty"
-    );
-    drop(rtxn);
+    assert!(is_empty!(&bed.triggers, &bed.env), "triggers stay empty");
 
     // the action executes
     tokio::time::sleep(Duration::from_millis(40)).await;
@@ -359,24 +338,19 @@ async fn one_match_one_delayed_action() {
     let now = bed.now;
 
     // No match
-    assert!(!bed.manager.handle_line("test 131", now));
+    assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
     bed.assert_empty_trees();
 
     // Match
     let one = vec!["one".to_string()];
-    assert!(bed.manager.handle_line("test one", now));
-    let rtxn = bed.env.read_txn().unwrap();
+    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+    assert!(is_empty!(&bed.matches, &bed.env), "matches stay empty");
     assert!(
-        bed.matches.iter(&rtxn).unwrap().next().is_none(),
-        "matches stay empty"
-    );
-    assert!(
-        bed.ordered_times.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.ordered_times, &bed.env),
         "ordered_times stay empty"
     );
-    drop(rtxn);
     assert_eq!(
-        as_map2(&bed.triggers, &bed.env),
+        as_map!(&bed.triggers, &bed.env),
         BTreeMap::from([(
             MatchTime {
                 m: one.clone(),
@@ -394,12 +368,10 @@ async fn one_match_one_delayed_action() {
 
     // The action executes
     tokio::time::sleep(Duration::from_millis(140)).await;
-    let rtxn = bed.env.read_txn().unwrap();
     assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
+        is_empty!(&bed.triggers, &bed.env),
         "triggers are empty again"
     );
-    drop(rtxn);
     assert_eq!(
         "a1 one\n",
         &read_to_string(&bed.out_file).unwrap(),
@@ -447,24 +419,19 @@ async fn one_db_match_one_runtime_match_one_action() {
     let bed = bed.part2(filter, now, Some(db));
 
     assert_eq!(
-        as_map(&bed.matches, &bed.env),
+        as_map!(&bed.matches, &bed.env),
         BTreeMap::from([(one.clone(), now1s)]),
         "the match previously added to matches"
     );
     assert_eq!(
-        as_map(&bed.ordered_times, &bed.env),
+        as_map!(&bed.ordered_times, &bed.env),
         BTreeMap::from([(now1s, one.clone())]),
         "the match previously added to matches"
     );
-    let rtxn = bed.env.read_txn().unwrap();
-    assert!(
-        bed.triggers.iter(&rtxn).unwrap().next().is_none(),
-        "triggers stay empty"
-    );
-    drop(rtxn);
+    assert!(is_empty!(&bed.triggers, &bed.env), "triggers stay empty");
 
     // match
-    assert!(bed.manager.handle_line("test one", now));
+    assert_eq!(bed.manager.handle_line("test one", now), React::Match);
     bed.assert_empty_trees();
     // the action executes
     tokio::time::sleep(Duration::from_millis(40)).await;
