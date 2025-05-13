@@ -44,6 +44,7 @@ pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
             // safety: if you have more than 1.4 billion filters,
             // you searched for this overflow :smirk:
             .max_dbs(max_dbs as u32)
+            .map_size(100000 * 4096)
             .open(lmdb_dir)
     }
     .map_err(|err| {
