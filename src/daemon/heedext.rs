@@ -1,11 +1,7 @@
-use std::{collections::BTreeSet, fs::create_dir, io::ErrorKind};
+use std::{collections::BTreeSet, fs::create_dir, io::ErrorKind, marker::PhantomData};
 
-use heed::{
-    byteorder::LittleEndian,
-    types::{DecodeIgnore, SerdeBincode, Str, U64},
-    Database, DatabaseFlags, Env, EnvFlags, Result,
-};
-use serde::{Deserialize, Serialize};
+use fjall::{Result, TransactionalKeyspace, WriteTransaction};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::concepts::{Config, Filter, Match, Time};
 
@@ -15,10 +11,10 @@ pub struct MatchTime {
     pub t: Time,
 }
 
-pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
-    let lmdb_dir = format!("{}/lmdb", config.state_directory());
+pub fn open_db(config: &Config) -> std::result::Result<TransactionalKeyspace, String> {
+    let fjall_dir = format!("{}/fjall", config.state_directory());
 
-    match create_dir(&lmdb_dir) {
+    match create_dir(&fjall_dir) {
         Ok(_) => Ok(()),
         Err(err) => match err.kind() {
             ErrorKind::AlreadyExists => Ok(()),
@@ -30,42 +26,24 @@ pub fn open_db(config: &Config) -> std::result::Result<Env, String> {
         },
     }?;
 
-    let max_dbs = config
-        .streams()
-        .values()
-        .map(|stream| stream.filters().len())
-        // We have 3 databases per filter + 1 unnamed db
-        .fold(1, |acc, elt| acc + 3 * elt);
+    let env = fjall::Config::new(fjall_dir)
+        .fsync_ms(Some(1000))
+        .open_transactional()
+        .map_err(|err| {
+            format!(
+                "while opening database at {}: {}",
+                config.state_directory(),
+                err
+            )
+        })?;
 
-    // We have no choice but to use unsafe, as the library exposes unsafe code
-    #[allow(unsafe_code)]
-    let env = unsafe {
-        heed::EnvOpenOptions::new()
-            // safety: if you have more than 1.4 billion filters,
-            // you searched for this overflow :smirk:
-            .max_dbs(max_dbs as u32)
-            .map_size(100000 * 4096)
-            .flags(EnvFlags::NO_SYNC)
-            .open(lmdb_dir)
-    }
-    .map_err(|err| {
+    env.cleanup_unused_dbs(config).map_err(|err| {
         format!(
-            "while opening database at {}: {}",
+            "while cleaning database on startup at {}: {}",
             config.state_directory(),
             err
         )
     })?;
-
-    // FIXME not cleaning databases because it would make us open too much dbs,
-    // as we can't delete them nor close them for now.
-    // See FIXME below for more information.
-    // env.cleanup_unused_dbs(config).map_err(|err| {
-    //     format!(
-    //         "while cleaning database on startup at {}: {}",
-    //         config.state_directory(),
-    //         err
-    //     )
-    // })?;
 
     Ok(env)
 }
@@ -108,7 +86,7 @@ fn filter_triggers_db_name(filter: &Filter) -> String {
     format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
 }
 
-impl EnvExt for heed::Env {
+impl EnvExt for TransactionalKeyspace {
     fn open_filter_matches_db(
         &self,
         filter: &Filter,
@@ -192,5 +170,96 @@ impl EnvExt for heed::Env {
 
         wtxn.commit()?;
         Ok(())
+    }
+}
+
+/// This [`fjall::TransactionalKeyspace`] wrapper permits to have typed Trees and avoid handling the de/serialization in
+/// business logic.
+/// Key and value types must be [`serde::Serialize`] and [`serde::Deserialize`].
+#[derive(Clone)]
+pub struct Tree<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> {
+    tree: fjall::TxPartitionHandle,
+    _k_marker: PhantomData<K>,
+    _v_marker: PhantomData<V>,
+}
+
+#[allow(clippy::unwrap_used)]
+impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V> {
+    fn new(tree: fjall::TxPartitionHandle) -> Self {
+        Self {
+            tree,
+            _k_marker: PhantomData::<K>,
+            _v_marker: PhantomData::<V>,
+        }
+    }
+
+    pub fn get(&self, k: &K) -> Result<Option<V>> {
+        let k = bincode::serialize(k).unwrap();
+        Ok(self.tree.get(k)?.map(|v| bincode::deserialize(&v).unwrap()))
+    }
+
+    pub fn remove(&self, key: &K, wtxn: WriteTransaction) {
+        let key = bincode::serialize(key).unwrap();
+        wtxn.remove(self, key);
+    }
+
+    pub fn first(&self) -> Result<Option<(K, V)>> {
+        let option = self.tree.first()?;
+        match option {
+            None => Ok(None),
+            Some((k, v)) => {
+                let k: K = bincode::deserialize(&k).unwrap();
+                let v: V = bincode::deserialize(&v).unwrap();
+                Ok(Some((k, v)))
+            }
+        }
+    }
+
+    pub fn pop_min(&self) -> Result<Option<(K, V)>> {
+        let option = self.tree.pop_min()?;
+        match option {
+            None => Ok(None),
+            Some((k, v)) => {
+                let k: K = bincode::deserialize(&k).unwrap();
+                let v: V = bincode::deserialize(&v).unwrap();
+                Ok(Some((k, v)))
+            }
+        }
+    }
+
+    pub fn fetch_and_update<F>(&self, k: &K, mut f: F) -> Result<Option<V>>
+    where
+        F: FnMut(Option<V>) -> Option<V>,
+    {
+        let k = bincode::serialize(&k).unwrap();
+        let f = |v: Option<&[u8]>| -> Option<Vec<u8>> {
+            let v = v.map(|v| bincode::deserialize(v).unwrap());
+            f(v).map(|v| bincode::serialize(&v).unwrap())
+        };
+        Ok(self
+            .tree
+            .fetch_and_update(k, f)?
+            .map(|v| bincode::deserialize::<V>(&v).unwrap()))
+    }
+
+    pub fn insert(&self, k: &K, v: &V) -> Result<Option<V>> {
+        let k = bincode::serialize(k).unwrap();
+        let v = bincode::serialize(v).unwrap();
+        Ok(self
+            .tree
+            .insert(k, v)?
+            .map(|v| bincode::deserialize(&v).unwrap()))
+    }
+
+    // The lifetime annotations permit to decouple the lifetime of self
+    // from the limetime of the Iterator
+    #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
+    pub fn iter<'a, 'b>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
+        self.tree.iter().map(|elt| {
+            let (k, v) = elt.unwrap();
+            let k: K = bincode::deserialize(&k).unwrap();
+            let v: V = bincode::deserialize(&v).unwrap();
+            (k, v)
+        })
     }
 }
