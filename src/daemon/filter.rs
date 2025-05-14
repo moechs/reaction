@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::{collections::BTreeMap, process::Stdio, sync::Arc};
-
-use heed::{
-    byteorder::LittleEndian,
-    types::{SerdeBincode, U64},
-    Database, RoTxn, RwTxn,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    process::Stdio,
+    sync::Arc,
 };
+
+use fjall::WriteTransaction;
 use regex::Regex;
 use tokio::sync::Semaphore;
 use tracing::{error, info};
@@ -17,7 +17,7 @@ use crate::{
     protocol::{Order, PatternStatus},
 };
 
-use super::{shutdown::ShutdownToken, EnvExt as _, MatchTime};
+use super::{shutdown::ShutdownToken, KeyspaceExt as _, MatchTime, Tree};
 
 #[derive(Clone)]
 pub struct FilterManager {
@@ -30,15 +30,15 @@ pub struct FilterManager {
     /// Permits to run pending actions on shutdown
     shutdown: ShutdownToken,
     /// LMDB environment, necessary to create transactions
-    env: heed::Env,
+    env: fjall::TransactionalKeyspace,
     /// Saves all the current Matches for this Filter
     /// Has duplicate values for a key
-    matches: Database<SerdeBincode<Match>, SerdeBincode<Time>>,
+    matches: Tree<Match, BTreeSet<Time>>,
     /// Alternative view of the current Matches for O(1) cleaning of old Matches
     /// without added async Tasks to remove them
-    ordered_times: Database<SerdeBincode<Time>, SerdeBincode<Match>>,
+    ordered_times: Tree<Time, Match>,
     /// Saves all the current Triggers for this Filter
-    triggers: Database<SerdeBincode<MatchTime>, U64<LittleEndian>>,
+    triggers: Tree<MatchTime, usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -54,9 +54,9 @@ impl FilterManager {
         filter: &'static Filter,
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
-        env: &heed::Env,
+        env: &fjall::TransactionalKeyspace,
         now: Time,
-    ) -> Result<Self, heed::Error> {
+    ) -> Result<Self, fjall::Error> {
         let manager = Self {
             filter,
             has_after: !filter.longuest_action_duration().is_zero(),
@@ -87,7 +87,7 @@ impl FilterManager {
     fn handle_match(&self, m: Match, now: Time) -> bool {
         self.clear_past_matches(now);
 
-        let mut wtxn = self.env.write_txn().unwrap();
+        let mut wtxn = self.env.write_tx();
 
         let exec = match self.filter.retry() {
             None => true,
@@ -125,8 +125,8 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let rtxn = self.env.read_txn().unwrap();
-        let mut wtxn = self.env.write_txn().unwrap();
+        let rtxn = self.env.read_tx();
+        let mut wtxn = self.env.write_tx();
 
         let mut cs = BTreeMap::new();
         {
@@ -151,8 +151,7 @@ impl FilterManager {
             for k in self
                 .matches
                 .iter(&rtxn)
-                .unwrap()
-                .map(|result| result.unwrap().0)
+                .map(|result| result.0)
                 // match filtering
                 .filter(|match_| is_match(match_))
             {
@@ -170,8 +169,7 @@ impl FilterManager {
         for mt in self
             .triggers
             .iter(&rtxn)
-            .unwrap()
-            .map(|result| result.unwrap().0)
+            .map(|result| result.0)
             // match filtering
             .filter(|match_| is_match(&match_.m))
         {
@@ -201,7 +199,6 @@ impl FilterManager {
             }
         }
 
-        rtxn.commit().unwrap();
         wtxn.commit().unwrap();
 
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
@@ -210,7 +207,7 @@ impl FilterManager {
     /// Schedule execution for a given Action and Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    fn schedule_exec(&self, m: Match, t: Time, now: Time, wtxn: &mut RwTxn) {
+    fn schedule_exec(&self, m: Match, t: Time, now: Time, wtxn: &mut WriteTransaction) {
         for action in self.filter.actions().values() {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();
@@ -234,7 +231,7 @@ impl FilterManager {
                         _ = this.shutdown.wait() => true,
                     };
                     // Exec action if triggered hasn't been already flushed
-                    let mut wtxn = this.env.write_txn().unwrap();
+                    let mut wtxn = this.env.write_tx();
                     if (!exiting || action.on_exit()) && this.decrement_trigger(&m, t, &mut wtxn) {
                         this.exec_now(action, m);
                     }
@@ -244,70 +241,61 @@ impl FilterManager {
         }
     }
 
-    fn add_match(&self, m: &Match, t: Time, wtxn: &mut RwTxn) {
-        self.matches.put(wtxn, m, &t).unwrap();
-        self.ordered_times.put(wtxn, &t, m).unwrap();
+    fn add_match(&self, m: &Match, t: Time, wtxn: &mut WriteTransaction) {
+        self.matches
+            .fetch_update(wtxn, m, |set| {
+                let mut set = set.unwrap_or_default();
+                set.insert(t);
+                Some(set)
+            })
+            .unwrap();
+        self.ordered_times.insert(wtxn, &t, m);
     }
 
-    fn add_trigger(&self, m: Match, t: Time, wtxn: &mut RwTxn) {
+    fn add_trigger(&self, m: Match, t: Time, wtxn: &mut WriteTransaction) {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
             self.triggers
-                .put(
-                    wtxn,
-                    &MatchTime { m, t },
-                    &(self.filter.actions().len() as u64),
-                )
-                .unwrap();
+                .insert(wtxn, &MatchTime { m, t }, &self.filter.actions().len());
         }
     }
 
     // Completely remove a Match from the matches
-    fn remove_match(&self, m: &Match, wtxn: &mut RwTxn) {
-        // Collect the results to avoid two references on the same transaction
-        let duplicates = {
-            let iter = self.matches.get_duplicates(&wtxn, m).unwrap();
-            match iter {
-                Some(iter) => iter.into_iter().collect::<Result<Vec<_>, _>>().unwrap(),
-                None => Vec::default(),
+    fn remove_match(&self, m: &Match, wtxn: &mut WriteTransaction) {
+        if let Some(set) = self.matches.get(wtxn, m).unwrap() {
+            for t in set {
+                self.ordered_times.remove(wtxn, &t);
             }
-        };
-        for t in duplicates {
-            self.ordered_times.delete(wtxn, &t.1).unwrap();
+            self.matches.remove(wtxn, m);
         }
-        self.matches.delete(wtxn, m).unwrap();
     }
 
     /// Completely remove a Match from the triggers
-    fn remove_trigger(&self, m: &Match, t: &Time, wtxn: &mut RwTxn) {
-        self.triggers
-            .delete(
-                wtxn,
-                &MatchTime {
-                    m: m.clone(),
-                    t: *t,
-                },
-            )
-            .unwrap();
+    fn remove_trigger(&self, m: &Match, t: &Time, wtxn: &mut WriteTransaction) {
+        self.triggers.remove(
+            wtxn,
+            &MatchTime {
+                m: m.clone(),
+                t: *t,
+            },
+        );
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
-    fn decrement_trigger(&self, m: &Match, t: Time, wtxn: &mut RwTxn) -> bool {
+    fn decrement_trigger(&self, m: &Match, t: Time, wtxn: &mut WriteTransaction) -> bool {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             let mut exec_needed = false;
-            let mut wtxn = self.env.nested_write_txn(wtxn).unwrap();
             let mt = MatchTime { m: m.clone(), t };
-            let count = self.triggers.get(&wtxn, &mt).unwrap();
+            let count = self.triggers.get(wtxn, &mt).unwrap();
             if let Some(count) = count {
                 exec_needed = true;
                 if count <= 1 {
-                    self.triggers.delete(&mut wtxn, &mt).unwrap();
+                    self.triggers.remove(wtxn, &mt);
                 } else {
-                    self.triggers.put(&mut wtxn, &mt, &(count - 1)).unwrap();
+                    self.triggers.insert(wtxn, &mt, &(count - 1));
                 }
-                wtxn.commit().unwrap();
             }
             exec_needed
         } else {
@@ -317,7 +305,7 @@ impl FilterManager {
 
     fn clear_past_matches(&self, now: Time) {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
-        let mut wtxn = self.env.write_txn().unwrap();
+        let mut wtxn = self.env.write_tx();
         while self
             .ordered_times
             .first(&wtxn)
@@ -327,41 +315,46 @@ impl FilterManager {
             #[allow(clippy::unwrap_used)]
             // second unwrap: we just checked in the condition that first is_some
             let (t, m) = self.ordered_times.first(&wtxn).unwrap().unwrap();
-            self.ordered_times.delete(&mut wtxn, &t).unwrap();
+            self.ordered_times.remove(&mut wtxn, &t);
             self.matches
-                .delete_one_duplicate(&mut wtxn, &m, &t)
+                .fetch_update(&mut wtxn, &m, |set| {
+                    let mut set = set.unwrap();
+                    set.remove(&t);
+                    if set.is_empty() {
+                        None
+                    } else {
+                        Some(set)
+                    }
+
+                })
                 .unwrap();
         }
         wtxn.commit().unwrap();
     }
 
-    fn get_times(&self, m: &Match, rtxn: &RoTxn) -> usize {
-        self.matches
-            .get_duplicates(&rtxn, m)
-            .unwrap()
-            .map(|iter| iter.count())
-            .unwrap_or(0)
+    fn get_times(&self, m: &Match, rtxn: &WriteTransaction) -> usize {
+        match self.matches.get(&rtxn, m).unwrap() {
+            Some(vec) => vec.len(),
+            None => 0,
+        }
     }
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration();
         let number_of_actions = self.filter.actions().len();
 
-        let rtxn = self.env.read_txn().unwrap();
-        let mut wtxn = self.env.write_txn().unwrap();
-        for (mt, remaining) in self.triggers.iter(&rtxn).unwrap().map(|elt| elt.unwrap()) {
+        let rtxn = self.env.read_tx();
+        let mut wtxn = self.env.write_tx();
+        for (mt, remaining) in self.triggers.iter(&rtxn) {
             if remaining > 0 && mt.t + longuest_action_duration > now {
                 // Insert back the upcoming times
-                self.triggers
-                    .put(&mut wtxn, &mt, &(number_of_actions as u64))
-                    .unwrap();
+                self.triggers.insert(&mut wtxn, &mt, &number_of_actions);
                 // Schedule the upcoming times
                 self.schedule_exec(mt.m, mt.t, now, &mut wtxn);
             } else {
-                self.triggers.delete(&mut wtxn, &mt).unwrap();
+                self.triggers.remove(&mut wtxn, &mt);
             }
         }
-        rtxn.commit().unwrap();
         wtxn.commit().unwrap();
     }
 

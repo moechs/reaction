@@ -18,13 +18,13 @@ use tracing::{debug, info};
 
 use crate::concepts::Config;
 use filter::FilterManager;
-use heedext::*;
+use fjallext::*;
 use shutdown::{ShutdownController, ShutdownDelegate};
 use socket::socket_manager;
 use stream::stream_manager;
 
 mod filter;
-mod heedext;
+mod fjallext;
 mod shutdown;
 mod socket;
 mod stream;
@@ -51,7 +51,7 @@ pub async fn daemon(
     };
 
     // Open Database
-    let env = open_db(config)?;
+    let keyspace = open_db(config)?;
 
     // Filter managers
     let now = Local::now();
@@ -60,7 +60,7 @@ pub async fn daemon(
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
             let manager =
-                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &env, now)?;
+                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &keyspace, now)?;
             filter_managers.insert(filter, manager);
         }
         state.insert(stream, filter_managers.clone());
@@ -94,13 +94,13 @@ pub async fn daemon(
     shutdown.wait_shutdown().await;
 
     debug!("Closing DB...");
-    let _db_ok = env.prepare_for_closing().wait();
+    let db_ok = keyspace.persist(fjall::PersistMode::SyncAll);
 
     let stop_ok = config.stop();
 
-    /*if let Err(err) = db_ok {
+    if let Err(err) = db_ok {
         Err(format!("database was not saved, unrecoverable error: {}", err).into())
-    } else*/ if !signal_received.load(Ordering::SeqCst) {
+    } else if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {
         Err("while executing stop command".into())

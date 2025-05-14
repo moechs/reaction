@@ -1,51 +1,43 @@
-use std::{collections::BTreeMap, fs::read_to_string, sync::Arc, time::Duration};
+use std::{collections::{BTreeMap, BTreeSet}, fs::read_to_string, sync::Arc, time::Duration};
 
 use chrono::{Local, TimeDelta};
-use heed::{
-    byteorder::LittleEndian,
-    types::{SerdeBincode, U64},
-    Database, Env,
-};
+use fjall::TransactionalKeyspace;
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
 use super::FilterManager;
 use crate::{
     concepts::{Action, Filter, Match, Pattern, Patterns, Time},
-    daemon::{filter::React, shutdown::ShutdownController, EnvExt, MatchTime},
-    tests::TempEnv,
+    daemon::{filter::React, shutdown::ShutdownController, KeyspaceExt, MatchTime, Tree},
+    tests::TempKeyspace,
 };
 
 macro_rules! is_empty {
     ($db:expr, $env:expr) => {{
-        let rtxn = $env.read_txn().unwrap();
-        let ret = $db.iter(&rtxn).unwrap().next().is_none();
-        rtxn.commit().unwrap();
+        let rtxn = $env.read_tx();
+        let ret = $db.iter(&rtxn).next().is_none();
         ret
     }};
 }
 
 macro_rules! as_map {
     ($db:expr, $env:expr) => {{
-        let rtxn = $env.read_txn().unwrap();
+        let rtxn = $env.read_tx();
         let ret = $db
             .iter(&rtxn)
-            .unwrap()
-            .collect::<Result<BTreeMap<_, _>, _>>()
-            .unwrap();
-        rtxn.commit().unwrap();
+            .collect::<BTreeMap<_, _>>();
         ret
     }};
 }
 
 #[allow(clippy::type_complexity)]
 fn open_trees(
-    env: &Env,
+    env: &TransactionalKeyspace,
     filter: &Filter,
 ) -> (
-    Database<SerdeBincode<Match>, SerdeBincode<Time>>,
-    Database<SerdeBincode<Time>, SerdeBincode<Match>>,
-    Database<SerdeBincode<MatchTime>, U64<LittleEndian>>,
+    Tree<Match, BTreeSet<Time>>,
+    Tree<Time, Match>,
+    Tree<MatchTime, usize>,
 ) {
     (
         env.open_filter_matches_db(filter).unwrap(),
@@ -73,7 +65,7 @@ impl TestBed {
         }
     }
 
-    fn part2(self, filter: &'static Filter, now: Time, env: Option<TempEnv>) -> TestBed2 {
+    fn part2(self, filter: &'static Filter, now: Time, env: Option<TempKeyspace>) -> TestBed2 {
         let env = env.unwrap_or_default();
         let controller = ShutdownController::new();
         let semaphore = Arc::new(Semaphore::new(1));
@@ -106,10 +98,10 @@ struct TestBed2 {
     // pub controller: ShutdownController,
     pub semaphore: Arc<Semaphore>,
     pub now: Time,
-    pub env: TempEnv,
-    pub matches: Database<SerdeBincode<Match>, SerdeBincode<Time>>,
-    pub ordered_times: Database<SerdeBincode<Time>, SerdeBincode<Match>>,
-    pub triggers: Database<SerdeBincode<MatchTime>, U64<LittleEndian>>,
+    pub env: TempKeyspace,
+    pub matches: Tree<Match, BTreeSet<Time>>,
+    pub ordered_times: Tree<Time, Match>,
+    pub triggers: Tree<MatchTime, usize>,
     pub manager: FilterManager,
 }
 
@@ -174,7 +166,7 @@ async fn three_matches_then_action_then_delayed_action() {
     let one = vec!["one".to_string()];
     assert_eq!(
         as_map!(&bed.matches, &bed.env),
-        BTreeMap::from([(one.clone(), now)]),
+        BTreeMap::from([(one.clone(), BTreeSet::from([now]))]),
         "the match has been added to matches"
     );
     assert_eq!(
@@ -191,7 +183,7 @@ async fn three_matches_then_action_then_delayed_action() {
     assert_eq!(bed.manager.handle_line("test one", now1s), React::Match);
     assert_eq!(
         as_map!(&bed.matches, &bed.env),
-        BTreeMap::from([(one.clone(), now), (one.clone(), now1s)]),
+        BTreeMap::from([(one.clone(), BTreeSet::from([now, now1s]))]),
         "a second match is present in matches"
     );
     assert_eq!(
@@ -402,7 +394,7 @@ async fn one_db_match_one_runtime_match_one_action() {
         &bed.az_patterns,
     );
 
-    let db = TempEnv::default();
+    let db = TempKeyspace::default();
     let (matches, ordered_times, _) = open_trees(&db, filter);
 
     // Pre-add match
@@ -410,9 +402,9 @@ async fn one_db_match_one_runtime_match_one_action() {
     let one = vec!["one".to_string()];
     let now1s = now - TimeDelta::seconds(1);
 
-    let mut wtxn = db.write_txn().unwrap();
-    matches.put(&mut wtxn, &one, &now1s).unwrap();
-    ordered_times.put(&mut wtxn, &now1s, &one).unwrap();
+    let mut wtxn = db.write_tx();
+    matches.insert(&mut wtxn, &one, &BTreeSet::from([now1s]));
+    ordered_times.insert(&mut wtxn, &now1s, &one);
     wtxn.commit().unwrap();
 
     // Finish setup
@@ -420,7 +412,7 @@ async fn one_db_match_one_runtime_match_one_action() {
 
     assert_eq!(
         as_map!(&bed.matches, &bed.env),
-        BTreeMap::from([(one.clone(), now1s)]),
+        BTreeMap::from([(one.clone(), BTreeSet::from([now1s]))]),
         "the match previously added to matches"
     );
     assert_eq!(
@@ -463,7 +455,7 @@ async fn one_outdated_db_match() {
         &bed.az_patterns,
     );
 
-    let db = TempEnv::default();
+    let db = TempKeyspace::default();
     let (matches, ordered_times, _) = open_trees(&db, filter);
 
     // Pre-add match
@@ -471,9 +463,9 @@ async fn one_outdated_db_match() {
     let one = vec!["one".to_string()];
     let now1s = now - TimeDelta::milliseconds(1001);
 
-    let mut wtxn = db.write_txn().unwrap();
-    matches.put(&mut wtxn, &one, &now1s).unwrap();
-    ordered_times.put(&mut wtxn, &now1s, &one).unwrap();
+    let mut wtxn = db.write_tx();
+    matches.insert(&mut wtxn, &one, &BTreeSet::from([now1s]));
+    ordered_times.insert(&mut wtxn, &now1s, &one);
     wtxn.commit().unwrap();
 
     // Finish setup

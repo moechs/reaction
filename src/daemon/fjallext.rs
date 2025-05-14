@@ -1,11 +1,13 @@
 use std::{collections::BTreeSet, fs::create_dir, io::ErrorKind, marker::PhantomData};
 
-use fjall::{Result, TransactionalKeyspace, WriteTransaction};
+use fjall::{
+    PartitionCreateOptions, ReadTransaction, Result, Slice, TransactionalKeyspace, WriteTransaction,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::concepts::{Config, Filter, Match, Time};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MatchTime {
     pub m: Match,
     pub t: Time,
@@ -48,23 +50,14 @@ pub fn open_db(config: &Config) -> std::result::Result<TransactionalKeyspace, St
     Ok(env)
 }
 
-/// This trait permits to manage in a single place what are the names of [`heed::Database`]s in
-/// reaction. It streamlines [`heed::Database`]s opening so that we can reliably open the same
+/// This trait permits to manage in a single place what are the names of [`fjall::TransactionalPartitionHandle`]s in
+/// reaction. It streamlines [`fjall::TransactionalPartitionHandle`]s opening so that we can reliably open the same
 /// Databases in multiple places.
 /// It also permits to manage the cleanup of unused databases.
-pub trait EnvExt {
-    fn open_filter_matches_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<Match>, SerdeBincode<Time>>>;
-    fn open_filter_ordered_times_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<Time>, SerdeBincode<Match>>>;
-    fn open_filter_triggers_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<MatchTime>, U64<LittleEndian>>>;
+pub trait KeyspaceExt {
+    fn open_filter_matches_db(&self, filter: &Filter) -> Result<Tree<Match, BTreeSet<Time>>>;
+    fn open_filter_ordered_times_db(&self, filter: &Filter) -> Result<Tree<Time, Match>>;
+    fn open_filter_triggers_db(&self, filter: &Filter) -> Result<Tree<MatchTime, usize>>;
 
     #[allow(dead_code)] // See FIXME
     fn cleanup_unused_dbs(&self, config: &Config) -> Result<()>;
@@ -86,44 +79,30 @@ fn filter_triggers_db_name(filter: &Filter) -> String {
     format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
 }
 
-impl EnvExt for TransactionalKeyspace {
-    fn open_filter_matches_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<Match>, SerdeBincode<Time>>> {
-        let mut wtxn = self.write_txn()?;
-        let res = self
-            .database_options()
-            .name(&filter_matches_db_name(filter))
-            // We allow duplicates on this database
-            .flags(DatabaseFlags::DUP_SORT)
-            .types::<SerdeBincode<Match>, SerdeBincode<Time>>()
-            .create(&mut wtxn);
-        wtxn.commit()?;
-        res
+impl KeyspaceExt for TransactionalKeyspace {
+    fn open_filter_matches_db(&self, filter: &Filter) -> Result<Tree<Match, BTreeSet<Time>>> {
+        // FIXME Partition names can be up to 255 characters long, can not be empty and can only contain alphanumerics, underscore (_), dash (-), hash tag (#) and dollar ($).
+        self.open_partition(
+            &filter_matches_db_name(filter),
+            PartitionCreateOptions::default(),
+        )
+        .map(Tree::new)
     }
 
-    fn open_filter_ordered_times_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<Time>, SerdeBincode<Match>>> {
-        let mut wtxn = self.write_txn()?;
-        let res = self.create_database(&mut wtxn, Some(&filter_ordered_times_db_name(filter)));
-        wtxn.commit()?;
-        res
+    fn open_filter_ordered_times_db(&self, filter: &Filter) -> Result<Tree<Time, Match>> {
+        self.open_partition(
+            &filter_ordered_times_db_name(filter),
+            PartitionCreateOptions::default(),
+        )
+        .map(Tree::new)
     }
 
-    fn open_filter_triggers_db(
-        &self,
-        filter: &Filter,
-    ) -> Result<Database<SerdeBincode<MatchTime>, U64<LittleEndian>>> {
-        let mut wtxn = self.write_txn()?;
-        let res = self.create_database::<SerdeBincode<MatchTime>, U64<LittleEndian>>(
-            &mut wtxn,
-            Some(&filter_triggers_db_name(filter)),
-        );
-        wtxn.commit()?;
-        res
+    fn open_filter_triggers_db(&self, filter: &Filter) -> Result<Tree<MatchTime, usize>> {
+        self.open_partition(
+            &filter_triggers_db_name(filter),
+            PartitionCreateOptions::default(),
+        )
+        .map(Tree::new)
     }
 
     fn cleanup_unused_dbs(&self, config: &Config) -> Result<()> {
@@ -139,36 +118,24 @@ impl EnvExt for TransactionalKeyspace {
                     filter_triggers_db_name(filter),
                 ]
             })
-            // convert as IVec which is sled's binary type
-            // .map(|string| sled::IVec::from(string.as_bytes()))
             .collect();
 
-        let rtxn = self.read_txn()?;
-        let unnamed: Database<Str, DecodeIgnore> = self
-            .open_database(&rtxn, None)?
-            .expect("the unnamed database always exists");
+        // let rtxn = self.read_tx()?;
+        // let unnamed: Tree<Str, DecodeIgnore> = self
+        //     .open_database(&rtxn, None)?
+        //     .expect("the unnamed database always exists");
 
-        let mut wtxn = self.write_txn()?;
         // Remove dbs that are not in the list of valid dbs
-        for outdated_db in unnamed
-            .iter(&rtxn)?
-            .filter(|key| key.is_ok())
-            // unwrap because we only kept `Result::Ok`s
-            .map(|key| key.unwrap().0)
-            .filter(|db_name| !valid_db_names.contains(*db_name))
+        for outdated_db in self
+            .list_partitions()
+            .iter()
+            .filter(|db_name| !valid_db_names.contains(&db_name.to_string()))
         {
-            if let Some(db) =
-                self.open_database::<DecodeIgnore, DecodeIgnore>(&wtxn, Some(outdated_db))?
-            {
-                // FIXME Waiting for this PR to land in a stable release
-                // https://github.com/meilisearch/heed/pull/330
-                // For now we're just clearing it
-                db.clear(&mut wtxn)?;
-                // db.remove(&mut write_txn)?
-            }
+            self.delete_partition(
+                self.open_partition(outdated_db, PartitionCreateOptions::default())?,
+            )?;
         }
 
-        wtxn.commit()?;
         Ok(())
     }
 }
@@ -193,18 +160,20 @@ impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V
         }
     }
 
-    pub fn get(&self, k: &K) -> Result<Option<V>> {
+    pub fn get(&self, rtxn: &WriteTransaction, k: &K) -> Result<Option<V>> {
         let k = bincode::serialize(k).unwrap();
-        Ok(self.tree.get(k)?.map(|v| bincode::deserialize(&v).unwrap()))
+        Ok(rtxn
+            .get(&self.tree, k)?
+            .map(|v| bincode::deserialize(&v).unwrap()))
     }
 
-    pub fn remove(&self, key: &K, wtxn: WriteTransaction) {
+    pub fn remove(&self, wtxn: &mut WriteTransaction, key: &K) {
         let key = bincode::serialize(key).unwrap();
-        wtxn.remove(self, key);
+        wtxn.remove(&self.tree, key);
     }
 
-    pub fn first(&self) -> Result<Option<(K, V)>> {
-        let option = self.tree.first()?;
+    pub fn first(&self, wtxn: &WriteTransaction) -> Result<Option<(K, V)>> {
+        let option = wtxn.first_key_value(&self.tree)?;
         match option {
             None => Ok(None),
             Some((k, v)) => {
@@ -215,47 +184,43 @@ impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> Tree<K, V
         }
     }
 
-    pub fn pop_min(&self) -> Result<Option<(K, V)>> {
-        let option = self.tree.pop_min()?;
-        match option {
-            None => Ok(None),
-            Some((k, v)) => {
-                let k: K = bincode::deserialize(&k).unwrap();
-                let v: V = bincode::deserialize(&v).unwrap();
-                Ok(Some((k, v)))
-            }
-        }
-    }
+    // pub fn pop_min(&self, wtxn: &mut WriteTransaction) -> Result<Option<(K, V)>> {
+    //     let option = wtxn.pop_min(self.tree)?;
+    //     match option {
+    //         None => Ok(None),
+    //         Some((k, v)) => {
+    //             let k: K = bincode::deserialize(&k).unwrap();
+    //             let v: V = bincode::deserialize(&v).unwrap();
+    //             Ok(Some((k, v)))
+    //         }
+    //     }
+    // }
 
-    pub fn fetch_and_update<F>(&self, k: &K, mut f: F) -> Result<Option<V>>
+    pub fn fetch_update<F>(&self, wtxn: &mut WriteTransaction, k: &K, mut f: F) -> Result<Option<V>>
     where
         F: FnMut(Option<V>) -> Option<V>,
     {
         let k = bincode::serialize(&k).unwrap();
-        let f = |v: Option<&[u8]>| -> Option<Vec<u8>> {
+        let f = |v: Option<&Slice>| -> Option<Slice> {
             let v = v.map(|v| bincode::deserialize(v).unwrap());
-            f(v).map(|v| bincode::serialize(&v).unwrap())
+            f(v).map(|v| bincode::serialize(&v).unwrap().into())
         };
-        Ok(self
-            .tree
-            .fetch_and_update(k, f)?
+        Ok(wtxn
+            .fetch_update(&self.tree, k, f)?
             .map(|v| bincode::deserialize::<V>(&v).unwrap()))
     }
 
-    pub fn insert(&self, k: &K, v: &V) -> Result<Option<V>> {
+    pub fn insert(&self, wtxn: &mut WriteTransaction, k: &K, v: &V) {
         let k = bincode::serialize(k).unwrap();
         let v = bincode::serialize(v).unwrap();
-        Ok(self
-            .tree
-            .insert(k, v)?
-            .map(|v| bincode::deserialize(&v).unwrap()))
+        wtxn.insert(&self.tree, k, v);
     }
 
     // The lifetime annotations permit to decouple the lifetime of self
     // from the limetime of the Iterator
     #[allow(clippy::needless_lifetimes)] // I find this clearer with 2 lifetimes
-    pub fn iter<'a, 'b>(&'a self) -> impl Iterator<Item = (K, V)> + 'b {
-        self.tree.iter().map(|elt| {
+    pub fn iter<'a, 'b>(&'a self, rtxn: &ReadTransaction) -> impl Iterator<Item = (K, V)> + 'b {
+        rtxn.iter(&self.tree).map(|elt| {
             let (k, v) = elt.unwrap();
             let k: K = bincode::deserialize(&k).unwrap();
             let v: V = bincode::deserialize(&v).unwrap();

@@ -55,27 +55,21 @@ impl Deref for Fixture {
     }
 }
 
-pub struct TempEnv {
-    env: heed::Env,
+pub struct TempKeyspace {
+    env: fjall::TransactionalKeyspace,
     _tempdir: TempDir,
 }
 
-impl Default for TempEnv {
+impl Default for TempKeyspace {
     fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
-        #[allow(unsafe_code)]
-        let env = unsafe {
-            heed::EnvOpenOptions::new()
-                .max_dbs(20)
-                .open(_tempdir.path())
-        }
-        .unwrap();
-        TempEnv { _tempdir, env }
+        let env = fjall::Config::new(_tempdir.path()).open_transactional().unwrap();
+        TempKeyspace { _tempdir, env }
     }
 }
 
-impl Deref for TempEnv {
-    type Target = heed::Env;
+impl Deref for TempKeyspace {
+    type Target = fjall::TransactionalKeyspace;
 
     fn deref(&self) -> &Self::Target {
         &self.env
