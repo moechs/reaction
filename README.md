@@ -211,6 +211,14 @@ For any substantial feature, please file an issue first, to be assured that we a
 
 I recommend reading [`ARCHITECTURE.md`](ARCHITECTURE.md) first. This is a quick tour of the codebase, which should save time to new contributors.
 
+You can also join this Matrix development room: [#reaction-dev-en:club1.fr](https://matrix.to/#/#reaction-dev-en:club1.fr).
+French version: [#reaction-dev-fr:club1.fr](https://matrix.to/#/#reaction-dev-fr:club1.fr).
+
+## Help
+
+You can ask for help in the issues or in this Matrix room: [#reaction-users-en:club1.fr](https://matrix.to/#/#reaction-users-en:club1.fr).
+French version: [#reaction-users-fr:club1.fr](https://matrix.to/#/#reaction-users-fr:club1.fr).
+
 ## Funding
 
 This is a free time project, so I'm not working on schedule.
