@@ -16,3 +16,4 @@ pub mod concepts;
 pub mod daemon;
 pub mod protocol;
 pub mod tests;
+pub mod waltree;
