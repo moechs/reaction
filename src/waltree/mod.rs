@@ -1,5 +1,6 @@
 mod env;
 mod map;
+mod raw;
 
 pub use map::Tree;
 pub use env::Database;
