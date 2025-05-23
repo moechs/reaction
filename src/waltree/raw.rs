@@ -8,8 +8,9 @@ use tokio::{
     fs::File,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
 };
+use tracing::error;
 
-use super::env::{DatabaseError, Entry, LoadedDb};
+use super::env::{Entry, LoadedDb};
 
 const DB_TREE_ID: u64 = 0;
 // const DB_TREE_NAME: &str = "tree_names";
@@ -20,6 +21,16 @@ pub enum SerdeOrIoError {
     IO(#[from] IoError),
     #[error("{0}")]
     Serde(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum DatabaseError {
+    #[error("{0}")]
+    IO(#[from] IoError),
+    #[error("{0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("missing key id: {0}")]
+    MissingKeyId(u64),
 }
 
 /// Entry in custom database format, just to be written in database
@@ -150,8 +161,12 @@ impl ReadDB {
                 // Can't recover io::Error here
                 Err(DatabaseError::IO(err)) => return Err(err),
                 // TODO Just skip malformed entries
-                Err(DatabaseError::Serde(err)) => todo!("log {err}"),
-                Err(DatabaseError::MissingKeyId(id)) => todo!("log {id}"),
+                Err(DatabaseError::Serde(err)) => {
+                    error!("malformed entry read from database: {err}")
+                }
+                Err(DatabaseError::MissingKeyId(id)) => {
+                    error!("invalid entry read from database: {id}")
+                }
                 // Ok, we got an entry
                 Ok(Some(entry)) => {
                     // Add back in new DB
@@ -228,13 +243,16 @@ impl ReadDB {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use chrono::{Local, TimeDelta, TimeZone};
+    use serde_json::Value;
     use tempfile::NamedTempFile;
     use tokio::fs::{read, write, File};
 
     use crate::waltree::{
-        env::{DatabaseError, Entry},
-        raw::{ReadDB, WriteDB, DB_TREE_ID},
+        env::Entry,
+        raw::{DatabaseError, ReadDB, WriteDB, DB_TREE_ID},
     };
 
     #[tokio::test]
@@ -328,5 +346,82 @@ mod tests {
             _ => false,
         });
         assert!(read_db.next().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn read_db_read() {
+        let now = Local::now();
+
+        let expired = now - TimeDelta::seconds(2);
+        let expired_ts = expired.timestamp_millis();
+
+        let valid = now + TimeDelta::seconds(2);
+        let valid_ts = valid.timestamp_millis();
+
+        let read_path = NamedTempFile::new().unwrap().into_temp_path();
+        let write_path = NamedTempFile::new().unwrap().into_temp_path();
+
+        write(
+            &read_path,
+            format!(
+                "{{\"t\": {DB_TREE_ID}, \"k\": \"test_tree\", \"v\": 1, \"e\": 0}}
+                 {{\"t\": 1, \"k\": \"key1\", \"v\": 1, \"e\": {expired_ts}}}
+                 {{\"t\": 1, \"k\": \"key2\", \"v\": 2, \"e\": {valid_ts}}}
+                 malformed entry: not json
+                 {{\"t\": \"tree cant be string\", \"k\": \"key2\", \"v\": 2, \"e\": {valid_ts}}}
+                 {{\"t\": 1, \"k\": \"missing quote, \"v\": 2, \"e\": {valid_ts}}}
+                 {{\"t\": 3, \"k\": \"missing key id\", \"v\": 2, \"e\": {valid_ts}}}"
+            ),
+        )
+        .await
+        .unwrap();
+
+        // First test loading in RAM
+
+        let mut read_db = ReadDB::new(File::open(&read_path).await.unwrap());
+        let mut write_db = WriteDB::new(File::create(&write_path).await.unwrap());
+        let maps = read_db.read(&mut write_db, true).await.unwrap();
+
+        // Test RAM
+        assert_eq!(
+            maps,
+            HashMap::from([(
+                "test_tree".into(),
+                HashMap::from([(Value::String("key2".into()), Value::Number(2.into()))])
+            )])
+        );
+
+        // Test disk
+        write_db.close().await.unwrap();
+        let contents = String::from_utf8(read(&write_path).await.unwrap()).unwrap();
+
+        assert_eq!(
+            contents,
+            format!(
+                "{{\"t\":{DB_TREE_ID},\"k\":1,\"v\":\"test_tree\",\"e\":0}}\n\
+                 {{\"t\":1,\"k\":\"key2\",\"v\":2,\"e\":{valid_ts}}}\n"
+            )
+        );
+
+        // Second test only rotating on disk
+
+        let mut read_db = ReadDB::new(File::open(&read_path).await.unwrap());
+        let mut write_db = WriteDB::new(File::create(&write_path).await.unwrap());
+        let maps = read_db.read(&mut write_db, false).await.unwrap();
+
+        // Test RAM
+        assert_eq!(maps, HashMap::default());
+
+        // Test disk
+        write_db.close().await.unwrap();
+        let contents = String::from_utf8(read(write_path).await.unwrap()).unwrap();
+
+        assert_eq!(
+            contents,
+            format!(
+                "{{\"t\":{DB_TREE_ID},\"k\":1,\"v\":\"test_tree\",\"e\":0}}\n\
+                 {{\"t\":1,\"k\":\"key2\",\"v\":2,\"e\":{valid_ts}}}\n"
+            )
+        );
     }
 }

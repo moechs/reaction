@@ -12,22 +12,12 @@ use crate::concepts::Time;
 use super::raw::WriteDB;
 
 /// Entry sent from BTreeMaps to the Database
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub tree: String,
     pub key: Value,
     pub value: Option<Value>,
     pub expiry: Time,
-}
-
-#[derive(Debug, Error)]
-pub enum DatabaseError {
-    #[error("{0}")]
-    IO(#[from] IoError),
-    #[error("{0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("missing key id: {0}")]
-    MissingKeyId(u64),
 }
 
 pub type LoadedDb = HashMap<String, HashMap<Value, Value>>;
