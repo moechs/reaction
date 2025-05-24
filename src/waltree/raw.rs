@@ -93,8 +93,8 @@ impl WriteDB {
                 self.names.insert(entry.tree.clone(), id);
                 self._write_entry(&WriteEntry {
                     tree: DB_TREE_ID,
-                    key: &serde_json::Value::Number(id.into()),
-                    value: &Some(serde_json::Value::String(entry.tree.clone())),
+                    key: &id.into(),
+                    value: &Some(entry.tree.clone().into()),
                     // Expiry is not used for special entries
                     expiry: 0,
                 })
@@ -120,10 +120,13 @@ impl WriteDB {
         Ok(())
     }
 
+    /// Flushes the inner [`tokio::io::BufWriter`]
     pub async fn flush(&mut self) -> Result<(), IoError> {
         self.file.flush().await
     }
 
+    /// Closes the inner [`tokio::io::BufWriter`]
+    /// WriteDB should not be used after this point.
     pub async fn close(&mut self) -> Result<(), IoError> {
         self.file.shutdown().await
     }
@@ -212,15 +215,15 @@ impl ReadDB {
                 // Insert new tree
                 self.names.insert(
                     raw_entry
-                        .value
-                        .expect("database reserved entry doesn't have a value")
+                        .key
                         .as_u64()
-                        .expect("database reserved entry doesn't have an uint as value")
+                        .expect("database reserved entry doesn't have an uint as key")
                         .to_owned(),
                     raw_entry
-                        .key
+                        .value
+                        .expect("database reserved entry doesn't have a value")
                         .as_str()
-                        .expect("database reserved entry doesn't have a string as key")
+                        .expect("database reserved entry doesn't have a string as value")
                         .to_owned(),
                 );
                 // Skip expired entries
@@ -271,7 +274,7 @@ mod tests {
             .write_entry(&Entry {
                 tree: "yooo".into(),
                 key: "key1".into(),
-                value: Some(serde_json::Value::String("value1".into())),
+                value: Some("value1".into()),
                 expiry: expired,
             })
             .await
@@ -305,7 +308,7 @@ mod tests {
         write(
             &path,
             format!(
-                "{{\"t\": {DB_TREE_ID}, \"k\": \"test_tree\", \"v\": 1, \"e\": 0}}
+                "{{\"t\": {DB_TREE_ID}, \"k\": 1, \"v\": \"test_tree\", \"e\": 0}}
                  {{\"t\": 1, \"k\": \"key1\", \"v\": 1, \"e\": {expired_ts}}}
                  {{\"t\": 1, \"k\": \"key2\", \"v\": 2, \"e\": {valid_ts}}}
                  malformed entry: not json
@@ -324,7 +327,7 @@ mod tests {
             Some(Entry {
                 tree: "test_tree".into(),
                 key: "key2".into(),
-                value: Some(serde_json::Value::Number(2.into())),
+                value: Some(2.into()),
                 expiry: valid,
             })
         );
@@ -364,7 +367,7 @@ mod tests {
         write(
             &read_path,
             format!(
-                "{{\"t\": {DB_TREE_ID}, \"k\": \"test_tree\", \"v\": 1, \"e\": 0}}
+                "{{\"t\": {DB_TREE_ID}, \"k\": 1, \"v\": \"test_tree\", \"e\": 0}}
                  {{\"t\": 1, \"k\": \"key1\", \"v\": 1, \"e\": {expired_ts}}}
                  {{\"t\": 1, \"k\": \"key2\", \"v\": 2, \"e\": {valid_ts}}}
                  malformed entry: not json
@@ -387,7 +390,7 @@ mod tests {
             maps,
             HashMap::from([(
                 "test_tree".into(),
-                HashMap::from([(Value::String("key2".into()), Value::Number(2.into()))])
+                HashMap::from([("key2".into(), 2.into())])
             )])
         );
 
@@ -423,5 +426,71 @@ mod tests {
                  {{\"t\":1,\"k\":\"key2\",\"v\":2,\"e\":{valid_ts}}}\n"
             )
         );
+    }
+
+    // write then read 1000 random entries
+    #[tokio::test]
+    async fn write_then_read_1000() {
+        // Generate entries
+        let now = Local::now();
+        let entries: Vec<_> = (0..1000)
+            .map(|i| Entry {
+                tree: format!("tree{}", i % 4),
+                key: format!("key{}", i % 10).into(),
+                value: Some(format!("value{}", i % 10).into()),
+                expiry: now + TimeDelta::seconds((i % 4) - 1),
+            })
+            .collect();
+
+        let remove_entries: Vec<_> = (0..1000)
+            .filter(|i| i % 5 == 1)
+            .map(|i| Entry {
+                tree: format!("tree{}", i % 4),
+                key: format!("key{}", i % 10).into(),
+                value: None,
+                expiry: now + TimeDelta::seconds(i % 4),
+            })
+            .collect();
+
+        let all_entries: Vec<_> = entries.iter().chain(remove_entries.iter()).collect();
+
+        let kept_entries: HashMap<String, HashMap<Value, Value>> = entries
+            .iter()
+            .filter(|entry| entry.expiry > now)
+            .filter(|entry| {
+                remove_entries
+                    .iter()
+                    .all(|rm_entry| rm_entry.tree != entry.tree || rm_entry.key != entry.key)
+            })
+            .fold(HashMap::default(), |mut acc, entry| {
+                acc.entry(entry.tree.clone()).or_default().insert(
+                    entry.key.clone(),
+                    entry.value.clone().unwrap(),
+                );
+                acc
+            });
+
+        // Write entries
+        let read_path = NamedTempFile::new().unwrap().into_temp_path();
+        let write_path = NamedTempFile::new().unwrap().into_temp_path();
+
+        let mut write_db = WriteDB::new(File::create(&read_path).await.unwrap());
+        for entry in all_entries {
+            write_db.write_entry(entry).await.unwrap();
+        }
+        write_db.close().await.unwrap();
+
+        // Read entries
+        let mut read_db = ReadDB::new(File::open(&read_path).await.unwrap());
+        let mut write_db = WriteDB::new(File::create(&write_path).await.unwrap());
+        let maps = read_db
+            .read(&mut write_db, true)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|(_, map)| !map.is_empty())
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(maps, kept_entries);
     }
 }
