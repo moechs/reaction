@@ -82,7 +82,8 @@ impl WriteDB {
     }
 
     /// Writes an entry in the database
-    pub async fn write_entry(&mut self, entry: &Entry) -> Result<(), SerdeOrIoError> {
+    pub async fn write_entry(&mut self, entry: &Entry) -> Result<usize, SerdeOrIoError> {
+        let mut written = 0;
         let tree_id = match self.names.get(&entry.tree) {
             Some(id) => *id,
             // Insert special database entry when the tree is not recorded yet
@@ -91,14 +92,15 @@ impl WriteDB {
                 self.next_id += 1;
 
                 self.names.insert(entry.tree.clone(), id);
-                self._write_entry(&WriteEntry {
-                    tree: DB_TREE_ID,
-                    key: &id.into(),
-                    value: &Some(entry.tree.clone().into()),
-                    // Expiry is not used for special entries
-                    expiry: 0,
-                })
-                .await?;
+                written = self
+                    ._write_entry(&WriteEntry {
+                        tree: DB_TREE_ID,
+                        key: &id.into(),
+                        value: &Some(entry.tree.clone().into()),
+                        // Expiry is not used for special entries
+                        expiry: 0,
+                    })
+                    .await?;
 
                 id
             }
@@ -110,14 +112,17 @@ impl WriteDB {
             expiry: entry.expiry.timestamp_millis(),
         })
         .await
+        .map(|bytes_written| bytes_written + written)
     }
 
-    async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<(), SerdeOrIoError> {
+    async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<usize, SerdeOrIoError> {
         // FIXME reuse the buffer instead of this short-lived allocation
         let mut json = serde_json::to_string(&raw_entry)?;
         json.push('\n');
-        self.file.write(json.as_bytes()).await?;
-        Ok(())
+        self.file
+            .write(json.as_bytes())
+            .await
+            .map_err(|err| err.into())
     }
 
     /// Flushes the inner [`tokio::io::BufWriter`]
@@ -463,10 +468,9 @@ mod tests {
                     .all(|rm_entry| rm_entry.tree != entry.tree || rm_entry.key != entry.key)
             })
             .fold(HashMap::default(), |mut acc, entry| {
-                acc.entry(entry.tree.clone()).or_default().insert(
-                    entry.key.clone(),
-                    entry.value.clone().unwrap(),
-                );
+                acc.entry(entry.tree.clone())
+                    .or_default()
+                    .insert(entry.key.clone(), entry.value.clone().unwrap());
                 acc
             });
 

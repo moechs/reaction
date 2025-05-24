@@ -19,7 +19,7 @@ use tracing::{debug, info};
 use crate::concepts::Config;
 use filter::FilterManager;
 use fjallext::*;
-use shutdown::{ShutdownController, ShutdownDelegate};
+pub use shutdown::{ShutdownController, ShutdownDelegate};
 use socket::socket_manager;
 use stream::stream_manager;
 
