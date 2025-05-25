@@ -1,26 +1,22 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::io::Error as IoError;
-use std::io::ErrorKind;
-use std::ops::Deref;
-use std::path::Path;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, HashMap},
+    io::{Error as IoError, ErrorKind},
+    ops::Deref,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use chrono::Local;
-use chrono::TimeDelta;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use chrono::{Local, TimeDelta};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-use tokio::time::sleep;
 use tokio::{
     fs::{rename, File},
     sync::mpsc,
+    time::sleep,
 };
 use tracing::error;
 
-use crate::concepts::Config;
-use crate::concepts::Time;
+use crate::concepts::{Config, Time};
 
 // Database
 
@@ -299,6 +295,27 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.log(&key, None);
         self.tree.remove(key)
+    }
+
+    /// Updates an item and returns the previous value.
+    /// Returning None removes the item if it existed before.
+    /// Asynchronously persisted.
+    /// *API design borrowed from [`fjall::WriteTransaction::fetch_update`].*
+    pub fn fetch_update<F: FnMut(Option<&V>) -> Option<V>>(
+        &mut self,
+        key: K,
+        mut f: F,
+    ) -> Option<V> {
+        let old_value = self.get(&key);
+        let new_value = f(old_value);
+        if old_value != new_value.as_ref() {
+            self.log(&key, new_value.as_ref());
+        }
+        if let Some(new_value) = new_value {
+            self.tree.insert(key, new_value)
+        } else {
+            self.tree.remove(&key)
+        }
     }
 }
 
