@@ -23,7 +23,7 @@ use serde_json::Value;
 use tokio::{
     fs::{rename, File},
     sync::mpsc,
-    time::{interval, sleep, MissedTickBehavior},
+    time::{interval, MissedTickBehavior},
 };
 use tracing::error;
 

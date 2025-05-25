@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Error as IoError};
+use std::{
+    collections::HashMap,
+    io::{Error as IoError, Write},
+};
 
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -65,7 +68,7 @@ pub struct WriteDB {
     file: BufWriter<File>,
     names: HashMap<String, u64>,
     next_id: u64,
-    // buffer: String,
+    buffer: Buffer,
 }
 
 impl WriteDB {
@@ -77,7 +80,7 @@ impl WriteDB {
             // names: HashMap::from([(DB_TREE_NAME.into(), DB_TREE_ID)]),
             names: HashMap::default(),
             next_id: 1,
-            // buffer: String::default(),
+            buffer: Buffer::new(),
         }
     }
 
@@ -116,11 +119,11 @@ impl WriteDB {
     }
 
     async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<usize, SerdeOrIoError> {
-        // FIXME reuse the buffer instead of this short-lived allocation
-        let mut json = serde_json::to_string(&raw_entry)?;
-        json.push('\n');
+        self.buffer.clear();
+        serde_json::to_writer(&mut self.buffer, &raw_entry)?;
+        self.buffer.push("\n".as_bytes());
         self.file
-            .write(json.as_bytes())
+            .write(self.buffer.as_ref())
             .await
             .map_err(|err| err.into())
     }
@@ -168,7 +171,7 @@ impl ReadDB {
                 Ok(None) => break,
                 // Can't recover io::Error here
                 Err(DatabaseError::IO(err)) => return Err(err),
-                // TODO Just skip malformed entries
+                // Just skip malformed entries
                 Err(DatabaseError::Serde(err)) => {
                     error!("malformed entry read from database: {err}")
                 }
@@ -246,6 +249,45 @@ impl ReadDB {
             })),
             None => Err(DatabaseError::MissingKeyId(raw_entry.tree)),
         }
+    }
+}
+
+/// This [`String`] buffer implements [`Write`] to permit allocation reuse.
+/// Using [`serde_json::to_string`] allocates for every entry.
+/// This Buffer permits to use [`serde_json::to_writer`] instead.
+struct Buffer {
+    b: Vec<u8>,
+}
+
+impl AsRef<Vec<u8>> for Buffer {
+    fn as_ref(&self) -> &Vec<u8> {
+        &self.b
+    }
+}
+
+impl Buffer {
+    fn new() -> Self {
+        Buffer { b: Vec::new() }
+    }
+
+    /// Truncates the buffer without touching its capacity
+    fn clear(&mut self) {
+        self.b.clear()
+    }
+
+    fn push(&mut self, buf: &[u8]) {
+        self.b.extend_from_slice(buf);
+    }
+}
+
+impl Write for Buffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.push(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
