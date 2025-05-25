@@ -23,7 +23,7 @@ use serde_json::Value;
 use tokio::{
     fs::{rename, File},
     sync::mpsc,
-    time::sleep,
+    time::{interval, sleep, MissedTickBehavior},
 };
 use tracing::error;
 
@@ -112,8 +112,11 @@ impl Database {
     }
 
     pub async fn task(&mut self) {
-        // FIXME this never flushes if entries keep coming, as receiving an entry cancels the sleep
-        // replace by tokio::time::Interval::Skip
+        let mut interval = interval(self.flush_every);
+        // If we missed a tick, it will tick immediately, then wait
+        // flush_every for the next tick, resulting in a relaxed interval.
+        // Hoping this will smooth IO pressure when under heavy load.
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 entry = self.rx.recv() => {
@@ -121,7 +124,7 @@ impl Database {
                         break;
                     }
                 }
-                _ = sleep(self.flush_every) => {
+                _ = interval.tick() => {
                     if !self.flush().await {
                         break;
                     }
