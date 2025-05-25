@@ -10,7 +10,7 @@ use tokio::{
 };
 use tracing::error;
 
-use super::env::{Entry, LoadedDb};
+use super::{Entry, LoadedDB};
 
 const DB_TREE_ID: u64 = 0;
 // const DB_TREE_NAME: &str = "tree_names";
@@ -159,7 +159,7 @@ impl ReadDB {
         &mut self,
         write_db: &mut WriteDB,
         load_db: bool,
-    ) -> tokio::io::Result<LoadedDb> {
+    ) -> tokio::io::Result<LoadedDB> {
         let mut data_maps = HashMap::new();
 
         loop {
@@ -259,8 +259,8 @@ mod tests {
     use tokio::fs::{read, write, File};
 
     use crate::waltree::{
-        env::Entry,
         raw::{DatabaseError, ReadDB, WriteDB, DB_TREE_ID},
+        Entry,
     };
 
     #[tokio::test]

@@ -55,3 +55,14 @@ This code has async code, to handle input streams and communication with clients
 - `stream.rs`: Stream managers: start the stream `cmd` and dispatch its stdout lines to its Filter managers.
 - `filter.rs`: Filter managers: handle lines, persistance, store matches and trigger actions. This is the main piece of runtime logic.
 - `socket.rs`: The socket task, responsible for communication with clients.
+
+### `src/waltree`
+
+Persistence layer.
+
+This is a database highly adapted to reaction workload, making reaction faster than when used with general purpose key-value databases
+(heed, sled and fjall crates ahve been tested).
+Its design is explained in the comments of its files:
+
+- `mod.rs`: main database code, with its two API structs: Tree and Database.
+- `raw.rs` low-level part, directly interacting with de/serializisation and files.
