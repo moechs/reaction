@@ -15,6 +15,10 @@ use tracing::{error, info};
 use crate::{
     concepts::{Action, Filter, Match, Pattern, Time},
     protocol::{Order, PatternStatus},
+    treedb::{
+        helpers::{to_match, to_matchtime, to_time, to_u64},
+        Database, Tree,
+    },
 };
 
 use super::{shutdown::ShutdownToken, KeyspaceExt as _, MatchTime, Tree};

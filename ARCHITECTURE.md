@@ -56,7 +56,7 @@ This code has async code, to handle input streams and communication with clients
 - `filter.rs`: Filter managers: handle lines, persistance, store matches and trigger actions. This is the main piece of runtime logic.
 - `socket.rs`: The socket task, responsible for communication with clients.
 
-### `src/waltree`
+### `src/tree`
 
 Persistence layer.
 

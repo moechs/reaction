@@ -300,7 +300,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use tokio::fs::{read, write, File};
 
-    use crate::waltree::{
+    use crate::treedb::{
         raw::{DatabaseError, ReadDB, WriteDB, DB_TREE_ID},
         Entry,
     };

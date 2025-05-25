@@ -372,7 +372,7 @@ mod tests {
 
     use crate::{
         concepts::Config,
-        waltree::{helpers::*, raw::WriteDB, rotate_db, Database, Entry, DB_NAME},
+        treedb::{helpers::*, raw::WriteDB, rotate_db, Database, Entry, DB_NAME},
     };
 
     #[tokio::test]
