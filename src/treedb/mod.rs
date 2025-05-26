@@ -363,17 +363,62 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::{BTreeMap, BTreeSet, HashMap};
+    use std::{
+        collections::{BTreeMap, BTreeSet, HashMap},
+        io::Error as IoError,
+        path::Path,
+    };
 
     use chrono::{Local, TimeDelta, TimeZone};
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
-    use tokio::fs::{read, write, File};
+    use tokio::fs::{write, File};
 
-    use crate::{
-        concepts::Config,
-        treedb::{helpers::*, raw::WriteDB, rotate_db, Database, Entry, DB_NAME},
+    use crate::concepts::Config;
+
+    use super::{
+        helpers::*, raw::WriteDB, rotate_db, Database, Entry, KeyType, LoadedDB, Tree, ValueType, DB_NAME
     };
+
+    impl Database {
+        pub async fn from_dir(dir_path: &Path) -> Result<Self, IoError> {
+            let config_path = dir_path.join("reaction.jsonnet");
+            write(
+                &config_path,
+                format!(
+                    "
+        {{
+            state_directory: {dir_path:?},
+            patterns: {{ pattern: {{ regex: \"prout\" }} }},
+            streams: {{ dummy: {{
+                    cmd: [\"dummy\"],
+                    filters: {{ dummy: {{
+                            regex: [\"dummy\"],
+                            actions: {{ dummy: {{
+                                cmd: [\"dummy\"]
+                            }} }}
+                    }} }}
+            }} }}
+        }}
+        "
+                ),
+            )
+            .await?;
+
+            let config = Config::from_file(&config_path).unwrap();
+            Database::open(&config).await
+        }
+
+        pub fn set_loaded_db(&mut self, loaded_db: LoadedDB) {
+            self.loaded_db = loaded_db;
+        }
+    }
+
+    impl<K: KeyType, V: ValueType> Tree<K, V> {
+        pub fn tree(&self) -> &BTreeMap<K, V> {
+            &self.tree
+        }
+    }
 
     #[tokio::test]
     async fn test_rotate_db() {
@@ -550,37 +595,7 @@ mod tests {
         write_db.close().await.unwrap();
         drop(write_db);
 
-        let config_path = dir_path.join("reaction.jsonnet");
-        write(
-            &config_path,
-            format!(
-                "
-        {{
-            state_directory: {dir_path:?},
-            patterns: {{ pattern: {{ regex: \"prout\" }} }},
-            streams: {{ dummy: {{
-                    cmd: [\"dummy\"],
-                    filters: {{ dummy: {{
-                            regex: [\"dummy\"],
-                            actions: {{ dummy: {{
-                                cmd: [\"dummy\"]
-                            }} }}
-                    }} }}
-            }} }}
-        }}
-        "
-            ),
-        )
-        .await
-        .unwrap();
-
-        println!(
-            "{}",
-            String::from_utf8(read(&config_path).await.unwrap()).unwrap()
-        );
-
-        let config = Config::from_file(&config_path).unwrap();
-        let mut database = Database::open(&config).await.unwrap();
+        let mut database = Database::from_dir(&dir_path).await.unwrap();
 
         let time_match = database
             .open_tree(

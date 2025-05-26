@@ -3,11 +3,13 @@
 use std::{
     fs::File,
     io::Write,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
 };
 
 use tempfile::TempDir;
+
+use crate::treedb::Database;
 
 pub struct Fixture {
     path: PathBuf,
@@ -55,23 +57,29 @@ impl Deref for Fixture {
     }
 }
 
-pub struct TempKeyspace {
-    env: fjall::TransactionalKeyspace,
+pub struct TempDatabase {
+    db: Database,
     _tempdir: TempDir,
 }
 
-impl Default for TempKeyspace {
-    fn default() -> Self {
+impl TempDatabase {
+    pub async fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
-        let env = fjall::Config::new(_tempdir.path()).open_transactional().unwrap();
-        TempKeyspace { _tempdir, env }
+        let db = Database::from_dir(_tempdir.path()).await.unwrap();
+        TempDatabase { _tempdir, db }
     }
 }
 
-impl Deref for TempKeyspace {
-    type Target = fjall::TransactionalKeyspace;
+impl Deref for TempDatabase {
+    type Target = Database;
 
     fn deref(&self) -> &Self::Target {
-        &self.env
+        &self.db
+    }
+}
+
+impl DerefMut for TempDatabase {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.db
     }
 }
