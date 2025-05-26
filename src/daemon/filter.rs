@@ -4,16 +4,15 @@ mod tests;
 use std::{
     collections::{BTreeMap, BTreeSet},
     process::Stdio,
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
-use fjall::WriteTransaction;
 use regex::Regex;
 use tokio::sync::Semaphore;
 use tracing::{error, info};
 
 use crate::{
-    concepts::{Action, Filter, Match, Pattern, Time},
+    concepts::{Action, Filter, Match, MatchTime, Pattern, Time},
     protocol::{Order, PatternStatus},
     treedb::{
         helpers::{to_match, to_matchtime, to_time, to_u64},
@@ -21,28 +20,24 @@ use crate::{
     },
 };
 
-use super::{shutdown::ShutdownToken, KeyspaceExt as _, MatchTime, Tree};
+use super::shutdown::ShutdownToken;
 
+/// Responsible for handling all runtime logic dedicated to a [`Filter`].
+/// Notably handles incoming lines from [`super::stream::stream_manager`]
+/// and orders from the [`super::socket::socket_manager`]
 #[derive(Clone)]
 pub struct FilterManager {
     /// the Filter managed
     filter: &'static Filter,
-    /// Has the filter at least an action with an after directive?
-    has_after: bool,
     /// Permits to limit concurrency of actions execution
     exec_limit: Option<Arc<Semaphore>>,
     /// Permits to run pending actions on shutdown
     shutdown: ShutdownToken,
-    /// LMDB environment, necessary to create transactions
-    env: fjall::TransactionalKeyspace,
-    /// Saves all the current Matches for this Filter
-    /// Has duplicate values for a key
-    matches: Tree<Match, BTreeSet<Time>>,
-    /// Alternative view of the current Matches for O(1) cleaning of old Matches
-    /// without added async Tasks to remove them
-    ordered_times: Tree<Time, Match>,
-    /// Saves all the current Triggers for this Filter
-    triggers: Tree<MatchTime, usize>,
+    /// Inner state.
+    /// Protected by a [`Mutex`], permitting FilterManager to be cloned
+    /// and concurrently owned by its stream manager, the socket manager,
+    /// and actions' delayed tasks.
+    state: Arc<Mutex<State>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,22 +53,22 @@ impl FilterManager {
         filter: &'static Filter,
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
-        env: &fjall::TransactionalKeyspace,
+        db: &mut Database,
         now: Time,
-    ) -> Result<Self, fjall::Error> {
-        let manager = Self {
+    ) -> Result<Self, String> {
+        let this = Self {
             filter,
-            has_after: !filter.longuest_action_duration().is_zero(),
             exec_limit,
             shutdown,
-            env: env.clone(),
-            matches: env.open_filter_matches_db(filter)?,
-            ordered_times: env.open_filter_ordered_times_db(filter)?,
-            triggers: env.open_filter_triggers_db(filter)?,
+            state: Arc::new(Mutex::new(State::new(
+                filter,
+                !filter.longuest_action_duration().is_zero(),
+                db,
+                now,
+            )?)),
         };
-        manager.clear_past_matches(now);
-        manager.clear_past_triggers_and_schedule_future_actions(now);
-        Ok(manager)
+        this.clear_past_triggers_and_schedule_future_actions(now);
+        Ok(this)
     }
 
     pub fn handle_line(&self, line: &str, now: Time) -> React {
@@ -89,26 +84,24 @@ impl FilterManager {
     }
 
     fn handle_match(&self, m: Match, now: Time) -> bool {
-        self.clear_past_matches(now);
-
-        let mut wtxn = self.env.write_tx();
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
+        let mut state = self.state.lock().unwrap();
+        state.clear_past_matches(now);
 
         let exec = match self.filter.retry() {
             None => true,
             Some(retry) => {
-                self.add_match(&m, now, &mut wtxn);
+                state.add_match(m.clone(), now);
                 // Number of stored times for this match >= configured retry for this filter
-                self.get_times(&m, &wtxn) >= retry as usize
+                state.get_times(&m) >= retry as usize
             }
         };
 
         if exec {
-            self.remove_match(&m, &mut wtxn);
-            self.add_trigger(m.clone(), now, &mut wtxn);
-            self.schedule_exec(m, now, now, &mut wtxn);
+            state.remove_match(&m);
+            state.add_trigger(m.clone(), now);
+            self.schedule_exec(m, now, now, &mut state);
         }
-
-        wtxn.commit().unwrap();
 
         exec
     }
@@ -129,18 +122,26 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        let rtxn = self.env.read_tx();
-        let mut wtxn = self.env.write_tx();
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
+        let mut state = self.state.lock().unwrap();
 
         let mut cs = BTreeMap::new();
         {
             let mut last_key: Option<Match> = None;
             let mut n_times = 0;
 
+            let cloned_matches = state
+                .matches
+                .iter()
+                .map(|(k, _)| (k.clone()))
+                // match filtering
+                .filter(|match_| is_match(match_))
+                .collect::<Vec<_>>();
+
             let mut insert_last_key = |last_key: Option<Match>, n_times: usize| {
                 if let Some(last_key) = last_key {
                     if let Order::Flush = order {
-                        self.remove_match(&last_key, &mut wtxn);
+                        state.remove_match(&last_key);
                     }
                     cs.insert(
                         last_key,
@@ -152,14 +153,8 @@ impl FilterManager {
                 }
             };
 
-            for k in self
-                .matches
-                .iter(&rtxn)
-                .map(|result| result.0)
-                // match filtering
-                .filter(|match_| is_match(match_))
-            {
-                if last_key.clone().is_some_and(|last_key| last_key == k) {
+            for k in cloned_matches.into_iter() {
+                if last_key.clone().is_some_and(|last_key| last_key == *k) {
                     n_times += 1;
                 } else {
                     insert_last_key(last_key, n_times);
@@ -170,17 +165,19 @@ impl FilterManager {
             insert_last_key(last_key, n_times);
         }
 
-        for mt in self
+        let cloned_triggers = state
             .triggers
-            .iter(&rtxn)
-            .map(|result| result.0)
+            .iter()
+            .map(|(k, _)| (k.clone()))
             // match filtering
             .filter(|match_| is_match(&match_.m))
-        {
+            .collect::<Vec<_>>();
+
+        for mt in cloned_triggers.into_iter() {
             // Remove the match from the triggers
             if let Order::Flush = order {
                 // delete specific (Match, Time) tuple
-                self.remove_trigger(&mt.m, &mt.t, &mut wtxn);
+                state.remove_trigger(&mt.m, &mt.t);
             }
 
             let m = mt.m.clone();
@@ -197,13 +194,11 @@ impl FilterManager {
                     action_times.push(action_time.to_rfc3339().chars().take(19).collect());
                     // Execute the action early
                     if let Order::Flush = order {
-                        self.exec_now(action, mt.m.clone());
+                        exec_now(&self.exec_limit, action, mt.m.clone());
                     }
                 }
             }
         }
-
-        wtxn.commit().unwrap();
 
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
@@ -211,14 +206,14 @@ impl FilterManager {
     /// Schedule execution for a given Action and Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    fn schedule_exec(&self, m: Match, t: Time, now: Time, wtxn: &mut WriteTransaction) {
+    fn schedule_exec(&self, m: Match, t: Time, now: Time, state: &mut MutexGuard<State>) {
         for action in self.filter.actions().values() {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();
 
             if exec_time <= now {
-                if self.decrement_trigger(&m, t, wtxn) {
-                    self.exec_now(action, m);
+                if state.decrement_trigger(&m, t) {
+                    exec_now(&self.exec_limit, action, m);
                 }
             } else {
                 let this = self.clone();
@@ -235,70 +230,175 @@ impl FilterManager {
                         _ = this.shutdown.wait() => true,
                     };
                     // Exec action if triggered hasn't been already flushed
-                    let mut wtxn = this.env.write_tx();
-                    if (!exiting || action.on_exit()) && this.decrement_trigger(&m, t, &mut wtxn) {
-                        this.exec_now(action, m);
+                    if !exiting || action.on_exit() {
+                        #[allow(clippy::unwrap_used)] // propagating panics is ok
+                        let mut state = this.state.lock().unwrap();
+                        if state.decrement_trigger(&m, t) {
+                            exec_now(&this.exec_limit, action, m);
+                        }
                     }
-                    wtxn.commit().unwrap();
                 });
             }
         }
     }
 
-    fn add_match(&self, m: &Match, t: Time, wtxn: &mut WriteTransaction) {
-        self.matches
-            .fetch_update(wtxn, m, |set| {
-                let mut set = set.unwrap_or_default();
-                set.insert(t);
-                Some(set)
-            })
-            .unwrap();
-        self.ordered_times.insert(wtxn, &t, m);
+    fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
+        let longuest_action_duration = self.filter.longuest_action_duration();
+        let number_of_actions = self.filter.actions().len();
+
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
+        let mut state = self.state.lock().unwrap();
+
+        let cloned_triggers = state
+            .triggers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<Vec<_>>();
+
+        for (mt, remaining) in cloned_triggers.into_iter() {
+            if remaining > 0 && mt.t + longuest_action_duration > now {
+                // Insert back the upcoming times
+                state.triggers.insert(mt.clone(), number_of_actions as u64);
+                // Schedule the upcoming times
+                self.schedule_exec(mt.m, mt.t, now, &mut state);
+            } else {
+                state.triggers.remove(&mt);
+            }
+        }
+    }
+}
+
+fn exec_now(exec_limit: &Option<Arc<Semaphore>>, action: &'static Action, m: Match) {
+    let exec_limit = exec_limit.clone();
+    tokio::spawn(async move {
+        // Wait for semaphore's permission, if it is Some
+        let _permit = match exec_limit {
+            #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
+            Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
+            None => None,
+        };
+
+        // Construct command
+        let mut command = action.exec(&m);
+
+        info!("{}: run [{:?}]", &action, command.as_std());
+        if let Err(err) = command
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .status()
+            .await
+        {
+            error!("{}: run [{:?}], code {}", &action, command.as_std(), err);
+        }
+    });
+}
+
+fn filter_ordered_times_db_name(filter: &Filter) -> String {
+    format!(
+        "filter_ordered_times_{}.{}",
+        filter.stream_name(),
+        filter.name()
+    )
+}
+
+fn filter_triggers_db_name(filter: &Filter) -> String {
+    format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
+}
+
+/// Internal state of a [`FilterManager`].
+/// Holds all data on current matches and triggers.
+struct State {
+    /// the Filter managed
+    filter: &'static Filter,
+    /// Has the filter at least an action with an after directive?
+    has_after: bool,
+    /// Saves all the current Matches for this Filter
+    /// Has duplicate values for a key
+    /// Not persisted
+    matches: BTreeMap<Match, BTreeSet<Time>>,
+    /// Alternative view of the current Matches for O(1) cleaning of old Matches
+    /// without added async Tasks to remove them
+    /// Persisted
+    ordered_times: Tree<Time, Match>,
+    /// Saves all the current Triggers for this Filter
+    /// Persisted
+    triggers: Tree<MatchTime, u64>,
+}
+
+impl State {
+    fn new(
+        filter: &'static Filter,
+        has_after: bool,
+        db: &mut Database,
+        now: Time,
+    ) -> Result<Self, String> {
+        let mut this = Self {
+            filter,
+            has_after,
+            matches: BTreeMap::new(),
+            ordered_times: db.open_tree(
+                filter_ordered_times_db_name(filter),
+                filter.retry_duration().unwrap_or_default(),
+                |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
+            )?,
+            triggers: db.open_tree(
+                filter_triggers_db_name(filter),
+                filter.retry_duration().unwrap_or_default(),
+                |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
+            )?,
+        };
+        this.clear_past_matches(now);
+        this.load_matches_from_ordered_times();
+        Ok(this)
     }
 
-    fn add_trigger(&self, m: Match, t: Time, wtxn: &mut WriteTransaction) {
+    fn add_match(&mut self, m: Match, t: Time) {
+        let set = self.matches.entry(m.clone()).or_default();
+        set.insert(t);
+        self.ordered_times.insert(t, m);
+    }
+
+    fn add_trigger(&mut self, m: Match, t: Time) {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
             self.triggers
-                .insert(wtxn, &MatchTime { m, t }, &self.filter.actions().len());
+                .insert(MatchTime { m, t }, self.filter.actions().len() as u64);
         }
     }
 
     // Completely remove a Match from the matches
-    fn remove_match(&self, m: &Match, wtxn: &mut WriteTransaction) {
-        if let Some(set) = self.matches.get(wtxn, m).unwrap() {
+    fn remove_match(&mut self, m: &Match) {
+        if let Some(set) = self.matches.get(m) {
             for t in set {
-                self.ordered_times.remove(wtxn, &t);
+                self.ordered_times.remove(&t);
             }
-            self.matches.remove(wtxn, m);
+            self.matches.remove(m);
         }
     }
 
     /// Completely remove a Match from the triggers
-    fn remove_trigger(&self, m: &Match, t: &Time, wtxn: &mut WriteTransaction) {
-        self.triggers.remove(
-            wtxn,
-            &MatchTime {
-                m: m.clone(),
-                t: *t,
-            },
-        );
+    fn remove_trigger(&mut self, m: &Match, t: &Time) {
+        self.triggers.remove(&MatchTime {
+            m: m.clone(),
+            t: *t,
+        });
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
-    fn decrement_trigger(&self, m: &Match, t: Time, wtxn: &mut WriteTransaction) -> bool {
+    fn decrement_trigger(&mut self, m: &Match, t: Time) -> bool {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             let mut exec_needed = false;
             let mt = MatchTime { m: m.clone(), t };
-            let count = self.triggers.get(wtxn, &mt).unwrap();
+            let count = self.triggers.get(&mt);
             if let Some(count) = count {
                 exec_needed = true;
-                if count <= 1 {
-                    self.triggers.remove(wtxn, &mt);
+                if *count <= 1 {
+                    self.triggers.remove(&mt);
                 } else {
-                    self.triggers.insert(wtxn, &mt, &(count - 1));
+                    self.triggers.insert(mt, count - 1);
                 }
             }
             exec_needed
@@ -307,84 +407,43 @@ impl FilterManager {
         }
     }
 
-    fn clear_past_matches(&self, now: Time) {
+    fn clear_past_matches(&mut self, now: Time) {
         let retry_duration = self.filter.retry_duration().unwrap_or_default();
-        let mut wtxn = self.env.write_tx();
         while self
             .ordered_times
-            .first(&wtxn)
-            .unwrap()
-            .is_some_and(|(t, _)| t + retry_duration < now)
+            .first_key_value()
+            .is_some_and(|(t, _)| *t + retry_duration < now)
         {
             #[allow(clippy::unwrap_used)]
-            // second unwrap: we just checked in the condition that first is_some
-            let (t, m) = self.ordered_times.first(&wtxn).unwrap().unwrap();
-            self.ordered_times.remove(&mut wtxn, &t);
-            self.matches
-                .fetch_update(&mut wtxn, &m, |set| {
-                    let mut set = set.unwrap();
-                    set.remove(&t);
-                    if set.is_empty() {
-                        None
-                    } else {
-                        Some(set)
-                    }
-
-                })
-                .unwrap();
+            // unwrap: we just checked in the condition that first is_some
+            let (t, m) = {
+                let (t, m) = self.ordered_times.first_key_value().unwrap();
+                (t.clone(), m.clone())
+            };
+            self.ordered_times.remove(&t);
+            if let Some(set) = self.matches.get(&m) {
+                let mut set = set.clone();
+                set.remove(&t);
+                if set.is_empty() {
+                    self.matches.remove(&m);
+                } else {
+                    self.matches.insert(m, set);
+                }
+            }
         }
-        wtxn.commit().unwrap();
     }
 
-    fn get_times(&self, m: &Match, rtxn: &WriteTransaction) -> usize {
-        match self.matches.get(&rtxn, m).unwrap() {
+    fn get_times(&self, m: &Match) -> usize {
+        match self.matches.get(m) {
             Some(vec) => vec.len(),
             None => 0,
         }
     }
 
-    fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
-        let longuest_action_duration = self.filter.longuest_action_duration();
-        let number_of_actions = self.filter.actions().len();
-
-        let rtxn = self.env.read_tx();
-        let mut wtxn = self.env.write_tx();
-        for (mt, remaining) in self.triggers.iter(&rtxn) {
-            if remaining > 0 && mt.t + longuest_action_duration > now {
-                // Insert back the upcoming times
-                self.triggers.insert(&mut wtxn, &mt, &number_of_actions);
-                // Schedule the upcoming times
-                self.schedule_exec(mt.m, mt.t, now, &mut wtxn);
-            } else {
-                self.triggers.remove(&mut wtxn, &mt);
-            }
+    fn load_matches_from_ordered_times(&mut self) {
+        for (t, m) in self.ordered_times.iter() {
+            let set = self.matches.entry(m.clone()).or_default();
+            set.insert(*t);
         }
-        wtxn.commit().unwrap();
-    }
-
-    fn exec_now(&self, action: &'static Action, m: Match) {
-        let exec_limit = self.exec_limit.clone();
-        tokio::spawn(async move {
-            // Wait for semaphore's permission, if it is Some
-            let _permit = match exec_limit {
-                #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
-                Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
-                None => None,
-            };
-
-            // Construct command
-            let mut command = action.exec(&m);
-
-            info!("{}: run [{:?}]", &action, command.as_std());
-            if let Err(err) = command
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
-                .stdout(Stdio::piped())
-                .status()
-                .await
-            {
-                error!("{}: run [{:?}], code {}", &action, command.as_std(), err);
-            }
-        });
     }
 }

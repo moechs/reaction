@@ -16,15 +16,13 @@ use tokio::{
 };
 use tracing::{debug, info};
 
-use crate::concepts::Config;
+use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
-use fjallext::*;
 pub use shutdown::{ShutdownController, ShutdownDelegate};
 use socket::socket_manager;
 use stream::stream_manager;
 
 mod filter;
-mod fjallext;
 mod shutdown;
 mod socket;
 mod stream;
@@ -51,7 +49,7 @@ pub async fn daemon(
     };
 
     // Open Database
-    let keyspace = open_db(config)?;
+    let mut db = Database::open(config).await?;
 
     // Filter managers
     let now = Local::now();
@@ -60,7 +58,7 @@ pub async fn daemon(
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
             let manager =
-                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &keyspace, now)?;
+                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)?;
             filter_managers.insert(filter, manager);
         }
         state.insert(stream, filter_managers.clone());
@@ -94,12 +92,12 @@ pub async fn daemon(
     shutdown.wait_shutdown().await;
 
     debug!("Closing DB...");
-    let db_ok = keyspace.persist(fjall::PersistMode::SyncAll);
+    let db_ok = db.flush().await;
 
     let stop_ok = config.stop();
 
-    if let Err(err) = db_ok {
-        Err(format!("database was not saved, unrecoverable error: {}", err).into())
+    if !db_ok {
+        Err("database was not saved".into())
     } else if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {

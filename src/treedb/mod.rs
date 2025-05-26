@@ -171,7 +171,7 @@ impl Database {
 
     /// Flush inner database.
     /// Return false if there was an error
-    async fn flush(&mut self) -> bool {
+    pub async fn flush(&mut self) -> bool {
         match self.write_db.flush().await {
             Ok(()) => true,
             Err(err) => {
