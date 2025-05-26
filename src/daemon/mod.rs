@@ -18,7 +18,7 @@ use tracing::{debug, info};
 
 use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
-pub use shutdown::{ShutdownController, ShutdownDelegate};
+pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use socket::socket_manager;
 use stream::stream_manager;
 
@@ -70,10 +70,17 @@ pub async fn daemon(
     }
     drop(exec_limit);
 
+    // Run database task
+    let mut db_status_rx = {
+        let token = shutdown.token();
+        db.manager(token)
+    };
+
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
     handle_signals(shutdown.delegate(), signal_received.clone())?;
 
+    // Run socket task
     {
         let socket = socket.to_owned();
         let token = shutdown.token();
@@ -91,13 +98,12 @@ pub async fn daemon(
     debug!("Waiting for all tasks to quit...");
     shutdown.wait_shutdown().await;
 
-    debug!("Closing DB...");
-    let db_ok = db.flush().await;
+    let db_status = db_status_rx.try_recv();
 
     let stop_ok = config.stop();
 
-    if !db_ok {
-        Err("database was not saved".into())
+    if let Ok(Err(err)) = db_status {
+        Err(format!("database error: {}", err).into())
     } else if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
     } else if !stop_ok {

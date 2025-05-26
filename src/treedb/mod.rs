@@ -22,12 +22,14 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{
     fs::{rename, File},
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::{interval, MissedTickBehavior},
 };
-use tracing::error;
 
-use crate::concepts::{Config, Time};
+use crate::{
+    concepts::{Config, Time},
+    daemon::ShutdownToken,
+};
 
 pub mod helpers;
 
@@ -77,10 +79,10 @@ pub struct Database {
     /// New database atomically replaces the old one when its writing is done.
     new_path: PathBuf,
     /// The receiver on [`Tree`] write operations
-    rx: mpsc::Receiver<Entry>,
+    entry_rx: mpsc::Receiver<Entry>,
     /// The sender on [`Tree`] write operations.
     /// Only used to clone new senders for new Trees.
-    tx: mpsc::Sender<Entry>,
+    entry_tx: mpsc::Sender<Entry>,
     /// The interval at which the database must be flushed to kernel
     flush_every: Duration,
     /// The maximum bytes that must be written until the database is rotated
@@ -96,89 +98,99 @@ impl Database {
 
         let (write_db, loaded_db) = rotate_db(&path, &new_path, true).await?;
 
-        let (tx, rx) = mpsc::channel(1000);
+        let (entry_tx, entry_rx) = mpsc::channel(1000);
 
         Ok(Database {
             write_db,
             loaded_db,
             path,
             new_path,
-            rx,
-            tx,
+            entry_rx,
+            entry_tx,
             flush_every: Duration::from_secs(2),
             max_bytes: 20 * 1024 * 1024, // 20 MiB
             bytes_written: 0,
         })
     }
 
-    pub async fn task(&mut self) {
-        let mut interval = interval(self.flush_every);
-        // If we missed a tick, it will tick immediately, then wait
-        // flush_every for the next tick, resulting in a relaxed interval.
-        // Hoping this will smooth IO pressure when under heavy load.
-        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        loop {
-            tokio::select! {
-                entry = self.rx.recv() => {
-                    if !self.handle_entry(entry).await {
-                        break;
+    pub fn manager(mut self, shutdown: ShutdownToken) -> oneshot::Receiver<Result<(), String>> {
+        let (error_tx, error_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let mut interval = interval(self.flush_every);
+            // If we missed a tick, it will tick immediately, then wait
+            // flush_every for the next tick, resulting in a relaxed interval.
+            // Hoping this will smooth IO pressure when under heavy load.
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            let status = loop {
+                tokio::select! {
+                    entry = self.entry_rx.recv() => {
+                        if let Err(err) = self.handle_entry(entry).await {
+                            shutdown.ask_shutdown();
+                            break err;
+                        }
                     }
-                }
-                _ = interval.tick() => {
-                    if !self.flush().await {
-                        break;
+                    _ = interval.tick() => {
+                        if let Err(err) = self.flush().await {
+                            shutdown.ask_shutdown();
+                            break Some(err);
+                        }
                     }
-                }
+                    _ = shutdown.wait() => break None
+                };
             };
-        }
 
-        // Shutdown
-        if let Err(err) = self.write_db.close().await {
-            error!("while closing database: {err}");
-        }
+            // Shutdown
+            let close_status = self
+                .close()
+                .await
+                .map_err(|err| format!("while closing database: {err}"));
+
+            let _ = error_tx.send(if let Some(err) = status {
+                Err(err)
+            } else if close_status.is_err() {
+                close_status
+            } else {
+                Ok(())
+            });
+        });
+        error_rx
     }
 
-    /// Write a received entry.
-    /// Return false if there was an error or if it was the last entry.
-    async fn handle_entry(&mut self, entry: Option<Entry>) -> bool {
+    /// Write a received entry. Return:
+    /// - Err(Some) if there was an error,
+    /// - Err(None) is channel is closed,
+    /// - Ok(()) in general case.
+    async fn handle_entry(&mut self, entry: Option<Entry>) -> Result<(), Option<String>> {
         match entry {
             Some(entry) => match self.write_db.write_entry(&entry).await {
                 Ok(bytes_written) => {
                     self.bytes_written += bytes_written;
                     if self.bytes_written > self.max_bytes {
-                        match self.rotate_db().await {
-                            Ok(()) => {
-                                self.bytes_written = 0;
-                                true
-                            }
-                            Err(err) => {
-                                error!("while rotating database: {err}");
-                                false
-                            }
-                        }
+                        self.rotate_db()
+                            .await
+                            .and_then(|_| Ok(self.bytes_written = 0))
+                            .map_err(|err| Some(format!("while rotating database: {err}")))
                     } else {
-                        true
+                        Ok(())
                     }
                 }
-                Err(err) => {
-                    error!("while writing entry to database: {err}");
-                    false
-                }
+                Err(err) => Err(Some(format!("while writing entry to database: {err}"))),
             },
-            None => false,
+            None => Err(None),
         }
     }
 
     /// Flush inner database.
-    /// Return false if there was an error
-    pub async fn flush(&mut self) -> bool {
-        match self.write_db.flush().await {
-            Ok(()) => true,
-            Err(err) => {
-                error!("while flushing database: {err}");
-                false
-            }
-        }
+    async fn flush(&mut self) -> Result<(), String> {
+        self.write_db
+            .flush()
+            .await
+            .map_err(|err| format!("while flushing database: {err}"))
+    }
+
+    /// Close inner database.
+    async fn close(mut self) -> Result<(), IoError> {
+        self.write_db.close().await
     }
 
     /// Rotate inner database.
@@ -276,7 +288,7 @@ impl Database {
             id: name,
             entry_timeout,
             tree,
-            tx: self.tx.clone(),
+            tx: self.entry_tx.clone(),
         })
     }
 
@@ -307,7 +319,10 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
             expiry: Local::now() + self.entry_timeout,
         };
         let tx = self.tx.clone();
-        tokio::spawn(async move { tx.send(e).await });
+        // FIXME what if send fails?
+        tokio::spawn(async move {
+            let _ = tx.send(e).await;
+        });
     }
 
     /// Asynchronously persisted version of [`BTreeMap::insert`]
@@ -377,7 +392,8 @@ mod tests {
     use crate::concepts::Config;
 
     use super::{
-        helpers::*, raw::WriteDB, rotate_db, Database, Entry, KeyType, LoadedDB, Tree, ValueType, DB_NAME
+        helpers::*, raw::WriteDB, rotate_db, Database, Entry, KeyType, LoadedDB, Tree, ValueType,
+        DB_NAME,
     };
 
     impl Database {
