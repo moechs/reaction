@@ -6,6 +6,7 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 // Now TaskTracker exist, but I don't know what I'd gain for using it instead?
 // https://docs.rs/tokio-util/0.7.13/tokio_util/task/task_tracker/struct.TaskTracker.html
 
+/// Permits to keep track of ongoing tasks and ask them to shutdown.
 pub struct ShutdownController {
     shutdown_notifyer: CancellationToken,
     task_tracker: mpsc::Sender<()>,
@@ -22,31 +23,47 @@ impl ShutdownController {
         }
     }
 
+    /// Ask for all tasks to quit
     pub fn ask_shutdown(&self) {
         self.shutdown_notifyer.cancel();
     }
 
+    /// Wait for all tasks to quit.
+    /// This task may return even without having called [`ShutdownController::ask_shutdown`]
+    /// first, if all tasks quit by themselves.
     pub async fn wait_shutdown(mut self) {
         drop(self.task_tracker);
         self.task_waiter.recv().await;
     }
 
+    /// Returns a new shutdown token, to be held by a task.
     pub fn token(&self) -> ShutdownToken {
         ShutdownToken::new(self.shutdown_notifyer.clone(), self.task_tracker.clone())
     }
 
+    /// Returns a [`ShutdownDelegate`], which is able to ask for shutdown,
+    /// without counting as a task that needs to be awaited.
     pub fn delegate(&self) -> ShutdownDelegate {
         ShutdownDelegate(self.shutdown_notifyer.clone())
     }
 }
 
+/// Permits to ask for shutdown, without counting as a task that needs to be awaited.
 pub struct ShutdownDelegate(CancellationToken);
+
 impl ShutdownDelegate {
+    /// Ask for all tasks to quit
     pub fn ask_shutdown(&self) {
         self.0.cancel();
     }
 }
 
+/// Created by a [`ShutdownController`].
+/// Serves two purposes:
+///
+/// - Wait for a shutdown request to happen.
+/// - Keep track of the current task. While this token is held,
+///   the [`ShutdownController::wait_shutdown`] will block.
 #[derive(Clone)]
 pub struct ShutdownToken {
     shutdown_notifyer: CancellationToken,
@@ -61,7 +78,13 @@ impl ShutdownToken {
         }
     }
 
+    /// Returns a future that will resolve only when a shutdown request happened.
     pub fn wait(&self) -> WaitForCancellationFuture<'_> {
         self.shutdown_notifyer.cancelled()
+    }
+
+    /// Ask for all tasks to quit
+    pub fn ask_shutdown(&self) {
+        self.shutdown_notifyer.cancel();
     }
 }
