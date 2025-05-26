@@ -384,7 +384,7 @@ mod tests {
         path::Path,
     };
 
-    use chrono::{Local, TimeDelta, TimeZone};
+    use chrono::{Local, TimeDelta};
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
     use tokio::fs::{write, File};
@@ -543,12 +543,9 @@ mod tests {
         let now2 = now + TimeDelta::milliseconds(2);
         let now3 = now + TimeDelta::milliseconds(3);
 
-        let now_ms = now.timestamp_millis();
-        let now = Local.timestamp_millis_opt(now_ms).unwrap();
-        let now2_ms = now2.timestamp_millis();
-        let now2 = Local.timestamp_millis_opt(now2_ms).unwrap();
-        let now3_ms = now3.timestamp_millis();
-        let now3 = Local.timestamp_millis_opt(now3_ms).unwrap();
+        let now_ms = now.to_rfc3339();
+        let now2_ms = now2.to_rfc3339();
+        let now3_ms = now3.to_rfc3339();
 
         let valid = now + TimeDelta::seconds(2);
 
@@ -558,44 +555,44 @@ mod tests {
         let entries = [
             Entry {
                 tree: "time-match".into(),
-                key: now_ms.into(),
+                key: now_ms.clone().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now2_ms.into(),
+                key: now2_ms.clone().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now3_ms.into(),
+                key: now3_ms.clone().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now2_ms.into(),
+                key: now2_ms.clone().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip127.clone().into(),
-                value: Some([Value::Number(now_ms.into())].into()),
+                value: Some([Value::String(now_ms.into())].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::Number(now2_ms.into())].into()),
+                value: Some([Value::String(now2_ms.clone().into())].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::Number(now2_ms.into()), now3_ms.into()].into()),
+                value: Some([Value::String(now2_ms.clone().into()), now3_ms.into()].into()),
                 expiry: valid,
             },
         ];

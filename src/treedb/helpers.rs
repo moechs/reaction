@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use chrono::{Local, TimeZone};
+use chrono::{DateTime, Local};
 use serde_json::Value;
 
 use crate::concepts::{Match, MatchTime, Time};
@@ -17,10 +17,11 @@ pub fn to_u64(val: &Value) -> Result<u64, String> {
 
 /// Tries to convert a [`Value`] into a [`Time`]
 pub fn to_time(val: &Value) -> Result<Time, String> {
-    Ok(Local
-        .timestamp_millis_opt(val.as_i64().ok_or("not a number")?)
-        .single()
-        .ok_or("not a valid timestamp")?)
+    Ok(
+        DateTime::parse_from_rfc3339(val.as_str().ok_or("not a number")?)
+            .map_err(|err| err.to_string())?
+            .with_timezone(&Local),
+    )
 }
 
 /// Tries to convert a [`Value`] into a [`Match`]
@@ -54,6 +55,7 @@ pub fn to_timeset(val: &Value) -> Result<BTreeSet<Time>, String> {
 mod tests {
     use std::collections::BTreeMap;
 
+    use chrono::TimeZone;
     use serde_json::Map;
 
     use super::*;
@@ -84,14 +86,14 @@ mod tests {
     #[test]
     fn test_to_time() {
         assert_eq!(
-            to_time(&(123456.into())).unwrap(),
+            to_time(&"1970-01-01T01:02:03.456+01:00".into()).unwrap(),
             Local.timestamp_millis_opt(123456).unwrap(),
         );
         assert!(to_time(&(u64::MAX.into())).is_err());
 
         assert!(to_time(&(["ploup"].into())).is_err());
         assert!(to_time(&(true.into())).is_err());
-        assert!(to_time(&("12345".into())).is_err());
+        assert!(to_time(&(12345.into())).is_err());
         assert!(to_time(&(None::<String>.into())).is_err());
     }
 
@@ -113,13 +115,19 @@ mod tests {
     #[test]
     fn test_to_timeset() {
         assert_eq!(
-            to_timeset(&([1234567].into())),
+            to_timeset(&(["1970-01-01T01:20:34.567+01:00"].into())),
             Ok(BTreeSet::from([Local
                 .timestamp_millis_opt(1234567)
                 .unwrap()]))
         );
         assert_eq!(
-            to_timeset(&([8, 123456].into())),
+            to_timeset(
+                &([
+                    "1970-01-01T01:00:00.008+01:00",
+                    "1970-01-01T01:02:03.456+01:00"
+                ]
+                .into())
+            ),
             Ok(BTreeSet::from([
                 Local.timestamp_millis_opt(8).unwrap(),
                 Local.timestamp_millis_opt(123456).unwrap()
@@ -140,7 +148,7 @@ mod tests {
             to_matchtime(&Value::Object(Map::from_iter(
                 BTreeMap::from([
                     ("m".into(), ["plip", "ploup"].into()),
-                    ("t".into(), 12345678.into()),
+                    ("t".into(), "1970-01-01T04:25:45.678+01:00".into()),
                 ])
                 .into_iter()
             ))),

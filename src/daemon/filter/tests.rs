@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use chrono::{Local, TimeDelta, TimeZone};
+use chrono::{Local, TimeDelta};
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
@@ -355,16 +355,13 @@ async fn one_db_match_one_runtime_match_one_action() {
     let mut db = TempDatabase::default().await;
 
     // Pre-add match
-    // Truncate to millisecond precision
-    let now = Local
-        .timestamp_millis_opt(Local::now().timestamp_millis())
-        .unwrap();
+    let now = Local::now();
     let one = vec!["one".to_string()];
     let now1s = now - TimeDelta::seconds(1);
 
     db.set_loaded_db(HashMap::from([(
         filter_ordered_times_db_name(&filter),
-        HashMap::from([(now1s.timestamp_millis().into(), one.clone().into())]),
+        HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
     )]));
 
     // Finish setup
@@ -427,7 +424,7 @@ async fn one_outdated_db_match() {
 
     db.set_loaded_db(HashMap::from([(
         filter_ordered_times_db_name(&filter),
-        HashMap::from([(now1s.timestamp_millis().into(), one.clone().into())]),
+        HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
     )]));
 
     // Finish setup
