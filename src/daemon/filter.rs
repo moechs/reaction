@@ -184,14 +184,15 @@ impl FilterManager {
             let pattern_status = cs.entry(m).or_default();
 
             for action in self.filter.actions().values() {
-                let action_times = pattern_status
-                    .actions
-                    .entry(action.name().into())
-                    .or_default();
-
                 let action_time = mt.t + action.after_duration().unwrap_or_default();
                 if action_time > now {
-                    action_times.push(action_time.to_rfc3339().chars().take(19).collect());
+                    // Insert action
+                    pattern_status
+                        .actions
+                        .entry(action.name().into())
+                        .or_default()
+                        .push(action_time.to_rfc3339().chars().take(19).collect());
+
                     // Execute the action early
                     if let Order::Flush = order {
                         exec_now(&self.exec_limit, action, mt.m.clone());
