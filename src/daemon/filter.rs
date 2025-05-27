@@ -125,55 +125,50 @@ impl FilterManager {
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
 
-        let mut cs = BTreeMap::new();
-        {
-            let mut last_key: Option<Match> = None;
-            let mut n_times = 0;
-
+        let mut cs: BTreeMap<_, _> = {
             let cloned_matches = state
                 .matches
-                .iter()
-                .map(|(k, _)| (k.clone()))
+                .keys()
                 // match filtering
                 .filter(|match_| is_match(match_))
+                // clone necessary to drop all references to State
+                .cloned()
                 .collect::<Vec<_>>();
 
-            let mut insert_last_key = |last_key: Option<Match>, n_times: usize| {
-                if let Some(last_key) = last_key {
+            cloned_matches
+                .into_iter()
+                .map(|match_| {
+                    // mutable State required here
                     if let Order::Flush = order {
-                        state.remove_match(&last_key);
+                        state.remove_match(&match_);
                     }
-                    cs.insert(
-                        last_key,
+                    let matches = state
+                        .matches
+                        .get(&match_)
+                        .map(|times| times.len())
+                        .unwrap_or(0);
+                    (
+                        match_,
                         PatternStatus {
-                            matches: n_times,
+                            matches,
                             ..Default::default()
                         },
-                    );
-                }
-            };
-
-            for k in cloned_matches.into_iter() {
-                if last_key.clone().is_some_and(|last_key| last_key == *k) {
-                    n_times += 1;
-                } else {
-                    insert_last_key(last_key, n_times);
-                    n_times = 0;
-                    last_key = Some(k);
-                }
-            }
-            insert_last_key(last_key, n_times);
-        }
+                    )
+                })
+                .collect()
+        };
 
         let cloned_triggers = state
             .triggers
-            .iter()
-            .map(|(k, _)| (k.clone()))
+            .keys()
             // match filtering
             .filter(|match_| is_match(&match_.m))
+            // clone necessary to drop all references to State
+            .cloned()
             .collect::<Vec<_>>();
 
         for mt in cloned_triggers.into_iter() {
+            // mutable State required here
             // Remove the match from the triggers
             if let Order::Flush = order {
                 // delete specific (Match, Time) tuple
