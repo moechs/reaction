@@ -36,7 +36,7 @@ impl Stream {
 
     pub fn merge(&mut self, other: Stream) -> Result<(), String> {
         if !(self.cmd.is_empty() || other.cmd.is_empty() || self.cmd == other.cmd) {
-            return Err("Command is already defined".into());
+            return Err("cmd has conflicting definitions".into());
         }
 
         if self.cmd.is_empty() {
@@ -45,7 +45,7 @@ impl Stream {
 
         for (key, filter) in other.filters.into_iter() {
             if self.filters.insert(key.clone(), filter).is_some() {
-                return Err(format!("Filter {} already defined", key));
+                return Err(format!("filter {} is already defined. filters can't be spread accross multiple files.", key));
             }
         }
 
