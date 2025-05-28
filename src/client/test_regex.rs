@@ -15,7 +15,7 @@ pub fn test_regex(
     mut regex: String,
     line: Option<String>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let config: Config = Config::from_file(&config_path)?;
+    let config = Config::from_path(&config_path)?;
 
     // Code close to Filter::setup()
     let mut used_patterns: BTreeSet<Arc<Pattern>> = BTreeSet::new();

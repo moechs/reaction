@@ -74,7 +74,7 @@ impl Config {
             .and_then(|stream| stream.get_filter(&name.1))
     }
 
-    pub fn merge(&mut self, mut other: Config) -> Result<(), String> {
+    fn merge(&mut self, mut other: Config) -> Result<(), String> {
         for (key, pattern) in other.patterns.into_iter() {
             match self.patterns.entry(key) {
                 btree_map::Entry::Occupied(e) => {
@@ -145,6 +145,26 @@ impl Config {
         run_commands(&self.stop, "stop")
     }
 
+    pub fn from_path(path: &Path) -> Result<Self, String> {
+        match Self::from_path_raw(path) {
+            Ok((mut cfg, files)) => {
+                cfg.setup().map_err(ConfigError::BadConfig).map_err(|e| {
+                    if path.is_dir() {
+                        format!(
+                        "{e}\nWhile reading config from {}. List of files read, in that order:\n{}",
+                        path.display(),
+                        files.join("\n"),
+                    )
+                    } else {
+                        format!("{e}\nWhile reading config from {}.", path.display())
+                    }
+                })?;
+                Ok(cfg)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn from_path_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
         match std::fs::metadata(path) {
             Err(e) => Err(format!("Error accessing {}: {e}", path.to_string_lossy())),
@@ -168,26 +188,6 @@ impl Config {
                     ))
                 }
             }
-        }
-    }
-
-    pub fn from_path(path: &Path) -> Result<(Self, Vec<String>), String> {
-        match Self::from_path_raw(path) {
-            Ok((mut cfg, files)) => {
-                cfg.setup().map_err(ConfigError::BadConfig).map_err(|e| {
-                    if path.is_dir() {
-                        format!(
-                        "{e}\nWhile reading config from {}. List of files read, in that order:\n{}",
-                        path.display(),
-                        files.join("\n"),
-                    )
-                    } else {
-                        format!("{e}\nWhile reading config from {}.", path.display())
-                    }
-                })?;
-                Ok((cfg, files))
-            }
-            Err(e) => Err(e),
         }
     }
 
@@ -275,14 +275,6 @@ impl Config {
                 path.display()
             ))
         }
-    }
-
-    pub fn from_file(path: &Path) -> Result<Self, String> {
-        match Self::_from_file_raw(path) {
-            Ok(mut cfg) => cfg.setup().map(|_| cfg).map_err(ConfigError::BadConfig),
-            Err(e) => Err(e),
-        }
-        .map_err(|err| format!("Configuration file {}: {}", path.display(), err))
     }
 
     fn _extension_to_format(extension: &str) -> Result<Format, ConfigError> {

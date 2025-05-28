@@ -421,7 +421,7 @@ mod tests {
             )
             .await?;
 
-            let config = Config::from_file(&config_path).unwrap();
+            let config = Config::from_path(&config_path).unwrap();
             Database::open(&config).await
         }
 

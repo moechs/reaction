@@ -31,7 +31,7 @@ pub async fn daemon(
     config_path: PathBuf,
     socket: PathBuf,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?.0));
+    let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
 
     if !config.start() {
         return Err("a start command failed, exiting.".into());
