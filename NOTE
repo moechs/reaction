@@ -1,3 +1,0 @@
-j'essaie de créer un wtxn dans une autre wtxn et je deadlock.
-donc il faudrait que j'envoie la wtxn parente à l'enfant pour soit qu'il l'utilise direct, soit qu'il crée une nested_wtxn.
-je galère un peu avec les types mais je vais m'en sortir.
