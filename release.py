@@ -74,6 +74,7 @@ You'll need to install minisign to check the authenticity of the package.
 
 After installing reaction, create your configuration file at
 `/etc/reaction.json`, `/etc/reaction.jsonnet` or `/etc/reaction.yml`.
+You can also provide a directory containing multiple configuration files in the previous formats.
 See <https://reaction.ppom.me> for documentation.
 
 Reload systemd:
@@ -145,6 +146,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
             "reaction-show.1",
             "reaction-start.1",
             "reaction-test-regex.1",
+            "reaction-test-config.1",
         ]
         for file in files:
             shutil.copy(file, pkg_name)
