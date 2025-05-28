@@ -102,7 +102,26 @@ impl Config {
         self.start.append(&mut other.start);
         self.stop.append(&mut other.stop);
 
-        self.state_directory = other.state_directory;
+
+        if !(self.state_directory == dot()
+            || other.state_directory == dot()
+            || self.state_directory == other.state_directory)
+        {
+            return Err("state_directory have conflicting definitions".into());
+        }
+        if self.state_directory == dot() {
+            self.state_directory = other.state_directory;
+        }
+
+        if !(self.concurrency == num_cpus::get()
+            || other.concurrency == num_cpus::get()
+            || self.concurrency == other.concurrency)
+        {
+            return Err("concurrency have conflicting definitions".into());
+        }
+        if self.concurrency == num_cpus::get() {
+            self.concurrency = other.concurrency;
+        }
 
         Ok(())
     }
@@ -713,5 +732,93 @@ mod tests {
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn merge_config_same_concurrency() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "concurrency": 97,
+                {{STREAMS}}
+            }"#,
+        );
+        let cfg_oth = parse_config_json(
+            r#"{
+                "concurrency": 97
+            }"#,
+        );
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_ok());
+        assert_eq!(cfg_org.concurrency, 97);
+    }
+
+    #[test]
+    fn merge_config_distinct_concurrency() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "concurrency": 97,
+                {{STREAMS}}
+            }"#,
+        );
+        let cfg_oth = parse_config_json(
+            r#"{
+                "concurrency": 96
+            }"#,
+        );
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn merge_config_one_concurrency() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "concurrency": 97,
+                {{STREAMS}}
+            }"#,
+        );
+        let cfg_oth = parse_config_json(
+            r#"{}"#,
+        );
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_ok());
+        assert_eq!(cfg_org.concurrency, 97);
+    }
+
+    #[test]
+    fn merge_config_right_concurrency() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                {{STREAMS}}
+            }"#,
+        );
+        let cfg_oth = parse_config_json(
+            r#"{
+                "concurrency": 97
+            }"#,
+        );
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_ok());
+        assert_eq!(cfg_org.concurrency, 97);
+    }
+
+    #[test]
+    fn merge_config_no_concurrency() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                {{STREAMS}}
+            }"#,
+        );
+        let cfg_oth = parse_config_json(
+            r#"{ }"#,
+        );
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_ok());
+        assert_eq!(cfg_org.concurrency, num_cpus::get());
     }
 }
