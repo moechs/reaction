@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap},
     fs::File,
     io,
     path::Path,
@@ -77,21 +77,21 @@ impl Config {
     fn merge(&mut self, mut other: Config) -> Result<(), String> {
         for (key, pattern) in other.patterns.into_iter() {
             match self.patterns.entry(key) {
-                btree_map::Entry::Occupied(e) => {
-                    return Err(format!("Pattern {} is already defined", e.key()));
-                }
-                btree_map::Entry::Vacant(e) => {
+                Entry::Vacant(e) => {
                     e.insert(pattern);
+                }
+                Entry::Occupied(e) => {
+                    return Err(format!("pattern {} is already defined. pattern definitions can't be spread accross multiple files.", e.key()));
                 }
             }
         }
 
         for (key, stream) in other.streams.into_iter() {
             match self.streams.entry(key) {
-                btree_map::Entry::Vacant(e) => {
+                Entry::Vacant(e) => {
                     e.insert(stream);
                 }
-                btree_map::Entry::Occupied(mut e) => {
+                Entry::Occupied(mut e) => {
                     e.get_mut()
                         .merge(stream)
                         .map_err(|err| format!("Stream {}: {}", e.key(), err))?;

@@ -45,7 +45,7 @@ impl Stream {
 
         for (key, filter) in other.filters.into_iter() {
             if self.filters.insert(key.clone(), filter).is_some() {
-                return Err(format!("filter {} is already defined. filters can't be spread accross multiple files.", key));
+                return Err(format!("filter {} is already defined. filter definitions can't be spread accross multiple files.", key));
             }
         }
 
