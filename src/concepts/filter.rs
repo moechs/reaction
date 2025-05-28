@@ -19,7 +19,6 @@ use super::{Action, Match, Pattern, Patterns};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
-    actions: BTreeMap<String, Action>,
     #[serde(skip)]
     longuest_action_duration: TimeDelta,
 
@@ -37,6 +36,8 @@ pub struct Filter {
     retry_period: Option<String>,
     #[serde(skip)]
     retry_duration: Option<TimeDelta>,
+
+    actions: BTreeMap<String, Action>,
 
     #[serde(skip)]
     name: String,

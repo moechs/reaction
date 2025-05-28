@@ -19,22 +19,21 @@ pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(default)]
-    patterns: Patterns,
-
-    #[serde(default)]
-    streams: BTreeMap<String, Stream>,
-
     #[serde(default = "num_cpus::get")]
     concurrency: usize,
+    #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
+    state_directory: String,
+
+    #[serde(default)]
+    patterns: Patterns,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     start: Vec<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     stop: Vec<Vec<String>>,
 
-    #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
-    state_directory: String,
+    #[serde(default)]
+    streams: BTreeMap<String, Stream>,
 
     // This field only serve the purpose of having a top-level place for saving YAML variables
     #[serde(default, skip_serializing, rename = "definitions")]
