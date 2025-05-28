@@ -47,7 +47,7 @@ pub enum SubCommand {
         #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
         socket: PathBuf,
 
-        /// how to format output: json or yaml.
+        /// how to format output
         #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
@@ -70,7 +70,7 @@ Then prints the flushed matches and actions."
         #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
         socket: PathBuf,
 
-        /// how to format output: json or yaml.
+        /// how to format output
         #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
@@ -102,12 +102,13 @@ Giving a configuration file permits to use its patterns in REGEX."
         #[clap(value_name = "LINE")]
         line: Option<String>,
     },
+    /// Test your configuration
     TestConfig {
-        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. required.
         #[clap(short = 'c', long)]
         config: PathBuf,
 
-        /// how to format output: json or yaml.
+        /// how to format output
         #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
