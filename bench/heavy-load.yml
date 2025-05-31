@@ -1,4 +1,6 @@
 ---
+# This configuration permits to test reaction's performance
+# under a very high load
 concurrency: 32
 
 patterns:

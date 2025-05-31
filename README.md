@@ -36,7 +36,7 @@ both are extensions of JSON, so JSON is transitively supported.
 - See [reaction.yml](./app/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference
 - See [server.jsonnet](./config/server.jsonnet) for a real-world configuration
 - See [reaction.example.service](./config/reaction.example.service) for a systemd service file
-- This minimal example shows what's needed to prevent brute force attacks on an ssh server (please take a look at more complete references before starting 🆙):
+- This minimal example shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/security.html) part of the wiki before starting 🆙):
 
 <details open>
 
@@ -46,15 +46,18 @@ both are extensions of JSON, so JSON is transitively supported.
 patterns:
   ip:
     regex: '(([0-9]{1,3}\.){3}[0-9]{1,3})|([0-9a-fA-F:]{2,90})'
+    ignore:
+      - '127.0.0.1'
+      - '::1'
 
 start:
   - [ 'ip46tables', '-w', '-N', 'reaction' ]
-  - [ 'ip46tables', '-w', '-A', 'reaction', '-j', 'ACCEPT' ]
-  - [ 'ip46tables', '-w', '-I', 'reaction', '1', '-s', '127.0.0.1', '-j', 'ACCEPT' ]
-  - [ 'ip46tables', '-w', '-I', 'INPUT', '-p', 'all', '-j', 'reaction' ]
+  - [ 'ip46tables', '-w', '-I', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
+  - [ 'ip46tables', '-w', '-I', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
 
 stop:
-  - [ 'ip46tables', '-w', '-D', 'INPUT', '-p', 'all', '-j', 'reaction' ]
+  - [ 'ip46tables', '-w', '-D', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
+  - [ 'ip46tables', '-w', '-D', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
   - [ 'ip46tables', '-w', '-F', 'reaction' ]
   - [ 'ip46tables', '-w', '-X', 'reaction' ]
 
@@ -65,13 +68,16 @@ streams:
       failedlogin:
         regex:
           - 'authentication failure;.*rhost=<ip>'
+          - 'Failed password for .* from <ip>'
+          - 'Invalid user .* from <ip>',
+          - 'banner exchange: Connection from <ip> port [0-9]*: invalid format',
         retry: 3
         retryperiod: '6h'
         actions:
           ban:
-            cmd: [ 'ip46tables', '-w', '-I', 'reaction', '1', '-s', '<ip>', '-j', 'block' ]
+            cmd: [ 'ip46tables', '-w', '-I', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
           unban:
-            cmd: [ 'ip46tables', '-w', '-D', 'reaction', '1', '-s', '<ip>', '-j', 'block' ]
+            cmd: [ 'ip46tables', '-w', '-D', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
             after: '48h'
 ```
 
@@ -85,13 +91,14 @@ streams:
 local iptables(args) = [ 'ip46tables', '-w' ] + args;
 local banFor(time) = {
   ban: {
-    cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'reaction-log-refuse']),
+    cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'DROP']),
   },
   unban: {
     after: time,
-    cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'reaction-log-refuse']),
+    cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
   },
 };
+
 {
   patterns: {
     ip: {
@@ -100,12 +107,12 @@ local banFor(time) = {
   },
   start: [
     iptables([ '-N', 'reaction' ]),
-    iptables([ '-A', 'reaction', '-j', 'ACCEPT' ]),
-    iptables([ '-I', 'reaction', '1', '-s', '127.0.0.1', '-j', 'ACCEPT' ]),
-    iptables([ '-I', 'INPUT', '-p', 'all', '-j', 'reaction' ]),
+    iptables([ '-I', 'INPUT',   '-p', 'all', '-j', 'reaction' ]),
+    iptables([ '-I', 'FORWARD', '-p', 'all', '-j', 'reaction' ]),
   ],
   stop: [
-    iptables([ '-D', 'INPUT', '-p', 'all', '-j', 'reaction' ]),
+    iptables([ '-D', 'INPUT',   '-p', 'all', '-j', 'reaction' ]),
+    iptables([ '-D', 'FORWARD', '-p', 'all', '-j', 'reaction' ]),
     iptables([ '-F', 'reaction' ]),
     iptables([ '-X', 'reaction' ]),
   ],
@@ -114,7 +121,12 @@ local banFor(time) = {
       cmd: [ 'journalctl', '-fu', 'sshd.service' ],
       filters: {
         failedlogin: {
-          regex: [ @'authentication failure;.*rhost=<ip>' ],
+          regex: [
+            @'authentication failure;.*rhost=<ip>'
+            @'Failed password for .* from <ip>',
+            @'banner exchange: Connection from <ip> port [0-9]*: invalid format',
+            @'Invalid user .* from <ip>',
+          ],
           retry: 3,
           retryperiod: '6h',
           actions: banFor('48h'),
@@ -130,7 +142,7 @@ local banFor(time) = {
 
 ### Database
 
-The embedded database is stored in the working directory.
+The embedded database is stored in the working directory (but can be overriden by the `state_directory` config option).
 If you don't know where to start reaction, `/var/lib/reaction` should be a sane choice.
 
 ### CLI
@@ -172,7 +184,7 @@ reaction is packaged, but the [**module**](https://framagit.org/ppom/nixos/-/blo
 
 #### OpenBSD
 
-[wiki](https://reaction.ppom.me/configs/openbsd.html)
+See the [wiki](https://reaction.ppom.me/configurations/OpenBSD.html).
 
 ### Compilation
 
