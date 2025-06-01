@@ -233,5 +233,9 @@ French version: [#reaction-users-fr:club1.fr](https://matrix.to/#/#reaction-user
 
 ## Funding
 
-This is a free time project, so I'm not working on schedule.
-However, if you're willing to fund the project, I can priorise and plan paid work. This includes features, documentation and specific JSONnet configurations.
+<!-- This is a free time project, so I'm not working on schedule.
+However, if you're willing to fund the project, I can priorise and plan paid work. This includes features, documentation and specific JSONnet configurations. -->
+
+This project is currenlty funded through the [NGI0 Core](https://nlnet.nl/core) Fund, a fund established by [NLnet](https://nlnet.nl) with financial support from the European Commission's [Next Generation Internet](https://ngi.eu) programme.
+
+![NLnet logo](logo/nlnet.svg)
