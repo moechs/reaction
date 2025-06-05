@@ -1,5 +1,6 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign cargo-cross rustup cargo-deb
+import argparse
 import http.client
 import json
 import os
@@ -19,6 +20,15 @@ def run_command(args, **kwargs):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="create a reaction release")
+    parser.add_argument(
+        "-p",
+        "--publish",
+        action="store_true",
+        help="publish a release. else build only",
+    )
+    args = parser.parse_args()
+
     # Git tag
     cmd = run_command(
         ["git", "tag", "--sort=-creatordate"], capture_output=True, text=True
@@ -33,28 +43,35 @@ def main():
         sys.exit(1)
 
     # Ask user
-    if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
+    if (
+        args.publish
+        and input(
+            f"We will create a release for tag {tag}. Do you want to continue? (y/n) "
+        )
+        != "y"
+    ):
         print("exiting.")
         sys.exit(1)
 
-    # Git push
-    run_command(["git", "push", "--tags"])
+    if args.publish:
+        # Git push
+        run_command(["git", "push", "--tags"])
 
-    # Minisign password
-    cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
-    minisign_password = cmd.stdout
+        # Minisign password
+        cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
+        minisign_password = cmd.stdout
 
-    # Create directory
-    run_command(
-        [
-            "ssh",
-            "akesi",
-            # "-J", "pica01",
-            "mkdir",
-            "-p",
-            f"/var/www/static/reaction/releases/{tag}/",
-        ]
-    )
+        # Create directory
+        run_command(
+            [
+                "ssh",
+                "akesi",
+                # "-J", "pica01",
+                "mkdir",
+                "-p",
+                f"/var/www/static/reaction/releases/{tag}/",
+            ]
+        )
 
     architectures = {
         "x86_64-unknown-linux-musl": "amd64",
@@ -161,31 +178,35 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 
         os.chdir(root_dir)
 
-        # Sign
-        run_command(
-            ["minisign", "-Sm", deb_path, tar_path], text=True, input=minisign_password
-        )
-        deb_sig = f"{deb_path}.minisig"
-        tar_sig = f"{tar_path}.minisig"
+        if args.publish:
+            # Sign
+            run_command(
+                ["minisign", "-Sm", deb_path, tar_path],
+                text=True,
+                input=minisign_password,
+            )
+            deb_sig = f"{deb_path}.minisig"
+            tar_sig = f"{tar_path}.minisig"
 
-        # Push
-        run_command(
-            [
-                "rsync",
-                "-az",  # "-e", "ssh -J pica01",
-                tar_path,
-                tar_sig,
-                deb_path,
-                deb_sig,
-                f"akesi:/var/www/static/reaction/releases/{tag}/",
-            ]
-        )
-        all_files.extend([tar_path, tar_sig, deb_path, deb_sig])
+            # Push
+            run_command(
+                [
+                    "rsync",
+                    "-az",  # "-e", "ssh -J pica01",
+                    tar_path,
+                    tar_sig,
+                    deb_path,
+                    deb_sig,
+                    f"akesi:/var/www/static/reaction/releases/{tag}/",
+                ]
+            )
 
-        # Instructions
+            all_files.extend([tar_path, tar_sig, deb_path, deb_sig])
 
-        instructions.append(
-            f"""
+            # Instructions
+
+            instructions.append(
+                f"""
 ## Tar installation ({architectures[architecture]} linux)
 
 ```bash
@@ -197,10 +218,10 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{tar_name} \\
         && sudo make install
 ```
         """.strip()
-        )
+            )
 
-        instructions.append(
-            f"""
+            instructions.append(
+                f"""
 ## Debian installation ({architectures[architecture]} linux)
 
 ```bash
@@ -211,7 +232,10 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
         && sudo apt install ./{deb_name}
 ```
         """.strip()
-        )
+            )
+
+    if not args.publish:
+        return
 
     # Release
     cmd = run_command(
@@ -274,7 +298,7 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
 
     if response.status != 201:
         print(
-                f"sending message failed: status: {response.status}, reason: {response.reason}, message: {body.message}"
+            f"sending message failed: status: {response.status}, reason: {response.reason}, message: {body.message}"
         )
         sys.exit(1)
 
