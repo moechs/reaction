@@ -38,6 +38,11 @@ local banFor(time) = {
     },
   },
 
+  // where the state (database) must be read
+  // defaults to . which means reaction's working directory.
+  // The systemd service starts reaction in /var/lib/reaction.
+  state_directory: '.',
+
   // if set to a positive number → max number of concurrent actions
   // if set to a negative number → no limit
   // if not specified or set to 0 → defaults to the number of CPUs on the system
