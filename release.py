@@ -33,12 +33,12 @@ def main():
         sys.exit(1)
 
     # Ask user
-    # if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
-    #     print("exiting.")
-    #     sys.exit(1)
+    if input(f"We will create a release for tag {tag}. Do you want to continue? (y/n) ") != "y":
+        print("exiting.")
+        sys.exit(1)
 
     # Git push
-    # run_command(["git", "push", "--tags"])
+    run_command(["git", "push", "--tags"])
 
     # Minisign password
     cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
@@ -270,10 +270,11 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
     conn = http.client.HTTPSConnection("framagit.org")
     conn.request("POST", "/api/v4/projects/90566/releases", body=body, headers=headers)
     response = conn.getresponse()
+    body = json.loads(response.read())
 
     if response.status != 201:
         print(
-            f"sending message failed: status: {response.status}, reason: {response.reason}"
+                f"sending message failed: status: {response.status}, reason: {response.reason}, message: {body.message}"
         )
         sys.exit(1)
 
