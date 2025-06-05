@@ -20,6 +20,7 @@ def run_command(args, **kwargs):
 
 
 def main():
+    # CLI arguments
     parser = argparse.ArgumentParser(description="create a reaction release")
     parser.add_argument(
         "-p",
@@ -28,6 +29,8 @@ def main():
         help="publish a release. else build only",
     )
     args = parser.parse_args()
+
+    root_dir = os.getcwd()
 
     # Git tag
     cmd = run_command(
@@ -72,13 +75,20 @@ def main():
                 f"/var/www/static/reaction/releases/{tag}/",
             ]
         )
+    else:
+        # Prepare directory for tarball and deb file.
+        # We must do a `cargo clean` before each build,
+        # So we have to move them out of `target/`
+        local_dir = os.path.join(root_dir, "local")
+        try:
+            os.mkdir(local_dir)
+        except FileExistsError:
+            pass
 
     architectures = {
         "x86_64-unknown-linux-musl": "amd64",
         "aarch64-unknown-linux-musl": "arm64",
     }
-
-    root_dir = os.getcwd()
 
     all_files = []
 
@@ -107,7 +117,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 """.strip(),
     ]
 
-    for architecture in architectures.keys():
+    for (architecture_rs, architecture_pretty) in architectures.items():
         # Cargo clean
         run_command(["cargo", "clean"])
 
@@ -117,7 +127,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
                 "rustup",
                 "toolchain",
                 "install",
-                f"stable-{architecture}",
+                f"stable-{architecture_rs}",
                 "--force-non-host",  # I know, I know!
                 "--profile",
                 "minimal",
@@ -125,20 +135,20 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
         )
 
         # Build
-        run_command(["cross", "build", "--release", "--target", architecture])
+        run_command(["cross", "build", "--release", "--target", architecture_rs])
 
         # Build .deb
         cmd = run_command(
-            ["cargo-deb", f"--target={architecture}", "--no-build", "--no-strip"]
+            ["cargo-deb", f"--target={architecture_rs}", "--no-build", "--no-strip"]
         )
 
-        deb_dir = os.path.join("./target", architecture, "debian")
+        deb_dir = os.path.join("./target", architecture_rs, "debian")
         deb_name = [f for f in os.listdir(deb_dir) if f.endswith(".deb")][0]
         deb_path = os.path.join(deb_dir, deb_name)
 
         # Archive
-        files_path = os.path.join("./target", architecture, "release")
-        pkg_name = f"reaction-{tag}-{architectures[architecture]}"
+        files_path = os.path.join("./target", architecture_rs, "release")
+        pkg_name = f"reaction-{tag}-{architecture_pretty}"
         tar_name = f"{pkg_name}.tar.gz"
         tar_path = os.path.join(files_path, tar_name)
 
@@ -207,7 +217,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 
             instructions.append(
                 f"""
-## Tar installation ({architectures[architecture]} linux)
+## Tar installation ({architecture_pretty} linux)
 
 ```bash
 curl -O https://static.ppom.me/reaction/releases/{tag}/{tar_name} \\
@@ -222,7 +232,7 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{tar_name} \\
 
             instructions.append(
                 f"""
-## Debian installation ({architectures[architecture]} linux)
+## Debian installation ({architecture_pretty} linux)
 
 ```bash
 curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
@@ -233,6 +243,9 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
 ```
         """.strip()
             )
+        else:
+            # Copy
+            run_command(["cp", tar_path, deb_path, local_dir])
 
     if not args.publish:
         return
