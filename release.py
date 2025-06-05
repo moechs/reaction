@@ -21,11 +21,11 @@ def run_command(args, **kwargs):
 def main():
     # Git tag
     cmd = run_command(
-        ["git", "tag", "--sort=v:refname"], capture_output=True, text=True
+        ["git", "tag", "--sort=-creatordate"], capture_output=True, text=True
     )
     tag = ""
     try:
-        tag = cmd.stdout.strip().split("\n")[-1]
+        tag = cmd.stdout.strip().split("\n")[0]
     except Exception:
         pass
     if tag == "":
