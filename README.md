@@ -149,9 +149,10 @@ If you don't know where to start reaction, `/var/lib/reaction` should be a sane 
 ### CLI
 
 - `reaction start` runs the server
-- `reaction show` show pending actions (ie. bans)
+- `reaction show` show pending actions (ie. current bans)
 - `reaction flush` permits to run pending actions (ie. clear bans)
 - `reaction test-regex` permits to test regexes
+- `reaction test-config` shows loaded configuration
 - `reaction help` for full usage.
 
 ### `ip46tables`
