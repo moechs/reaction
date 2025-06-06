@@ -1,5 +1,5 @@
 use std::{
-    env::var_os,
+    env::{var, var_os},
     io::{self, ErrorKind},
     path::Path,
     process,
@@ -10,14 +10,35 @@ use clap_complete::shells;
 // SubCommand defined here
 include!("src/cli.rs");
 
-fn compile_helper(name: &str, out_dir: &Path) -> io::Result<()> {
-    process::Command::new("gcc")
-        .args([
-            &format!("helpers_c/{name}.c"),
-            "-o",
-            out_dir.join(name).to_str().expect("could not join path"),
-        ])
-        .spawn()?;
+fn gcc() -> String {
+    // TARGET looks like aarch64-unknown-linux-musl
+    match var("TARGET") {
+        Ok(target) => {
+            // We're looking for an environment variable looking like
+            // CC_aarch64_unknown_linux_musl
+            let target = target.replace("-", "_");
+            var(format!("CC_{}", target.replace("-", "_"))).ok()
+        }
+        Err(_) => None,
+    }
+    .unwrap_or("gcc".into())
+}
+
+fn compile_helper(cc: &str, name: &str, out_dir: &Path) -> io::Result<()> {
+    let mut args = vec![
+        format!("helpers_c/{name}.c"),
+        "-o".into(),
+        out_dir
+            .join(name)
+            .to_str()
+            .expect("could not join path")
+            .to_owned(),
+    ];
+    // We can build static executables in cross environment
+    if cc != "gcc" {
+        args.push("-static".into());
+    }
+    process::Command::new(cc).args(args).spawn()?;
     Ok(())
 }
 
@@ -26,8 +47,10 @@ fn main() -> io::Result<()> {
         let out_dir = PathBuf::from(var_os("OUT_DIR").ok_or(ErrorKind::NotFound)?).join("../../..");
 
         // Compile C helpers
-        compile_helper("ip46tables", &out_dir)?;
-        compile_helper("nft46", &out_dir)?;
+        let cc = gcc();
+        println!("CC is: {}", cc);
+        compile_helper(&cc, "ip46tables", &out_dir)?;
+        compile_helper(&cc, "nft46", &out_dir)?;
 
         // Build CLI
         let cli = clap::Command::new("reaction");
