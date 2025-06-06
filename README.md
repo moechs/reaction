@@ -33,9 +33,10 @@ reaction does not have all the features of the honorable fail2ban, but it's ~10x
 YAML and [JSONnet](https://jsonnet.org/) (more powerful) are supported.
 both are extensions of JSON, so JSON is transitively supported.
 
-- See [reaction.yml](./app/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference
-- See [server.jsonnet](./config/server.jsonnet) for a real-world configuration
-- See [reaction.example.service](./config/reaction.example.service) for a systemd service file
+- See [reaction.yml](./config/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference
+- See the [wiki](https://reaction.ppom.me) for multiple examples, security recommendations and FAQ.
+- See [server.jsonnet](https://reaction.ppom.me/configurations/ppom/server.jsonnet.html) for a real-world configuration
+- See [reaction.service](./config/reaction.service) for a systemd service file
 - This minimal example shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/security.html) part of the wiki before starting 🆙):
 
 <details open>
