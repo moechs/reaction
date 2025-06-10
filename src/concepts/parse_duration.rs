@@ -1,5 +1,17 @@
 use chrono::TimeDelta;
 
+/// Parses the &str argument as a Duration
+/// Returns Ok(TimeDelta) if successful, or Err(String).
+///
+/// Format is defined as follows: `<integer> <unit>`
+/// - whitespace between the integer and unit is optional
+/// - integer must be positive (>= 0)
+/// - unit can be one of:
+///   - `ms` / `millis` / `millisecond` / `milliseconds`
+///   - `s` / `sec` / `secs` / `second` / `seconds`
+///   - `m` / `min` / `mins` / `minute` / `minutes`
+///   - `h` / `hour` / `hours`
+///   - `d` / `day` / `days`
 pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
     let d_trimmed = d.trim();
     let chars = d_trimmed.as_bytes();

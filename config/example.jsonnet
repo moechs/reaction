@@ -94,7 +94,15 @@ local banFor(time) = {
           // the actions will only take place if a same pattern is
           // found `retry` times in a `retryperiod` interval
           retry: 3,
-          // format is defined here: https://pkg.go.dev/time#ParseDuration
+          // format is defined as follows: <integer> <unit>
+          // - whitespace between the integer and unit is optional
+          // - integer must be positive (>= 0)
+          // - unit can be one of:
+          //   - ms / millis / millisecond / milliseconds
+          //   - s / sec / secs / second / seconds
+          //   - m / min / mins / minute / minutes
+          //   - h / hour / hours
+          //   - d / day / days
           retryperiod: '6h',
           // actions are run by the filter when regexes are matched
           actions: {
@@ -106,7 +114,7 @@ local banFor(time) = {
               cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
               // if after is defined, the action will not take place immediately, but after a specified duration
               // same format as retryperiod
-              after: '48h',
+              after: '2 days',
               // let's say reaction is quitting. does it run all those pending commands which had an `after` duration set?
               // if you want reaction to run those pending commands before exiting, you can set this:
               // onexit: true,
