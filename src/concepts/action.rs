@@ -8,7 +8,7 @@ use tokio::process::Command;
 use super::parse_duration::*;
 use super::{Match, Pattern};
 
-#[derive(Clone, Debug, Default, Deserialize , Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
     cmd: Vec<String>,
@@ -25,6 +25,8 @@ pub struct Action {
         skip_serializing_if = "is_false"
     )]
     on_exit: bool,
+    #[serde(default = "set_false", skip_serializing_if = "is_false")]
+    oneshot: bool,
 
     #[serde(skip)]
     patterns: Arc<BTreeSet<Arc<Pattern>>>,
@@ -55,6 +57,10 @@ impl Action {
 
     pub fn on_exit(&self) -> bool {
         self.on_exit
+    }
+
+    pub fn oneshot(&self) -> bool {
+        self.oneshot
     }
 
     pub fn setup(
@@ -206,6 +212,7 @@ pub mod tests {
             after: None,
             after_duration: None,
             on_exit: false,
+            oneshot: false,
             patterns: Arc::new(BTreeSet::default()),
         }
     }

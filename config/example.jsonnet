@@ -114,6 +114,12 @@ local banFor(time) = {
               // here it is not useful because we will flush and delete the chain containing the bans anyway
               // (with the stop commands)
             },
+            mail: {
+              cmd: ['sendmail', '...', '<ip>'],
+              // some commands, such as alerting commands, are "oneshot".
+              // this means they'll be run only once, and won't be executed again when reaction is restarted
+              oneshot: true,
+            },
           },
           // or use the banFor function defined at the beginning!
           // actions: banFor('48h'),

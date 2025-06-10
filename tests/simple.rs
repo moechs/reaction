@@ -49,6 +49,10 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
                             after: '30s',
                             onexit: false,
                         },
+                        action_oneshot: {
+                            cmd: ['sh', '-c', 'echo oneshot <num> >> ./oneshot.txt'],
+                            oneshot: true,
+                        },
                     }
                 }
             }
@@ -72,6 +76,7 @@ async fn simple() {
 
     let config_path = "config.jsonnet";
     let out_path = "./out.txt";
+    let oneshot_path = "./oneshot.txt";
     let socket_path = "./reaction.sock";
 
     config_with_cmd(
@@ -80,6 +85,7 @@ async fn simple() {
     );
 
     file_with_contents(out_path, "");
+    file_with_contents(oneshot_path, "");
 
     // Set the logger before running any code from the crate
     tracing_subscriber::fmt::fmt()
@@ -134,6 +140,12 @@ async fn simple() {
         "24\n36\n12\ndel 24".to_owned().trim()
     );
 
+    // oneshot actions are also executed
+    assert_eq!(
+        get_file_content(oneshot_path).trim(),
+        "oneshot 24\noneshot 36\noneshot 12".to_owned().trim()
+    );
+
     // Second part of the test
     // We test that persistence worked as intended
     // Both for matches and for flushes
@@ -144,6 +156,7 @@ async fn simple() {
     );
 
     file_with_contents(out_path, "");
+    file_with_contents(oneshot_path, "");
 
     let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
     assert!(daemon_exit.is_err());
@@ -152,10 +165,10 @@ async fn simple() {
         "quitting because all streams finished"
     );
 
-    // 36 from DB
-    // 12 from DB
-    // 12 from DB + new match
-    // 67 from DB + new match
+    // 36 trigger from DB
+    // 12 trigger from DB
+    // 12 match from DB + new match
+    // 67 match from DB + new match
     let content = get_file_content(out_path).trim().to_owned();
     let scenario1 = "36\n12\n12\n67".trim().to_owned();
     let scenario2 = "12\n36\n12\n67".trim().to_owned();
@@ -165,6 +178,15 @@ async fn simple() {
         content,
         scenario1,
         scenario2
+    );
+
+    // triggers from the DB aren't executed for oneshot actions
+    // only for new triggers
+    // 12 match from DB + new match
+    // 67 match from DB + new match
+    assert_eq!(
+        get_file_content(oneshot_path).trim(),
+        "oneshot 12\noneshot 67".to_owned().trim()
     );
 
     // Third part of the test

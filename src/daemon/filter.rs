@@ -100,7 +100,7 @@ impl FilterManager {
         if exec {
             state.remove_match(&m);
             state.add_trigger(m.clone(), now);
-            self.schedule_exec(m, now, now, &mut state);
+            self.schedule_exec(m, now, now, &mut state, false);
         }
 
         exec
@@ -199,11 +199,24 @@ impl FilterManager {
         cs.into_iter().map(|(k, v)| (k.join(" "), v)).collect()
     }
 
-    /// Schedule execution for a given Action and Match.
+    /// Schedule execution for a given Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    fn schedule_exec(&self, m: Match, t: Time, now: Time, state: &mut MutexGuard<State>) {
-        for action in self.filter.actions().values() {
+    fn schedule_exec(
+        &self,
+        m: Match,
+        t: Time,
+        now: Time,
+        state: &mut MutexGuard<State>,
+        startup: bool,
+    ) {
+        for action in self
+            .filter
+            .actions()
+            .values()
+            // On startup, skip oneshot actions
+            .filter(|action| !startup || !action.oneshot())
+        {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();
 
@@ -240,7 +253,13 @@ impl FilterManager {
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration();
-        let number_of_actions = self.filter.actions().len();
+        let number_of_actions = self
+            .filter
+            .actions()
+            .values()
+            // On startup, skip oneshot actions
+            .filter(|action| !action.oneshot())
+            .count();
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
@@ -256,7 +275,7 @@ impl FilterManager {
                 // Insert back the upcoming times
                 state.triggers.insert(mt.clone(), number_of_actions as u64);
                 // Schedule the upcoming times
-                self.schedule_exec(mt.m, mt.t, now, &mut state);
+                self.schedule_exec(mt.m, mt.t, now, &mut state, true);
             } else {
                 state.triggers.remove(&mt);
             }
