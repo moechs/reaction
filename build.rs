@@ -10,9 +10,9 @@ use clap_complete::shells;
 // SubCommand defined here
 include!("src/cli.rs");
 
-fn gcc() -> String {
+fn cc() -> String {
     // TARGET looks like aarch64-unknown-linux-musl
-    match var("TARGET") {
+    let cc = match var("TARGET") {
         Ok(target) => {
             // We're looking for an environment variable looking like
             // CC_aarch64_unknown_linux_musl
@@ -20,8 +20,17 @@ fn gcc() -> String {
             var(format!("CC_{}", target.replace("-", "_"))).ok()
         }
         Err(_) => None,
+    };
+    match cc {
+        Some(cc) => Some(cc),
+        // Else we're looking for CC environment variable
+        None => match var("CC") {
+            Ok(cc) => Some(cc),
+            Err(_) => None,
+        },
     }
-    .unwrap_or("gcc".into())
+    // Else we use `cc`
+    .unwrap_or("cc".into())
 }
 
 fn compile_helper(cc: &str, name: &str, out_dir: &Path) -> io::Result<()> {
@@ -35,7 +44,7 @@ fn compile_helper(cc: &str, name: &str, out_dir: &Path) -> io::Result<()> {
             .to_owned(),
     ];
     // We can build static executables in cross environment
-    if cc != "gcc" {
+    if cc.ends_with("-gcc") {
         args.push("-static".into());
     }
     process::Command::new(cc).args(args).spawn()?;
@@ -47,7 +56,7 @@ fn main() -> io::Result<()> {
         let out_dir = PathBuf::from(var_os("OUT_DIR").ok_or(ErrorKind::NotFound)?).join("../../..");
 
         // Compile C helpers
-        let cc = gcc();
+        let cc = cc();
         println!("CC is: {}", cc);
         compile_helper(&cc, "ip46tables", &out_dir)?;
         compile_helper(&cc, "nft46", &out_dir)?;
