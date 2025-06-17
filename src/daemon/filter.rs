@@ -267,7 +267,7 @@ impl FilterManager {
         let cloned_triggers = state
             .triggers
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (k.clone(), *v))
             .collect::<Vec<_>>();
 
         for (mt, remaining) in cloned_triggers.into_iter() {
@@ -387,7 +387,7 @@ impl State {
     fn remove_match(&mut self, m: &Match) {
         if let Some(set) = self.matches.get(m) {
             for t in set {
-                self.ordered_times.remove(&t);
+                self.ordered_times.remove(t);
             }
             self.matches.remove(m);
         }
@@ -433,7 +433,7 @@ impl State {
             // unwrap: we just checked in the condition that first is_some
             let (t, m) = {
                 let (t, m) = self.ordered_times.first_key_value().unwrap();
-                (t.clone(), m.clone())
+                (*t, m.clone())
             };
             self.ordered_times.remove(&t);
             if let Some(set) = self.matches.get(&m) {

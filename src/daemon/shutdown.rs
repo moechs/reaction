@@ -14,6 +14,7 @@ pub struct ShutdownController {
 }
 
 impl ShutdownController {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let (task_tracker, task_waiter) = mpsc::channel(1);
         Self {

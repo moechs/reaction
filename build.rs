@@ -24,10 +24,7 @@ fn cc() -> String {
     match cc {
         Some(cc) => Some(cc),
         // Else we're looking for CC environment variable
-        None => match var("CC") {
-            Ok(cc) => Some(cc),
-            Err(_) => None,
-        },
+        None => var("CC").ok(),
     }
     // Else we use `cc`
     .unwrap_or("cc".into())

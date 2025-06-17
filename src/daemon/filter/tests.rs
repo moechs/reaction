@@ -360,7 +360,7 @@ async fn one_db_match_one_runtime_match_one_action() {
     let now1s = now - TimeDelta::seconds(1);
 
     db.set_loaded_db(HashMap::from([(
-        filter_ordered_times_db_name(&filter),
+        filter_ordered_times_db_name(filter),
         HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
     )]));
 
@@ -423,7 +423,7 @@ async fn one_outdated_db_match() {
     let now1s = now - TimeDelta::milliseconds(1001);
 
     db.set_loaded_db(HashMap::from([(
-        filter_ordered_times_db_name(&filter),
+        filter_ordered_times_db_name(filter),
         HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
     )]));
 

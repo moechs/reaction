@@ -166,10 +166,13 @@ impl Database {
                 Ok(bytes_written) => {
                     self.bytes_written += bytes_written;
                     if self.bytes_written > self.max_bytes {
-                        self.rotate_db()
-                            .await
-                            .and_then(|_| Ok(self.bytes_written = 0))
-                            .map_err(|err| Some(format!("while rotating database: {err}")))
+                        match self.rotate_db().await {
+                            Ok(_) => {
+                                self.bytes_written = 0;
+                                Ok(())
+                            }
+                            Err(err) => Err(Some(format!("while rotating database: {err}"))),
+                        }
                     } else {
                         Ok(())
                     }
@@ -279,8 +282,7 @@ impl Database {
             json_tree
                 .into_iter()
                 .map(map_f)
-                .collect::<Result<BTreeMap<K, V>, String>>()
-                .unwrap()
+                .collect::<Result<BTreeMap<K, V>, String>>()?
         } else {
             BTreeMap::default()
         };
@@ -349,7 +351,7 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
 
     /// Asynchronously persisted version of [`BTreeMap::remove`]
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        self.log(&key, None);
+        self.log(key, None);
         self.tree.remove(key)
     }
 
@@ -580,19 +582,19 @@ mod tests {
             Entry {
                 tree: "match-timeset".into(),
                 key: ip127.clone().into(),
-                value: Some([Value::String(now_ms.into())].into()),
+                value: Some([Value::String(now_ms)].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::String(now2_ms.clone().into())].into()),
+                value: Some([Value::String(now2_ms.clone())].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::String(now2_ms.clone().into()), now3_ms.into()].into()),
+                value: Some([Value::String(now2_ms.clone()), now3_ms.into()].into()),
                 expiry: valid,
             },
         ];
@@ -608,7 +610,7 @@ mod tests {
         write_db.close().await.unwrap();
         drop(write_db);
 
-        let mut database = Database::from_dir(&dir_path).await.unwrap();
+        let mut database = Database::from_dir(dir_path).await.unwrap();
 
         let time_match = database
             .open_tree(

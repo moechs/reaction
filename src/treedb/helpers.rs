@@ -28,8 +28,8 @@ pub fn to_time(val: &Value) -> Result<Time, String> {
 pub fn to_match(val: &Value) -> Result<Match, String> {
     val.as_array()
         .ok_or("not an array")?
-        .into_iter()
-        .map(|v| to_string(v))
+        .iter()
+        .map(to_string)
         .collect()
 }
 
@@ -46,8 +46,8 @@ pub fn to_matchtime(val: &Value) -> Result<MatchTime, String> {
 pub fn to_timeset(val: &Value) -> Result<BTreeSet<Time>, String> {
     val.as_array()
         .ok_or("not an array")?
-        .into_iter()
-        .map(|v| to_time(v))
+        .iter()
+        .map(to_time)
         .collect()
 }
 

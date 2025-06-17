@@ -64,7 +64,7 @@ impl Filter {
         Filter {
             stream_name: stream_name.into(),
             name: filter_name.into(),
-            patterns: Arc::new(patterns.into_iter().map(|p| Arc::new(p)).collect()),
+            patterns: Arc::new(patterns.into_iter().map(Arc::new).collect()),
             ..Filter::default()
         }
     }

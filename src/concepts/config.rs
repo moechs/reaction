@@ -102,7 +102,6 @@ impl Config {
         self.start.append(&mut other.start);
         self.stop.append(&mut other.stop);
 
-
         if !(self.state_directory == dot()
             || other.state_directory == dot()
             || self.state_directory == other.state_directory)
@@ -779,9 +778,7 @@ mod tests {
                 {{STREAMS}}
             }"#,
         );
-        let cfg_oth = parse_config_json(
-            r#"{}"#,
-        );
+        let cfg_oth = parse_config_json(r#"{}"#);
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
@@ -813,9 +810,7 @@ mod tests {
                 {{STREAMS}}
             }"#,
         );
-        let cfg_oth = parse_config_json(
-            r#"{ }"#,
-        );
+        let cfg_oth = parse_config_json(r#"{ }"#);
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());

@@ -50,11 +50,7 @@ async fn main() {
     }
 
     let result = match cli.command {
-        SubCommand::Start {
-            config,
-            socket,
-            ..
-        } => daemon(config, socket).await,
+        SubCommand::Start { config, socket, .. } => daemon(config, socket).await,
         SubCommand::Show {
             socket,
             format,

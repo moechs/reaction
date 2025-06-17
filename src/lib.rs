@@ -6,7 +6,6 @@
     unsafe_code
 )]
 #![allow(clippy::upper_case_acronyms, clippy::mutable_key_type)]
-
 // Allow unwrap in tests
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 

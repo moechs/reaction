@@ -17,6 +17,7 @@ use crate::{
 
 use super::shutdown::ShutdownToken;
 
+#[allow(clippy::type_complexity)]
 fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
     mut lines: Lines<T>,
 ) -> futures::stream::PollFn<

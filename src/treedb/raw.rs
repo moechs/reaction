@@ -185,7 +185,7 @@ impl ReadDB {
                             Ok(_) => (),
                             Err(err) => match err {
                                 SerdeOrIoError::IO(err) => return Err(err),
-                                SerdeOrIoError::Serde(err) => panic!("serde should be able to serialize an entry just deserialized: {err}"),
+                                SerdeOrIoError::Serde(err) => error!("serde should be able to serialize an entry just deserialized: {err}"),
                             }
                         }
                     // Insert data in RAM
@@ -379,22 +379,10 @@ mod tests {
             })
         );
 
-        assert!(match read_db.next().await {
-            Err(DatabaseError::Serde(_)) => true,
-            _ => false,
-        });
-        assert!(match read_db.next().await {
-            Err(DatabaseError::Serde(_)) => true,
-            _ => false,
-        });
-        assert!(match read_db.next().await {
-            Err(DatabaseError::Serde(_)) => true,
-            _ => false,
-        });
-        assert!(match read_db.next().await {
-            Err(DatabaseError::MissingKeyId(3)) => true,
-            _ => false,
-        });
+        matches!(read_db.next().await, Err(DatabaseError::Serde(_)));
+        matches!(read_db.next().await, Err(DatabaseError::Serde(_)));
+        matches!(read_db.next().await, Err(DatabaseError::Serde(_)));
+        matches!(read_db.next().await, Err(DatabaseError::MissingKeyId(3)));
         assert!(read_db.next().await.unwrap().is_none());
     }
 
