@@ -128,7 +128,7 @@ impl Filter {
         }
 
         if self.retry.is_some_and(|r| r < 2) {
-            return Err("retry has been specified but is < 2".into());
+            return Err("retry must be >= 2. Remove 'retry' and 'retryperiod' to trigger at the first occurence.".into());
         }
 
         if let Some(retry_period) = &self.retry_period {
