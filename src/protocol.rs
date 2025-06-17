@@ -13,6 +13,7 @@ use serde::{
 pub enum Order {
     Show,
     Flush,
+    Trigger,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub struct ClientRequest {
 
 #[derive(Serialize, Deserialize)]
 pub enum DaemonResponse {
+    Ok(()),
     Order(ClientStatus),
     Err(String),
 }

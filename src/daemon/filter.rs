@@ -106,6 +106,18 @@ impl FilterManager {
         exec
     }
 
+    pub fn handle_trigger(&self, patterns: BTreeMap<Arc<Pattern>, String>, now: Time) -> Result<(), String> {
+        let match_ = self.filter.get_match_from_patterns(patterns)?;
+
+        #[allow(clippy::unwrap_used)] // propagating panics is ok
+        let mut state = self.state.lock().unwrap();
+        state.remove_match(&match_);
+        state.add_trigger(match_.clone(), now);
+        self.schedule_exec(match_, now, now, &mut state, false);
+
+        Ok(())
+    }
+
     pub fn handle_order(
         &self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,

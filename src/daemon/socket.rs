@@ -18,7 +18,7 @@ use tracing::{error, warn};
 
 use crate::{
     concepts::{Config, Filter, Pattern, Stream},
-    protocol::{ClientRequest, ClientStatus, DaemonResponse},
+    protocol::{ClientRequest, ClientStatus, DaemonResponse, Order},
 };
 
 use super::{filter::FilterManager, shutdown::ShutdownToken};
@@ -54,40 +54,68 @@ fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     err_str!(UnixListener::bind(path))
 }
 
-fn answer_order(
-    config: &'static Config,
+fn handle_trigger_order(
+    stream_name: Option<String>,
+    filter_name: Option<String>,
+    patterns: BTreeMap<Arc<Pattern>, String>,
     shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
-    options: ClientRequest,
-) -> Result<ClientStatus, String> {
-    // Compute options
-    let (stream_name, filter_name) = match options.stream_filter {
-        Some(sf) => match sf.split_once(".") {
-            Some((s, f)) => (Some(s.to_string()), Some(f.to_string())),
-            None => (Some(sf), None),
-        },
-        None => (None, None),
+) -> DaemonResponse {
+    // Check names existence
+    let (stream_name, filter_name) = match (stream_name, filter_name) {
+        (Some(s), Some(p)) => (s, p),
+        _ => {
+            return DaemonResponse::Err(
+                "trigger must target a filter, e.g. `reaction trigger mystream.myfilter ...`"
+                    .into(),
+            );
+        }
     };
 
-    // Compute the Vec<(pattern_name: String, regex: String)> into a BTreeMap<Arc<Pattern>, Regex>
-    let patterns = options
-        .patterns
-        .into_iter()
-        .map(|(name, reg)| {
-            // lookup pattern in config.patterns
-            config
-                .patterns()
-                .iter()
-                // retrieve or Err
-                .find(|(pattern_name, _)| &name == *pattern_name)
-                .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
-                // compile Regex or Err
-                .and_then(|(_, pattern)| match Regex::new(&reg) {
-                    Ok(reg) => Ok((pattern.clone(), reg)),
-                    Err(err) => Err(format!("pattern '{name}' regex doesn't compile: {err}")),
-                })
-        })
-        .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()?;
+    // Check patterns existence
+    if patterns.is_empty() {
+        return DaemonResponse::Err(
+            "trigger must specify patterns, e.g. `reaction trigger ... ip=1.2.3.4`".into(),
+        );
+    }
 
+    // Check stream existance
+    let filters = match shared_state
+        .iter()
+        .find(|(stream, _)| stream_name == stream.name())
+    {
+        Some((_, filters)) => filters,
+        None => {
+            return DaemonResponse::Err(format!("stream {stream_name} doesn't exist"));
+        }
+    };
+
+    // Check filter existance
+    let filter_manager = match filters
+        .iter()
+        .find(|(filter, _)| filter_name == filter.name())
+    {
+        Some((_, filter)) => filter,
+        None => {
+            return DaemonResponse::Err(format!(
+                "filter {stream_name}.{filter_name} doesn't exist"
+            ));
+        }
+    };
+
+    let now = Local::now();
+    match filter_manager.handle_trigger(patterns, now) {
+        Ok(()) => DaemonResponse::Ok(()),
+        Err(err) => DaemonResponse::Err(err),
+    }
+}
+
+fn handle_show_or_flush_order(
+    stream_name: Option<String>,
+    filter_name: Option<String>,
+    patterns: BTreeMap<Arc<Pattern>, Regex>,
+    order: Order,
+    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+) -> DaemonResponse {
     let now = Local::now();
     let cs: ClientStatus = shared_state
         .iter()
@@ -117,15 +145,76 @@ fn answer_order(
                 .map(|(filter, manager)| {
                     (
                         filter.name().to_owned(),
-                        manager.handle_order(&patterns, options.order, now),
+                        manager.handle_order(&patterns, order, now),
                     )
                 })
                 .collect();
             acc.insert(stream.name().to_owned(), inner_map);
             acc
         });
+    DaemonResponse::Order(cs)
+}
 
-    Ok(cs)
+fn answer_order(
+    config: &'static Config,
+    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+    options: ClientRequest,
+) -> DaemonResponse {
+    // Compute options
+    let (stream_name, filter_name) = match options.stream_filter {
+        Some(sf) => match sf.split_once(".") {
+            Some((s, f)) => (Some(s.to_string()), Some(f.to_string())),
+            None => (Some(sf), None),
+        },
+        None => (None, None),
+    };
+
+    // Compute the Vec<(pattern_name: String, regex: String)> into a BTreeMap<Arc<Pattern>, String>
+    let patterns = match options
+        .patterns
+        .into_iter()
+        .map(|(name, reg)| {
+            // lookup pattern in config.patterns
+            config
+                .patterns()
+                .iter()
+                // retrieve or Err
+                .find(|(pattern_name, _)| &name == *pattern_name)
+                .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
+                .and_then(|(_, pattern)| Ok((pattern.clone(), reg)))
+        })
+        .collect::<Result<BTreeMap<Arc<Pattern>, String>, String>>()
+    {
+        Ok(p) => p,
+        Err(err) => return DaemonResponse::Err(err),
+    };
+
+    if let Order::Trigger = options.order {
+        handle_trigger_order(stream_name, filter_name, patterns, shared_state)
+    } else {
+        let patterns = match patterns
+            .into_iter()
+            .map(|(pattern, reg)| match Regex::new(&reg) {
+                Ok(reg) => Ok((pattern, reg)),
+                Err(err) => Err(format!(
+                    "pattern '{}' regex doesn't compile: {err}",
+                    pattern.name()
+                )),
+            })
+            .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()
+        {
+            Ok(p) => p,
+            Err(err) => return DaemonResponse::Err(err),
+        };
+
+        handle_show_or_flush_order(
+            stream_name,
+            filter_name,
+            patterns,
+            options.order,
+            shared_state,
+        )
+    }
 }
 
 macro_rules! or_next {
@@ -175,10 +264,7 @@ pub async fn socket_manager(
                             serde_json::from_slice(&encoded_request)
                             );
                         // Process
-                        let response = match answer_order(config, &shared_state, request) {
-                            Ok(res) => DaemonResponse::Order(res),
-                            Err(err) => DaemonResponse::Err(err),
-                        };
+                        let response = answer_order(config, &shared_state, request);
                         // Encode
                         let encoded_response =
                             or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));

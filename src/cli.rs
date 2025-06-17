@@ -83,6 +83,24 @@ Then prints the flushed matches and actions."
         patterns: Vec<(String, String)>,
     },
 
+    /// Trigger a target in reaction (e.g. ban)
+    #[command(
+        long_about = "Trigger actions and remove currently active matches for the specified PATTERNS in the specified STREAM.FILTER. (e.g. ban)"
+    )]
+    Trigger {
+        /// path to the client-daemon communication socket
+        #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
+        socket: PathBuf,
+
+        /// STREAM.FILTER to trigger
+        #[clap(value_name = "STREAM.FILTER")]
+        limit: Option<String>,
+
+        /// PATTERNs to trigger on (e.g. ip=1.2.3.4)
+        #[clap(value_parser = parse_named_regex, value_name = "NAME=PATTERN")]
+        patterns: Vec<(String, String)>,
+    },
+
     /// Test a regex
     #[command(
         name = "test-regex",

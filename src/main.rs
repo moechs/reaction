@@ -2,7 +2,7 @@ use std::{io::IsTerminal, process::exit};
 
 use clap::Parser;
 use reaction::{
-    cli::{Cli, SubCommand},
+    cli::{Cli, Format, SubCommand},
     client::{request, test_config, test_regex},
     daemon::daemon,
     protocol::Order,
@@ -63,6 +63,11 @@ async fn main() {
             limit,
             patterns,
         } => request(socket, format, limit, patterns, Order::Flush).await,
+        SubCommand::Trigger {
+            socket,
+            limit,
+            patterns,
+        } => request(socket, Format::JSON, limit, patterns, Order::Trigger).await,
         SubCommand::TestRegex {
             config,
             regex,

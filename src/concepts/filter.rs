@@ -223,6 +223,51 @@ impl Filter {
         }
         None
     }
+
+    pub fn get_match_from_patterns(
+        &self,
+        patterns: BTreeMap<Arc<Pattern>, String>,
+    ) -> Result<Match, String> {
+        // Check pattern length
+        if patterns.len() != self.patterns().len() {
+            return Err(format!(
+                "{} patterns specified, while the {}.{} filter has {} pattern: ({})",
+                patterns.len(),
+                self.stream_name(),
+                self.name(),
+                self.patterns().len(),
+                self.patterns()
+                    .iter()
+                    .map(|pattern| pattern.name().clone())
+                    .reduce(|acc, pattern| acc + ", " + &pattern)
+                    .unwrap_or("".into()),
+            ));
+        }
+
+        for (pattern, _) in &patterns {
+            if self.patterns.get(pattern).is_none() {
+                return Err(format!(
+                    "pattern {} is not present in the filter {}.{}",
+                    pattern.name(),
+                    self.stream_name,
+                    self.name
+                ));
+            }
+        }
+
+        for pattern in self.patterns.iter() {
+            if patterns.get(pattern).is_none() {
+                return Err(format!(
+                    "pattern {} is missing, because it's in the filter {}.{}",
+                    pattern.name(),
+                    self.stream_name,
+                    self.name
+                ));
+            }
+        }
+
+        Ok(patterns.into_values().collect())
+    }
 }
 
 impl Display for Filter {

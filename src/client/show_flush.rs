@@ -78,6 +78,7 @@ pub async fn request(
         DaemonResponse::Err(err) => Err(format!(
             "failed to communicate to daemon: error response: {err}"
         )),
+        DaemonResponse::Ok(_) => Ok(()),
     }?;
     Ok(())
 }
