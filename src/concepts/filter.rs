@@ -177,7 +177,7 @@ impl Filter {
             self.compiled_regex.push(compiled);
             first = false;
         }
-        self.regex.clear();
+        self.regex = Vec::default();
         self.patterns = Arc::new(new_patterns);
 
         if self.actions.is_empty() {
@@ -203,10 +203,10 @@ impl Filter {
                 if !self.patterns.is_empty() {
                     let mut result = Match::new();
                     for pattern in self.patterns.as_ref() {
-                        // if the pattern is in an optional part of the regex, there may be no
-                        // captured group for it.
+                        // if the pattern is in an optional part of the regex,
+                        // there may be no captured group for it.
                         if let Some(match_) = matches.name(pattern.name()) {
-                            if pattern.not_an_ignore(match_.as_str()) {
+                            if !pattern.is_ignore(match_.as_str()) {
                                 result.push(match_.as_str().to_string());
                             }
                         }
@@ -224,6 +224,8 @@ impl Filter {
         None
     }
 
+    /// Test that the patterns map conforms to the filter's patterns.
+    /// Then returns a corresponding [`Match`].
     pub fn get_match_from_patterns(
         &self,
         patterns: BTreeMap<Arc<Pattern>, String>,
@@ -244,13 +246,29 @@ impl Filter {
             ));
         }
 
-        for (pattern, _) in &patterns {
+        for (pattern, match_) in &patterns {
             if self.patterns.get(pattern).is_none() {
                 return Err(format!(
                     "pattern {} is not present in the filter {}.{}",
                     pattern.name(),
                     self.stream_name,
                     self.name
+                ));
+            }
+
+            if !pattern.is_match(match_) {
+                return Err(format!(
+                    "string '{}' doesn't match pattern {}",
+                    match_,
+                    pattern.name(),
+                ));
+            }
+
+            if pattern.is_ignore(match_) {
+                return Err(format!(
+                    "string '{}' is explcitly ignored by pattern {}",
+                    match_,
+                    pattern.name(),
                 ));
             }
         }
@@ -350,7 +368,7 @@ impl Filter {
 pub mod tests {
     use crate::concepts::action::tests::{ok_action, ok_action_with_after};
     use crate::concepts::pattern::tests::{
-        boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore,
+        boubou_pattern_with_ignore, default_pattern, number_pattern, ok_pattern_with_ignore,
     };
 
     use super::*;
@@ -595,17 +613,24 @@ pub mod tests {
         let name = "name".to_string();
         let mut filter;
 
-        // make a Patterns
-        let mut patterns = Patterns::new();
-
         let mut pattern = ok_pattern_with_ignore();
         pattern.setup(&name).unwrap();
-        patterns.insert(name.clone(), pattern.clone().into());
+        let pattern = Arc::new(pattern);
 
         let boubou_name = "boubou".to_string();
         let mut boubou = boubou_pattern_with_ignore();
         boubou.setup(&boubou_name).unwrap();
-        patterns.insert(boubou_name.clone(), boubou.clone().into());
+        let boubou = Arc::new(boubou);
+
+        let patterns = Patterns::from([
+            (name.clone(), pattern.clone()),
+            (boubou_name.clone(), boubou.clone()),
+        ]);
+
+        let number_name = "number".to_string();
+        let mut number_pattern = number_pattern();
+        number_pattern.setup(&number_name).unwrap();
+        let number_pattern = Arc::new(number_pattern);
 
         // one simple regex
         filter = Filter::default();
@@ -616,6 +641,33 @@ pub mod tests {
         assert_eq!(filter.get_match("insert a here"), None);
         assert_eq!(filter.get_match("youpi b youpi"), None);
         assert_eq!(filter.get_match("insert  here"), None);
+
+        // Ok
+        assert_eq!(
+            filter.get_match_from_patterns(BTreeMap::from([(pattern.clone(), "b".into())])),
+            Ok(vec!("b".into()))
+        );
+        // Doesn't match
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "abc".into())]))
+            .is_err());
+        // Ignored match
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "a".into())]))
+            .is_err());
+        // Bad pattern
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([(boubou.clone(), "bou".into())]))
+            .is_err());
+        // Bad number of patterns
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "b".into()),
+                (boubou.clone(), "bou".into()),
+            ]))
+            .is_err());
+        // Bad number of patterns
+        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
 
         // two patterns in one regex
         filter = Filter::default();
@@ -630,6 +682,46 @@ pub mod tests {
         );
         assert_eq!(filter.get_match("insert a here and bouboubou there"), None);
         assert_eq!(filter.get_match("insert b here and boubou there"), None);
+
+        // Ok
+        assert_eq!(
+            filter.get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "b".into()),
+                (boubou.clone(), "bou".into()),
+            ])),
+            Ok(vec!("bou".into(), "b".into()))
+        );
+        // Doesn't match
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "abc".into()),
+                (boubou.clone(), "bou".into()),
+            ]))
+            .is_err());
+        // Ignored match
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "b".into()),
+                (boubou.clone(), "boubou".into()),
+            ]))
+            .is_err());
+        // Bad pattern
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "b".into()),
+                (number_pattern.clone(), "1".into()),
+            ]))
+            .is_err());
+        // Bad number of patterns
+        assert!(filter
+            .get_match_from_patterns(BTreeMap::from([
+                (pattern.clone(), "b".into()),
+                (boubou.clone(), "bou".into()),
+                (number_pattern.clone(), "1".into()),
+            ]))
+            .is_err());
+        // Bad number of patterns
+        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
 
         // multiple regexes with same pattern
         filter = Filter::default();

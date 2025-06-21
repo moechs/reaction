@@ -431,3 +431,15 @@ async fn one_outdated_db_match() {
     let bed = bed.part2(filter, now, Some(db)).await;
     bed.assert_empty_trees();
 }
+
+#[tokio::test]
+async fn flush() {
+    // TODO multiple tests
+}
+
+#[tokio::test]
+async fn trigger() {
+    // TODO multiple tests
+}
+
+// TODO test State functions

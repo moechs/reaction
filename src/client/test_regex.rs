@@ -45,7 +45,7 @@ pub fn test_regex(
                 for pattern in used_patterns.iter() {
                     if let Some(match_) = matches.name(pattern.name()) {
                         result.push(match_.as_str().to_string());
-                        if !pattern.not_an_ignore(match_.as_str()) {
+                        if pattern.is_ignore(match_.as_str()) {
                             ignored = true;
                         }
                     }

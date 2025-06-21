@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -15,7 +15,7 @@ pub struct Pattern {
     #[serde(default, rename = "ignoreregex", skip_serializing_if = "Vec::is_empty")]
     ignore_regex: Vec<String>,
     #[serde(skip)]
-    compiled_ignore_regex: Vec<Regex>,
+    compiled_ignore_regex: RegexSet,
 
     #[serde(skip)]
     name: String,
@@ -31,10 +31,6 @@ impl Pattern {
             ..Pattern::default()
         }
     }
-    pub fn setup(&mut self, name: &str) -> Result<(), String> {
-        self._setup(name)
-            .map_err(|msg| format!("pattern {}: {}", name, msg))
-    }
 
     pub fn name(&self) -> &String {
         &self.name
@@ -43,7 +39,11 @@ impl Pattern {
         &self.name_with_braces
     }
 
-    pub fn _setup(&mut self, name: &str) -> Result<(), String> {
+    pub fn setup(&mut self, name: &str) -> Result<(), String> {
+        self._setup(name)
+            .map_err(|msg| format!("pattern {}: {}", name, msg))
+    }
+    fn _setup(&mut self, name: &str) -> Result<(), String> {
         self.name = name.to_string();
         self.name_with_braces = format!("<{}>", name);
 
@@ -57,7 +57,7 @@ impl Pattern {
         if self.regex.is_empty() {
             return Err("regex is empty".into());
         }
-        let compiled = Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())?;
+        let compiled = self.compiled()?;
 
         self.regex = format!("(?P<{}>{})", self.name, self.regex);
 
@@ -70,29 +70,55 @@ impl Pattern {
             }
         }
 
-        for ignore_regex in &self.ignore_regex {
-            let compiled_ignore = Regex::new(&format!("^{}$", ignore_regex))
-                .map_err(|err| format!("ignoreregex '{}': {}", ignore_regex, err))?;
-
-            self.compiled_ignore_regex.push(compiled_ignore);
-        }
-        self.ignore_regex.clear();
+        self.compiled_ignore_regex =
+            match RegexSet::new(self.ignore_regex.iter().map(|regex| format!("^{}$", regex))) {
+                Ok(set) => set,
+                Err(err) => {
+                    // Recompile regexes one by one to display a more specific error
+                    for ignore_regex in &self.ignore_regex {
+                        Regex::new(&format!("^{}$", ignore_regex))
+                            .map_err(|err| format!("ignoreregex '{}': {}", ignore_regex, err))?;
+                    }
+                    // Here we should have returned an error already.
+                    // Returning a more generic error if not (which shouldn't happen).
+                    return Err(format!("ignoreregex: {}", err));
+                }
+            };
+        self.ignore_regex = Vec::default();
 
         Ok(())
     }
 
-    pub fn not_an_ignore(&self, match_: &str) -> bool {
-        for regex in &self.compiled_ignore_regex {
-            if regex.is_match(match_) {
-                return false;
-            }
+    /// Returns the pattern's regex compiled standalone.
+    /// It's not kept as a field of the [`Pattern`] struct
+    /// because it's only used during setup and for the `trigger` manual command.
+    ///
+    /// *Yes, I know, avoiding a few bytes of memory is certainly a bad idea.*
+    /// *I'm open to discussion.*
+    fn compiled(&self) -> Result<Regex, String> {
+        Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())
+    }
+
+    /// Whether the provided string is a match for this pattern or not.
+    ///
+    /// Doesn't take into account ignore and ignore_regex:
+    /// use [`Self::is_ignore`] to access this information.
+    pub fn is_match(&self, match_: &str) -> bool {
+        match self.compiled() {
+            Ok(regex) => regex.is_match(match_),
+            // Should not happen, this function should be called only after
+            // [`Pattern::setup`]
+            Err(_) => false,
         }
-        for ignore in &self.ignore {
-            if ignore == match_ {
-                return false;
-            }
-        }
-        true
+    }
+
+    /// Whether the provided string is ignored by the ignore or ignoreregex
+    /// fields of this pattern.
+    ///
+    /// Can be used in combination with [`Self::is_match`].
+    pub fn is_ignore(&self, match_: &str) -> bool {
+        self.ignore.iter().any(|ignore| ignore == match_)
+            || self.compiled_ignore_regex.is_match(match_)
     }
 }
 
@@ -145,7 +171,7 @@ pub mod tests {
             regex: "".into(),
             ignore: Vec::new(),
             ignore_regex: Vec::new(),
-            compiled_ignore_regex: Vec::new(),
+            compiled_ignore_regex: RegexSet::default(),
             name: "".into(),
             name_with_braces: "".into(),
         }
@@ -167,6 +193,12 @@ pub mod tests {
         let mut pattern = ok_pattern();
         pattern.regex = "(?:bou){1,3}".to_string();
         pattern.ignore.push("boubou".into());
+        pattern
+    }
+
+    pub fn number_pattern() -> Pattern {
+        let mut pattern = ok_pattern();
+        pattern.regex = "[0-1]+".to_string();
         pattern
     }
 
@@ -245,7 +277,7 @@ pub mod tests {
     }
 
     #[test]
-    fn not_an_ignore() {
+    fn is_ignore() {
         let mut pattern;
 
         // ignore ok
@@ -257,13 +289,13 @@ pub mod tests {
         pattern.ignore_regex.push("[de]".into());
 
         pattern.setup("name").unwrap();
-        assert!(!pattern.not_an_ignore("a"));
-        assert!(!pattern.not_an_ignore("b"));
-        assert!(!pattern.not_an_ignore("c"));
-        assert!(!pattern.not_an_ignore("d"));
-        assert!(!pattern.not_an_ignore("e"));
-        assert!(pattern.not_an_ignore("f"));
-        assert!(pattern.not_an_ignore("g"));
-        assert!(pattern.not_an_ignore("h"));
+        assert!(pattern.is_ignore("a"));
+        assert!(pattern.is_ignore("b"));
+        assert!(pattern.is_ignore("c"));
+        assert!(pattern.is_ignore("d"));
+        assert!(pattern.is_ignore("e"));
+        assert!(!pattern.is_ignore("f"));
+        assert!(!pattern.is_ignore("g"));
+        assert!(!pattern.is_ignore("h"));
     }
 }
