@@ -56,16 +56,10 @@ mod tests {
         assert_eq!(parse_duration("1s"), Ok(TimeDelta::seconds(1)));
         assert_eq!(parse_duration("12s"), Ok(TimeDelta::seconds(12)));
         assert_eq!(parse_duration("  12  secs  "), Ok(TimeDelta::seconds(12)));
-        assert_eq!(parse_duration("2m"), Ok(TimeDelta::seconds(2 * 60)));
-        assert_eq!(
-            parse_duration("6 hours"),
-            Ok(TimeDelta::seconds(6 * 60 * 60))
-        );
-        assert_eq!(parse_duration("1d"), Ok(TimeDelta::seconds(24 * 60 * 60)));
-        assert_eq!(
-            parse_duration("365d"),
-            Ok(TimeDelta::seconds(365 * 24 * 60 * 60))
-        );
+        assert_eq!(parse_duration("2m"), Ok(TimeDelta::minutes(2)));
+        assert_eq!(parse_duration("6 hours"), Ok(TimeDelta::hours(6)));
+        assert_eq!(parse_duration("1d"), Ok(TimeDelta::days(1)));
+        assert_eq!(parse_duration("365d"), Ok(TimeDelta::days(365)));
 
         assert!(parse_duration("d 3").is_err());
         assert!(parse_duration("d3").is_err());
