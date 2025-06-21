@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio, task::Poll, time::Duration};
 use chrono::Local;
 use futures::{FutureExt, StreamExt};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader, Lines},
+    io::{AsyncBufReadExt, BufReader},
     pin,
     process::{Child, ChildStderr, ChildStdout, Command},
     time::sleep,
@@ -17,16 +17,52 @@ use crate::{
 
 use super::shutdown::ShutdownToken;
 
+/** Converts bytes to string, discarding invalid utf8 sequences
+*/
+fn to_string(data: &[u8]) -> String {
+    let res = String::from_utf8_lossy(data);
+    res.to_string()
+        .replace(std::char::REPLACEMENT_CHARACTER, "")
+}
+
 #[allow(clippy::type_complexity)]
-fn lines_to_stream<T: tokio::io::AsyncBufRead + Unpin>(
-    mut lines: Lines<T>,
+fn lines_to_stream<T: tokio::io::AsyncRead + Unpin>(
+    mut lines: BufReader<T>,
 ) -> futures::stream::PollFn<
     impl FnMut(&mut std::task::Context) -> Poll<Option<Result<String, std::io::Error>>>,
 > {
+    let mut at_eof = false;
+    let mut buffer = vec![];
     futures::stream::poll_fn(move |cx| {
-        let nl = lines.next_line();
+        if at_eof {
+            // reached EOF earlier, avoid calling read again
+            return Poll::Ready(None);
+        }
+        // Try to read until LF or EOF. If interrupted, buffer might contain data, in which case
+        // new data will be happened to it
+        let nl = lines.read_until(0x0a, &mut buffer);
         pin!(nl);
-        futures::Future::poll(nl, cx).map(Result::transpose)
+        match futures::Future::poll(nl, cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(0)) => {
+                if buffer.is_empty() {
+                    // at eof
+                    Poll::Ready(None)
+                } else {
+                    // reached eof with data in the buffer
+                    at_eof = true;
+                    let line = to_string(&buffer);
+                    buffer.clear();
+                    Poll::Ready(Some(Ok(line)))
+                }
+            }
+            Poll::Ready(Ok(_)) => {
+                let line = to_string(&buffer);
+                buffer.clear();
+                Poll::Ready(Some(Ok(line)))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+        }
     })
 }
 
@@ -119,8 +155,8 @@ async fn handle_io(
     child_stderr: ChildStderr,
     filter_managers: HashMap<&'static Filter, FilterManager>,
 ) {
-    let lines_stdout = lines_to_stream(BufReader::new(child_stdout).lines());
-    let lines_stderr = lines_to_stream(BufReader::new(child_stderr).lines());
+    let lines_stdout = lines_to_stream(BufReader::new(child_stdout));
+    let lines_stderr = lines_to_stream(BufReader::new(child_stderr));
     // aggregate outputs, will end when both streams end
     let mut lines = futures::stream::select(lines_stdout, lines_stderr);
 
