@@ -212,8 +212,8 @@ impl Config {
     fn _from_dir_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
         let dir = std::fs::read_dir(path)
             .map_err(|e| format!("Error accessing directory {}: {e}", path.display()))?;
-        let mut cfg: Option<Self> = None;
-        let mut read_cfg_fname = vec![];
+        // sorts files by name
+        let mut cfg_files = BTreeMap::new();
         for f in dir {
             let f =
                 f.map_err(|e| format!("Error while reading directory {}: {e}", path.display()))?;
@@ -261,8 +261,8 @@ impl Config {
                 }
             };
 
-            let cfg_format = match Self::_extension_to_format(ext) {
-                Ok(fmt) => fmt,
+            match Self::_extension_to_format(ext) {
+                Ok(fmt) => cfg_files.insert(fname.to_string(), (fpath, fmt)),
                 Err(_) => {
                     // silently ignore files without an expected extension
                     debug!(
@@ -272,10 +272,12 @@ impl Config {
                     continue;
                 }
             };
+        }
 
-            let cfg_part = Self::_load_file(&fpath, cfg_format)
+        let mut cfg: Option<Self> = None;
+        for (fname, (fpath, fmt)) in &cfg_files {
+            let cfg_part = Self::_load_file(fpath, *fmt)
                 .map_err(|e| format!("While reading {fname} in {}: {e}", path.display()))?;
-            read_cfg_fname.push(fname.to_string());
 
             if let Some(mut cfg_agg) = cfg.take() {
                 cfg_agg.merge(cfg_part)?;
@@ -286,7 +288,7 @@ impl Config {
         }
 
         if let Some(cfg) = cfg {
-            Ok((cfg, read_cfg_fname))
+            Ok((cfg, cfg_files.into_keys().collect()))
         } else {
             Err(format!(
                 "No valid configuration files found in {}",
@@ -328,6 +330,7 @@ impl Config {
     }
 }
 
+#[derive(Clone, Copy)]
 enum Format {
     Yaml,
     Json,
