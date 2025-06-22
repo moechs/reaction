@@ -689,6 +689,7 @@ pub mod tests {
                 (pattern.clone(), "b".into()),
                 (boubou.clone(), "bou".into()),
             ])),
+            // Reordered by pattern name
             Ok(vec!("bou".into(), "b".into()))
         );
         // Doesn't match

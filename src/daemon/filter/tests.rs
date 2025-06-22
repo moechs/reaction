@@ -45,6 +45,7 @@ impl TestBed {
         TestBed2 {
             _out_path: self._out_path,
             out_file: self.out_file,
+            az_patterns: self.az_patterns,
             now,
             manager: FilterManager::new(
                 filter,
@@ -65,6 +66,7 @@ struct TestBed2 {
     pub semaphore: Arc<Semaphore>,
     pub now: Time,
     pub manager: FilterManager,
+    pub az_patterns: Patterns,
 }
 
 impl TestBed2 {
@@ -438,8 +440,158 @@ async fn flush() {
 }
 
 #[tokio::test]
-async fn trigger() {
-    // TODO multiple tests
+async fn trigger_unmatched_pattern() {
+    let bed = TestBed::new();
+    let filter = Filter::new_static(
+        vec![
+            Action::new(
+                vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                None,
+                false,
+                "test",
+                "test",
+                "a1",
+                &bed.az_patterns,
+            ),
+            Action::new(
+                vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                Some("200ms"),
+                false,
+                "test",
+                "test",
+                "a2",
+                &bed.az_patterns,
+            ),
+        ],
+        vec!["test <az>"],
+        Some(2),
+        Some("1s"),
+        "test",
+        "test",
+        &bed.az_patterns,
+    );
+
+    let now = Local::now();
+    let one = vec!["one".to_string()];
+    let bed = bed.part2(filter, now, None).await;
+
+    bed.manager
+        .handle_trigger(
+            // az_pattern: "one"
+            bed.az_patterns
+                .values()
+                .cloned()
+                .map(|pattern| (pattern, one[0].clone()))
+                .collect(),
+            now,
+        )
+        .unwrap();
+
+    // the action executes
+    tokio::time::sleep(Duration::from_millis(40)).await;
+
+    // No matches, one action registered
+    {
+        let state = bed.manager.state.lock().unwrap();
+        assert!(state.matches.is_empty());
+        assert!(state.ordered_times.is_empty());
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(
+                MatchTime {
+                    m: one.clone(),
+                    t: now,
+                },
+                1
+            )])
+        );
+    }
+    assert_eq!(
+        "a1 one\n",
+        &read_to_string(&bed.out_file).unwrap(),
+        "the output file contains the result of the action"
+    );
+}
+
+#[tokio::test]
+async fn trigger_matched_pattern() {
+    let bed = TestBed::new();
+    let filter = Filter::new_static(
+        vec![
+            Action::new(
+                vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                None,
+                false,
+                "test",
+                "test",
+                "a1",
+                &bed.az_patterns,
+            ),
+            Action::new(
+                vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                Some("200ms"),
+                false,
+                "test",
+                "test",
+                "a2",
+                &bed.az_patterns,
+            ),
+        ],
+        vec!["test <az>"],
+        Some(2),
+        Some("1s"),
+        "test",
+        "test",
+        &bed.az_patterns,
+    );
+
+    let now = Local::now();
+    let now1s = now - TimeDelta::milliseconds(10);
+    let one = vec!["one".to_string()];
+
+    let mut db = TempDatabase::default().await;
+    db.set_loaded_db(HashMap::from([(
+        filter_ordered_times_db_name(&filter),
+        HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
+    )]));
+    let bed = bed.part2(filter, now, Some(db)).await;
+
+    bed.manager
+        .handle_trigger(
+            // az_pattern: "one"
+            bed.az_patterns
+                .values()
+                .cloned()
+                .map(|pattern| (pattern, one[0].clone()))
+                .collect(),
+            now,
+        )
+        .unwrap();
+
+    // the action executes
+    tokio::time::sleep(Duration::from_millis(40)).await;
+
+    // No matches, one action registered
+    {
+        let state = bed.manager.state.lock().unwrap();
+        assert!(state.matches.is_empty());
+        assert!(state.ordered_times.is_empty());
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(
+                MatchTime {
+                    m: one.clone(),
+                    t: now,
+                },
+                1
+            )])
+        );
+    }
+    assert_eq!(
+        "a1 one\n",
+        &read_to_string(&bed.out_file).unwrap(),
+        "the output file contains the result of the action"
+    );
 }
 
 // TODO test State functions
