@@ -15,7 +15,7 @@ streams:
   tailDown1:
     cmd: [ 'sh', '-c', 'sleep 2; seq 10001 | while read i; do echo found $i; done' ]
     filters:
-      find:
+      find1:
         regex:
           - '^found <num>'
         retry: 9
@@ -28,9 +28,9 @@ streams:
             after: 1m
             onexit: false
   tailDown2:
-    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done' ]
+    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; echo trouvé $i; done' ]
     filters:
-      find:
+      find2:
         regex:
           - '^found <num>'
         retry: 480
@@ -43,9 +43,9 @@ streams:
             after: 1m
             onexit: false
   tailDown3:
-    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done' ]
+    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; echo trouvé $i; done' ]
     filters:
-      find:
+      find3:
         regex:
           - '^found <num>'
         retry: 480
@@ -57,12 +57,9 @@ streams:
             cmd: [ 'sleep', '0.0<num>' ]
             after: 1m
             onexit: false
-  tailDown4:
-    cmd: [ 'sh', '-c', 'sleep 2; seq 1000100 | while read i; do echo found $i; done' ]
-    filters:
-      find:
+      find4:
         regex:
-          - '^found <num>'
+          - '^trouvé <num>'
         retry: 480
         retryperiod: 6m
         actions:
