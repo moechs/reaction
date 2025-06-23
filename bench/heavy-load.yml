@@ -1,6 +1,9 @@
 ---
 # This configuration permits to test reaction's performance
 # under a very high load
+#
+# It keeps regexes super simple, to avoid benchmarking the `regex` crate,
+# and benchmark reaction's internals instead.
 concurrency: 32
 
 patterns:

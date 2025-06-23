@@ -1,0 +1,130 @@
+# This is an extract of a real life configuration
+#
+# It reads an nginx's access.log in the following format:
+# log_format '$remote_addr - $remote_user [$time_local] '
+#                  '$host '
+#                  '"$request" $status $bytes_sent '
+#                  '"$http_referer" "$http_user_agent"';
+#
+# I can't make my access.log public for obvious privacy reasons.
+#
+# On the opposite of heavy-load.yml, this test is closer to real-life regex complexity.
+#
+# It has been created to test the performance improvements of
+# the previous commit: ad6b0faa30c1af84360f66074a917b4bf6cda10a
+#
+# On this test, most lines don't match anything, so most time is spent matching regexes.
+
+concurrency: 0
+patterns:
+  ip:
+    ignore:
+    - 192.168.1.253
+    - 10.1.1.1
+    - 10.1.1.5
+    - 10.1.1.4
+    - 127.0.0.1
+    - ::1
+    regex: (?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9]))
+  untilEOL:
+    regex: .*$
+streams:
+  nginx:
+    cmd:
+    - cat
+    - /tmp/access.log
+    filters:
+      directusFailedLogin:
+        actions:
+          ban:
+            cmd:
+            - sleep
+            - 0.01
+          unban:
+            after: 4h
+            cmd:
+            - sleep
+            - 0.01
+        regex:
+        - ^<ip> .* "POST /repertoire/auth/login HTTP/..." 401 [0-9]+ .https://babos.land
+        - ^<ip> .* "POST /pompeani.art/auth/login HTTP/..." 401 [0-9]+ .https://edit.ppom.me
+        - ^<ip> .* "POST /leborddeleau/auth/login HTTP/..." 401 [0-9]+ .https://edit.ppom.me
+        - ^<ip> .* "POST /5eroue/auth/login HTTP/..." 401 [0-9]+ .https://edit.ppom.me
+        - ^<ip> .* "POST /edit/auth/login HTTP/..." 401 [0-9]+ .https://edit.ppom.me
+        - ^<ip> .* "POST /auth/login HTTP/..." 401 [0-9]+ .https://edit.ppom.fr
+        retry: 6
+        retryperiod: 4h
+      gptbot:
+        actions:
+          ban:
+            cmd:
+            - sleep
+            - 0.01
+          unban:
+            after: 4h
+            cmd:
+            - sleep
+            - 0.01
+        regex:
+        - ^<ip>.*"[^"]*AI2Bot[^"]*"$
+        - ^<ip>.*"[^"]*Amazonbot[^"]*"$
+        - ^<ip>.*"[^"]*Applebot[^"]*"$
+        - ^<ip>.*"[^"]*Applebot-Extended[^"]*"$
+        - ^<ip>.*"[^"]*Bytespider[^"]*"$
+        - ^<ip>.*"[^"]*CCBot[^"]*"$
+        - ^<ip>.*"[^"]*ChatGPT-User[^"]*"$
+        - ^<ip>.*"[^"]*ClaudeBot[^"]*"$
+        - ^<ip>.*"[^"]*Diffbot[^"]*"$
+        - ^<ip>.*"[^"]*DuckAssistBot[^"]*"$
+        - ^<ip>.*"[^"]*FacebookBot[^"]*"$
+        - ^<ip>.*"[^"]*GPTBot[^"]*"$
+        - ^<ip>.*"[^"]*Google-Extended[^"]*"$
+        - ^<ip>.*"[^"]*Kangaroo Bot[^"]*"$
+        - ^<ip>.*"[^"]*Meta-ExternalAgent[^"]*"$
+        - ^<ip>.*"[^"]*Meta-ExternalFetcher[^"]*"$
+        - ^<ip>.*"[^"]*OAI-SearchBot[^"]*"$
+        - ^<ip>.*"[^"]*PerplexityBot[^"]*"$
+        - ^<ip>.*"[^"]*Timpibot[^"]*"$
+        - ^<ip>.*"[^"]*Webzio-Extended[^"]*"$
+        - ^<ip>.*"[^"]*YouBot[^"]*"$
+        - ^<ip>.*"[^"]*omgili[^"]*"$
+      slskd-failedLogin:
+        actions:
+          ban:
+            cmd:
+            - sleep
+            - 0.01
+          unban:
+            after: 4h
+            cmd:
+            - sleep
+            - 0.01
+        regex:
+        - ^<ip> .* "POST /slskd/api/v0/session HTTP/..." 401 [0-9]+ .https://ppom.me
+        - ^<ip> .* "POST /kiosque/api/v0/session HTTP/..." 401 [0-9]+ .https://babos.land
+        retry: 3
+        retryperiod: 1h
+      suspectRequests:
+        actions:
+          ban:
+            cmd:
+            - sleep
+            - 0.01
+          unban:
+            after: 4h
+            cmd:
+            - sleep
+            - 0.01
+        regex:
+        - ^<ip> .*"GET /(?:[^/" ]*/)*wp-login\.php
+        - ^<ip> .*"GET /(?:[^/" ]*/)*wp-includes
+        - '^<ip> .*"GET /(?:[^/" ]*/)*\.env '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*config\.json '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*info\.php '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*owa/auth/logon.aspx '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*auth.html '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*auth1.html '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*password.txt '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*passwords.txt '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*dns-query '
+        - '^<ip> .*"GET /(?:[^/" ]*/)*\.git/ '
