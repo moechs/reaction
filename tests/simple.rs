@@ -216,4 +216,48 @@ async fn simple() {
         get_file_content(out_path).trim(),
         "1\n2\n3\n4\n5\n6\n7\n8\n9".to_owned()
     );
+
+    // Fourth part of the test
+    // Check the trigger function
+
+    // New directory to avoid to load the database from previous tests
+    let dir = TempDir::new().unwrap();
+    env::set_current_dir(&dir).unwrap();
+
+    // No thing from stream
+    config_with_cmd(
+        config_path,
+        "sleep 0.1",
+    );
+
+    file_with_contents(out_path, "");
+
+    // Run the daemon
+    let handle = tokio::spawn(async move { daemon(config_path.into(), socket_path.into()).await });
+
+    // Run the trigger
+
+    // We sleep a bit to wait for reaction to start
+    let handle2 = tokio::spawn(async move {
+        sleep(Duration::from_millis(20)).await;
+        request(
+            socket_path.into(),
+            Format::JSON,
+            Some("stream1.filter1".into()),
+            vec![("num".into(), "95".into())],
+            Order::Trigger,
+        )
+        .await
+    });
+
+    let (daemon_exit, trigger) = tokio::join!(handle, handle2);
+    assert!(daemon_exit.is_ok());
+    assert!(trigger.is_ok());
+
+    // make sure the trigger number is in the output
+    assert_eq!(
+        get_file_content(out_path).trim(),
+        "95".to_owned()
+    );
+
 }
