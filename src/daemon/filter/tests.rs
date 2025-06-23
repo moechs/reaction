@@ -9,7 +9,7 @@ use chrono::{Local, TimeDelta};
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
-use super::{filter_ordered_times_db_name, FilterManager, React};
+use super::{state::filter_ordered_times_db_name, FilterManager, React};
 use crate::{
     concepts::{Action, Filter, MatchTime, Pattern, Patterns, Time},
     daemon::shutdown::ShutdownController,
