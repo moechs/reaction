@@ -325,3 +325,21 @@ fn exec_now(exec_limit: &Option<Arc<Semaphore>>, action: &'static Action, m: Mat
         }
     });
 }
+
+impl PartialEq for FilterManager {
+    fn eq(&self, other: &Self) -> bool {
+        self.filter == other.filter
+    }
+}
+impl Eq for FilterManager {}
+
+impl Ord for FilterManager {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.filter.cmp(other.filter)
+    }
+}
+impl PartialOrd for FilterManager {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}

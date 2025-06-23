@@ -89,6 +89,10 @@ impl Filter {
         self.longuest_action_duration
     }
 
+    pub fn regex(&self) -> &Vec<String> {
+        &self.regex
+    }
+
     pub fn actions(&self) -> &BTreeMap<String, Action> {
         &self.actions
     }
@@ -144,6 +148,7 @@ impl Filter {
         }
 
         let mut new_patterns = BTreeSet::new();
+        let mut new_regex = Vec::new();
         let mut first = true;
         for regex in &self.regex {
             let mut regex_buf = regex.clone();
@@ -172,12 +177,13 @@ impl Filter {
                         ));
                 }
                 regex_buf = regex_buf.replacen(pattern.name_with_braces(), &pattern.regex, 1);
+                new_regex.push(regex_buf.clone());
             }
             let compiled = Regex::new(&regex_buf).map_err(|err| err.to_string())?;
             self.compiled_regex.push(compiled);
             first = false;
         }
-        self.regex = Vec::default();
+        self.regex = new_regex;
         self.patterns = Arc::new(new_patterns);
 
         if self.actions.is_empty() {

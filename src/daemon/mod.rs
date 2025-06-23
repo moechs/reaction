@@ -20,7 +20,7 @@ use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
 pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use socket::socket_manager;
-use stream::stream_manager;
+use stream::StreamManager;
 
 mod filter;
 mod shutdown;
@@ -37,8 +37,6 @@ pub async fn daemon(
         return Err("a start command failed, exiting.".into());
     }
 
-    let mut stream_task_handles = Vec::new();
-
     // Cancellation Token
     let shutdown = ShutdownController::new();
 
@@ -54,6 +52,7 @@ pub async fn daemon(
     // Filter managers
     let now = Local::now();
     let mut state = HashMap::new();
+    let mut stream_managers = Vec::new();
     for stream in config.streams().values() {
         let mut filter_managers = HashMap::new();
         for filter in stream.filters().values() {
@@ -63,12 +62,19 @@ pub async fn daemon(
         }
         state.insert(stream, filter_managers.clone());
 
-        let token = shutdown.token();
-        stream_task_handles.push(tokio::spawn(async move {
-            stream_manager(stream, filter_managers, token).await
-        }));
+        stream_managers.push(StreamManager::new(
+            stream,
+            filter_managers,
+            shutdown.token(),
+        )?);
     }
     drop(exec_limit);
+
+    // Start Stream managers
+    let mut stream_task_handles = Vec::new();
+    for stream_manager in stream_managers {
+        stream_task_handles.push(tokio::spawn(async move { stream_manager.start().await }));
+    }
 
     // Run database task
     let mut db_status_rx = {
