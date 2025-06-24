@@ -94,7 +94,7 @@ Then prints the flushed matches and actions."
 
         /// STREAM.FILTER to trigger
         #[clap(value_name = "STREAM.FILTER")]
-        limit: Option<String>,
+        limit: String,
 
         /// PATTERNs to trigger on (e.g. ip=1.2.3.4)
         #[clap(value_parser = parse_named_regex, value_name = "NAME=PATTERN")]

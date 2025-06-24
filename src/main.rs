@@ -67,7 +67,7 @@ async fn main() {
             socket,
             limit,
             patterns,
-        } => request(socket, Format::JSON, limit, patterns, Order::Trigger).await,
+        } => request(socket, Format::JSON, Some(limit), patterns, Order::Trigger).await,
         SubCommand::TestRegex {
             config,
             regex,

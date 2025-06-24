@@ -264,7 +264,7 @@ impl Filter {
 
             if !pattern.is_match(match_) {
                 return Err(format!(
-                    "string '{}' doesn't match pattern {}",
+                    "'{}' doesn't match pattern {}",
                     match_,
                     pattern.name(),
                 ));
@@ -272,7 +272,7 @@ impl Filter {
 
             if pattern.is_ignore(match_) {
                 return Err(format!(
-                    "string '{}' is explcitly ignored by pattern {}",
+                    "'{}' is explicitly ignored by pattern {}",
                     match_,
                     pattern.name(),
                 ));
