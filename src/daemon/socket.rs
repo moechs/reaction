@@ -181,7 +181,7 @@ fn answer_order(
                 // retrieve or Err
                 .find(|(pattern_name, _)| &name == *pattern_name)
                 .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
-                .and_then(|(_, pattern)| Ok((pattern.clone(), reg)))
+                .map(|(_, pattern)| (pattern.clone(), reg))
         })
         .collect::<Result<BTreeMap<Arc<Pattern>, String>, String>>()
     {

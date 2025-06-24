@@ -225,10 +225,7 @@ async fn simple() {
     env::set_current_dir(&dir).unwrap();
 
     // No thing from stream
-    config_with_cmd(
-        config_path,
-        "sleep 0.1",
-    );
+    config_with_cmd(config_path, "sleep 0.1");
 
     file_with_contents(out_path, "");
 
@@ -255,9 +252,5 @@ async fn simple() {
     assert!(trigger.is_ok());
 
     // make sure the trigger number is in the output
-    assert_eq!(
-        get_file_content(out_path).trim(),
-        "95".to_owned()
-    );
-
+    assert_eq!(get_file_content(out_path).trim(), "95".to_owned());
 }

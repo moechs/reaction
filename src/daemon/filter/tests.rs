@@ -551,7 +551,7 @@ async fn trigger_matched_pattern() {
 
     let mut db = TempDatabase::default().await;
     db.set_loaded_db(HashMap::from([(
-        filter_ordered_times_db_name(&filter),
+        filter_ordered_times_db_name(filter),
         HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
     )]));
     let bed = bed.part2(filter, now, Some(db)).await;

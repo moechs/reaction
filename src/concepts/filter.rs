@@ -280,7 +280,7 @@ impl Filter {
         }
 
         for pattern in self.patterns.iter() {
-            if patterns.get(pattern).is_none() {
+            if !patterns.contains_key(pattern) {
                 return Err(format!(
                     "pattern {} is missing, because it's in the filter {}.{}",
                     pattern.name(),
