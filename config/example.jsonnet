@@ -28,7 +28,7 @@ local banFor(time) = {
   // when a filter performs an action, it replaces the found pattern
   patterns: {
     ip: {
-      // reaction regex syntax is defined here: https://github.com/google/re2/wiki/Syntax
+      // reaction regex syntax is defined here: https://docs.rs/regex/latest/regex/#syntax
       // jsonnet's @'string' is for verbatim strings
       // simple version: regex: @'(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3})|(?:[0-9a-fA-F:]{2,90})',
       regex: @'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9]))',
@@ -82,13 +82,15 @@ local banFor(time) = {
       filters: {
         // filters have a user-defined name
         failedlogin: {
-          // reaction's regex syntax is defined here: https://github.com/google/re2/wiki/Syntax
+          // reaction's regex syntax is defined here: https://docs.rs/regex/latest/regex/#syntax
           regex: [
             // <ip> is predefined in the patterns section
             // ip's regex is inserted in the following regex
             @'authentication failure;.*rhost=<ip>',
             @'Failed password for .* from <ip>',
+            @'Invalid user .* from <ip>',
             @'Connection (reset|closed) by (authenticating|invalid) user .* <ip>',
+            @'banner exchange: Connection from <ip> port [0-9]*: invalid format',
           ],
           // if retry and retryperiod are defined,
           // the actions will only take place if a same pattern is
