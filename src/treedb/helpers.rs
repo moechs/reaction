@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Local};
 use serde_json::Value;
@@ -15,13 +15,15 @@ pub fn to_u64(val: &Value) -> Result<u64, String> {
     val.as_u64().ok_or("not a u64".into())
 }
 
+fn string_to_time(val: &str) -> Result<Time, String> {
+    Ok(DateTime::parse_from_rfc3339(val)
+        .map_err(|err| err.to_string())?
+        .with_timezone(&Local))
+}
+
 /// Tries to convert a [`Value`] into a [`Time`]
 pub fn to_time(val: &Value) -> Result<Time, String> {
-    Ok(
-        DateTime::parse_from_rfc3339(val.as_str().ok_or("not a number")?)
-            .map_err(|err| err.to_string())?
-            .with_timezone(&Local),
-    )
+    Ok(string_to_time(val.as_str().ok_or("not a number")?)?)
 }
 
 /// Tries to convert a [`Value`] into a [`Match`]
@@ -48,6 +50,15 @@ pub fn to_timeset(val: &Value) -> Result<BTreeSet<Time>, String> {
         .ok_or("not an array")?
         .iter()
         .map(to_time)
+        .collect()
+}
+
+/// Tries to convert a [`Value`] into a [`BTreeMap<Time, u64>`]
+pub fn to_timemap(val: &Value) -> Result<BTreeMap<Time, u64>, String> {
+    val.as_object()
+        .ok_or("not a map")?
+        .iter()
+        .map(|(key, value)| Ok((string_to_time(key)?, to_u64(value)?)))
         .collect()
 }
 

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     concepts::{Filter, Match, MatchTime, Time},
     treedb::{
-        helpers::{to_match, to_matchtime, to_time, to_u64},
+        helpers::{to_match, to_matchtime, to_time, to_timemap, to_u64},
         Database, Tree,
     },
 };
@@ -16,8 +16,16 @@ pub fn filter_ordered_times_db_name(filter: &Filter) -> String {
     )
 }
 
-pub fn filter_triggers_db_name(filter: &Filter) -> String {
+pub fn filter_triggers_old_db_name(filter: &Filter) -> String {
     format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
+}
+
+pub fn filter_triggers_db_name(filter: &Filter) -> String {
+    format!(
+        "filter_triggers2_{}.{}",
+        filter.stream_name(),
+        filter.name()
+    )
 }
 
 /// Internal state of a [`FilterManager`].
@@ -37,7 +45,7 @@ pub struct State {
     pub ordered_times: Tree<Time, Match>,
     /// Saves all the current Triggers for this Filter
     /// Persisted
-    pub triggers: Tree<MatchTime, u64>,
+    pub triggers: Tree<Match, BTreeMap<Time, u64>>,
 }
 
 impl State {
@@ -47,20 +55,40 @@ impl State {
         db: &mut Database,
         now: Time,
     ) -> Result<Self, String> {
+        let ordered_times = db.open_tree(
+            filter_ordered_times_db_name(filter),
+            filter.retry_duration().unwrap_or_default(),
+            |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
+        )?;
+        let mut triggers = db.open_tree(
+            filter_triggers_db_name(filter),
+            filter.retry_duration().unwrap_or_default(),
+            |(key, value)| Ok((to_match(&key)?, to_timemap(&value)?)),
+        )?;
+        if triggers.is_empty() {
+            let old_triggers = db.open_tree(
+                filter_triggers_old_db_name(filter),
+                filter.retry_duration().unwrap_or_default(),
+                |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
+            )?;
+            for (mt, n) in old_triggers.iter() {
+                triggers.fetch_update(mt.m.clone(), |map| {
+                    Some(match map {
+                        None => [(mt.t, *n)].into(),
+                        Some(mut map) => {
+                            map.insert(mt.t, *n);
+                            map
+                        }
+                    })
+                });
+            }
+        }
         let mut this = Self {
             filter,
             has_after,
             matches: BTreeMap::new(),
-            ordered_times: db.open_tree(
-                filter_ordered_times_db_name(filter),
-                filter.retry_duration().unwrap_or_default(),
-                |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
-            )?,
-            triggers: db.open_tree(
-                filter_triggers_db_name(filter),
-                filter.longuest_action_duration(),
-                |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
-            )?,
+            ordered_times,
+            triggers,
         };
         this.clear_past_matches(now);
         this.load_matches_from_ordered_times();
@@ -77,8 +105,16 @@ impl State {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
-            self.triggers
-                .insert(MatchTime { m, t }, self.filter.actions().len() as u64);
+            let n = self.filter.actions().len() as u64;
+            self.triggers.fetch_update(m, |map| {
+                Some(match map {
+                    None => [(t, n)].into(),
+                    Some(mut value) => {
+                        value.insert(t, n);
+                        value
+                    }
+                })
+            });
         }
     }
 
@@ -94,9 +130,19 @@ impl State {
 
     /// Completely remove a Match from the triggers
     pub fn remove_trigger(&mut self, m: &Match, t: &Time) {
-        self.triggers.remove(&MatchTime {
-            m: m.clone(),
-            t: *t,
+        // self.triggers.remove(&MatchTime {
+        //     m: m.clone(),
+        //     t: *t,
+        // });
+        self.triggers.fetch_update(m.clone(), |map| {
+            map.and_then(|mut map| {
+                map.remove(t);
+                if map.is_empty() {
+                    None
+                } else {
+                    Some(map)
+                }
+            })
         });
     }
 
@@ -106,13 +152,27 @@ impl State {
         if self.has_after {
             let mut exec_needed = false;
             let mt = MatchTime { m: m.clone(), t };
-            let count = self.triggers.get(&mt);
+            let count = self.triggers.get(&mt.m).and_then(|map| map.get(&mt.t)).cloned();
             if let Some(count) = count {
                 exec_needed = true;
-                if *count <= 1 {
-                    self.triggers.remove(&mt);
+                if count <= 1 {
+                    self.triggers.fetch_update(mt.m, |map| {
+                        map.and_then(|mut map| {
+                            map.remove(&mt.t);
+                            if map.is_empty() {
+                                None
+                            } else {
+                                Some(map)
+                            }
+                        })
+                    });
                 } else {
-                    self.triggers.insert(mt, count - 1);
+                    self.triggers.fetch_update(mt.m, |map| {
+                        map.and_then(|mut map| {
+                            map.insert(mt.t, count - 1);
+                            Some(map)
+                        })
+                    });
                 }
             }
             exec_needed

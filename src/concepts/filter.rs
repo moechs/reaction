@@ -14,6 +14,17 @@ use tracing::info;
 use super::parse_duration;
 use super::{Action, Match, Pattern, Patterns};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub enum Duplicate {
+    #[default]
+    #[serde(rename = "extend")]
+    Extend,
+    #[serde(rename = "ignore")]
+    Ignore,
+    #[serde(rename = "rerun")]
+    Rerun,
+}
+
 // Only names are serialized
 // Only computed fields are not deserialized
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -36,6 +47,9 @@ pub struct Filter {
     retry_period: Option<String>,
     #[serde(skip)]
     retry_duration: Option<TimeDelta>,
+
+    #[serde(default)]
+    duplicate: Duplicate,
 
     actions: BTreeMap<String, Action>,
 
@@ -91,6 +105,10 @@ impl Filter {
 
     pub fn regex(&self) -> &Vec<String> {
         &self.regex
+    }
+
+    pub fn duplicate(&self) -> Duplicate {
+        self.duplicate
     }
 
     pub fn actions(&self) -> &BTreeMap<String, Action> {

@@ -14,7 +14,7 @@ use tokio::sync::Semaphore;
 use tracing::{error, info};
 
 use crate::{
-    concepts::{Action, Filter, Match, Pattern, Time},
+    concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
     protocol::{Order, PatternStatus},
     treedb::Database,
 };
@@ -89,13 +89,22 @@ impl FilterManager {
         let mut state = self.state.lock().unwrap();
         state.clear_past_matches(now);
 
-        let exec = match self.filter.retry() {
+        if let Duplicate::Ignore = self.filter.duplicate() {
+            if state.triggers.contains_key(&m) {}
+        }
+
+        let trigger = match self.filter.retry() {
             None => true,
             Some(retry) => {
                 state.add_match(m.clone(), now);
                 // Number of stored times for this match >= configured retry for this filter
                 state.get_times(&m) >= retry as usize
             }
+        };
+
+        let exec = match self.filter.duplicate() {
+            Duplicate::Rerun => true,
+            Duplicate::Extend | Duplicate::Ignore => false,
         };
 
         if exec {
@@ -179,12 +188,12 @@ impl FilterManager {
             .triggers
             .keys()
             // match filtering
-            .filter(|match_| is_match(&match_.m))
+            .filter(|match_| is_match(&match_))
             // clone necessary to drop all references to State
             .cloned()
             .collect::<Vec<_>>();
 
-        for mt in cloned_triggers.into_iter() {
+        for m in cloned_triggers.into_iter() {
             // mutable State required here
             // Remove the match from the triggers
             if let Order::Flush = order {
@@ -276,7 +285,7 @@ impl FilterManager {
             .values()
             // On startup, skip oneshot actions
             .filter(|action| !action.oneshot())
-            .count();
+            .count() as u64;
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
@@ -284,17 +293,23 @@ impl FilterManager {
         let cloned_triggers = state
             .triggers
             .iter()
-            .map(|(k, v)| (k.clone(), *v))
+            .map(|(k, v)| (k.clone(), v.clone()))
             .collect::<Vec<_>>();
 
-        for (mt, remaining) in cloned_triggers.into_iter() {
-            if remaining > 0 && mt.t + longuest_action_duration > now {
-                // Insert back the upcoming times
-                state.triggers.insert(mt.clone(), number_of_actions as u64);
-                // Schedule the upcoming times
-                self.schedule_exec(mt.m, mt.t, now, &mut state, true);
+        for (m, map) in cloned_triggers.into_iter() {
+            let mut new_map = BTreeMap::default();
+            for (t, remaining) in map.into_iter() {
+                if remaining > 0 && t + longuest_action_duration > now {
+                    // Insert back the upcoming times
+                    new_map.insert(t, number_of_actions);
+                    // Schedule the upcoming times
+                    self.schedule_exec(m.clone(), t, now, &mut state, true);
+                }
+            }
+            if new_map.is_empty() {
+                state.triggers.remove(&m);
             } else {
-                state.triggers.remove(&mt);
+                state.triggers.insert(m, new_map);
             }
         }
     }

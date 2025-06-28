@@ -359,16 +359,14 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
     /// Returning None removes the item if it existed before.
     /// Asynchronously persisted.
     /// *API design borrowed from [`fjall::WriteTransaction::fetch_update`].*
-    pub fn fetch_update<F: FnMut(Option<&V>) -> Option<V>>(
+    pub fn fetch_update<F: FnMut(Option<V>) -> Option<V>>(
         &mut self,
         key: K,
         mut f: F,
     ) -> Option<V> {
-        let old_value = self.get(&key);
+        let old_value = self.remove(&key);
         let new_value = f(old_value);
-        if old_value != new_value.as_ref() {
-            self.log(&key, new_value.as_ref());
-        }
+        self.log(&key, new_value.as_ref());
         if let Some(new_value) = new_value {
             self.tree.insert(key, new_value)
         } else {

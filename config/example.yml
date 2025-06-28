@@ -89,6 +89,8 @@ streams:
         #   - h / hour / hours
         #   - d / day / days
         retryperiod: 6h
+        # duplicates!
+        duplicate: rerun
         # actions are run by the filter when regexes are matched
         actions:
           # actions have a user-defined name
