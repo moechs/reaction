@@ -14,7 +14,7 @@ use tracing::info;
 use super::parse_duration;
 use super::{Action, Match, Pattern, Patterns};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Duplicate {
     #[default]
     #[serde(rename = "extend")]

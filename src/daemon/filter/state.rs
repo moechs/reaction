@@ -129,21 +129,8 @@ impl State {
     }
 
     /// Completely remove a Match from the triggers
-    pub fn remove_trigger(&mut self, m: &Match, t: &Time) {
-        // self.triggers.remove(&MatchTime {
-        //     m: m.clone(),
-        //     t: *t,
-        // });
-        self.triggers.fetch_update(m.clone(), |map| {
-            map.and_then(|mut map| {
-                map.remove(t);
-                if map.is_empty() {
-                    None
-                } else {
-                    Some(map)
-                }
-            })
-        });
+    pub fn remove_trigger(&mut self, m: &Match) {
+        self.triggers.remove(m);
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
@@ -152,7 +139,11 @@ impl State {
         if self.has_after {
             let mut exec_needed = false;
             let mt = MatchTime { m: m.clone(), t };
-            let count = self.triggers.get(&mt.m).and_then(|map| map.get(&mt.t)).cloned();
+            let count = self
+                .triggers
+                .get(&mt.m)
+                .and_then(|map| map.get(&mt.t))
+                .cloned();
             if let Some(count) = count {
                 exec_needed = true;
                 if count <= 1 {

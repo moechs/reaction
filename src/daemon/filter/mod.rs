@@ -89,8 +89,11 @@ impl FilterManager {
         let mut state = self.state.lock().unwrap();
         state.clear_past_matches(now);
 
-        if let Duplicate::Ignore = self.filter.duplicate() {
-            if state.triggers.contains_key(&m) {}
+        let already_triggered = state.triggers.contains_key(&m);
+
+        // if duplicate: ignore and already triggered, skip
+        if already_triggered && Duplicate::Ignore == self.filter.duplicate() {
+            return false;
         }
 
         let trigger = match self.filter.retry() {
@@ -102,18 +105,19 @@ impl FilterManager {
             }
         };
 
-        let exec = match self.filter.duplicate() {
-            Duplicate::Rerun => true,
-            Duplicate::Extend | Duplicate::Ignore => false,
-        };
-
-        if exec {
+        if trigger {
             state.remove_match(&m);
             state.add_trigger(m.clone(), now);
-            self.schedule_exec(m, now, now, &mut state, false);
+            if already_triggered && Duplicate::Extend == self.filter.duplicate() {
+                state.remove_trigger(&m);
+                // TODO only schedule after actions
+                self.schedule_exec(m, now, now, &mut state, false, only_after);
+            } else {
+                self.schedule_exec(m, now, now, &mut state, false);
+            }
         }
 
-        exec
+        trigger
     }
 
     pub fn handle_trigger(
@@ -194,29 +198,31 @@ impl FilterManager {
             .collect::<Vec<_>>();
 
         for m in cloned_triggers.into_iter() {
-            // mutable State required here
-            // Remove the match from the triggers
+            let map = state.triggers.get(&m).unwrap().clone();
+
             if let Order::Flush = order {
-                // delete specific (Match, Time) tuple
-                state.remove_trigger(&mt.m, &mt.t);
+                state.remove_trigger(&m);
             }
 
-            let m = mt.m.clone();
-            let pattern_status = cs.entry(m).or_default();
+            for (t, remaining) in map {
+                if remaining > 0 {
+                    let pattern_status = cs.entry(m.clone()).or_default();
 
-            for action in self.filter.actions().values() {
-                let action_time = mt.t + action.after_duration().unwrap_or_default();
-                if action_time > now {
-                    // Insert action
-                    pattern_status
-                        .actions
-                        .entry(action.name().into())
-                        .or_default()
-                        .push(action_time.to_rfc3339().chars().take(19).collect());
+                    for action in self.filter.actions().values() {
+                        let action_time = t + action.after_duration().unwrap_or_default();
+                        if action_time > now {
+                            // Insert action
+                            pattern_status
+                                .actions
+                                .entry(action.name().into())
+                                .or_default()
+                                .push(action_time.to_rfc3339().chars().take(19).collect());
 
-                    // Execute the action early
-                    if let Order::Flush = order {
-                        exec_now(&self.exec_limit, action, mt.m.clone());
+                            // Execute the action early
+                            if let Order::Flush = order {
+                                exec_now(&self.exec_limit, action, m.clone());
+                            }
+                        }
                     }
                 }
             }
