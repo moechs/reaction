@@ -160,7 +160,7 @@ async fn three_matches_then_action_then_delayed_action() {
 
     // Third match, exec
     let _block = bed.semaphore.acquire().await.unwrap();
-    assert_eq!(bed.manager.handle_line("test one", now2s), React::Exec);
+    assert_eq!(bed.manager.handle_line("test one", now2s), React::Trigger);
     {
         let state = bed.manager.state.lock().unwrap();
         assert!(
@@ -251,7 +251,7 @@ async fn one_match_one_action() {
     bed.assert_empty_trees();
 
     // match
-    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
     bed.assert_empty_trees();
 
     // the action executes
@@ -295,7 +295,7 @@ async fn one_match_one_delayed_action() {
 
     // Match
     let one = vec!["one".to_string()];
-    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
     {
         let state = bed.manager.state.lock().unwrap();
         assert!(state.matches.is_empty(), "matches stay empty");
@@ -385,7 +385,7 @@ async fn one_db_match_one_runtime_match_one_action() {
     }
 
     // match
-    assert_eq!(bed.manager.handle_line("test one", now), React::Exec);
+    assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
     bed.assert_empty_trees();
     // the action executes
     tokio::time::sleep(Duration::from_millis(40)).await;

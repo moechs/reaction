@@ -41,11 +41,15 @@ pub struct FilterManager {
     state: Arc<Mutex<State>>,
 }
 
+/// The react to a line handling.
 #[derive(Debug, PartialEq, Eq)]
 pub enum React {
+    /// This line doesn't match
     NoMatch,
+    /// This line matches, but no execution is triggered
     Match,
-    Exec,
+    /// This line matches, and an execution is triggered
+    Trigger,
 }
 
 #[allow(clippy::unwrap_used)]
@@ -75,7 +79,7 @@ impl FilterManager {
     pub fn handle_line(&self, line: &str, now: Time) -> React {
         if let Some(match_) = self.filter.get_match(line) {
             if self.handle_match(match_, now) {
-                React::Exec
+                React::Trigger
             } else {
                 React::Match
             }
