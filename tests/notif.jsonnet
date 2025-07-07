@@ -22,7 +22,7 @@
 
   streams: {
     s1: {
-      cmd: ['sh', '-c', "seq 20 | tr ' ' '\n' | while read i; do echo found $((i % 5)); sleep 1; done"],
+      cmd: ['sh', '-c', 'seq 20 | while read i; do echo found $((i % 5)); sleep 1; done'],
       filters: {
         f1: {
           regex: [

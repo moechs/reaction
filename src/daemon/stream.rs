@@ -23,11 +23,10 @@ use crate::{
 
 use super::shutdown::ShutdownToken;
 
-/** Converts bytes to string, discarding invalid utf8 sequences
-*/
-fn to_string(data: &[u8]) -> String {
-    let res = String::from_utf8_lossy(data);
-    res.to_string()
+/// Converts bytes to line string, discarding invalid utf8 sequences and newlines at the end
+fn to_line(data: &[u8]) -> String {
+    String::from_utf8_lossy(data)
+        .trim_end_matches('\n')
         .replace(std::char::REPLACEMENT_CHARACTER, "")
 }
 
@@ -46,7 +45,7 @@ fn lines_to_stream<T: tokio::io::AsyncRead + Unpin>(
         }
         // Try to read until LF or EOF. If interrupted, buffer might contain data, in which case
         // new data will be happened to it
-        let nl = lines.read_until(0x0a, &mut buffer);
+        let nl = lines.read_until(b'\n', &mut buffer);
         pin!(nl);
         match futures::Future::poll(nl, cx) {
             Poll::Pending => Poll::Pending,
@@ -57,13 +56,13 @@ fn lines_to_stream<T: tokio::io::AsyncRead + Unpin>(
                 } else {
                     // reached eof with data in the buffer
                     at_eof = true;
-                    let line = to_string(&buffer);
+                    let line = to_line(&buffer);
                     buffer.clear();
                     Poll::Ready(Some(Ok(line)))
                 }
             }
             Poll::Ready(Ok(_)) => {
-                let line = to_string(&buffer);
+                let line = to_line(&buffer);
                 buffer.clear();
                 Poll::Ready(Some(Ok(line)))
             }
