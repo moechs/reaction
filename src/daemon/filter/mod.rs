@@ -114,10 +114,9 @@ impl FilterManager {
             state.add_trigger(m.clone(), now);
             if already_triggered && Duplicate::Extend == self.filter.duplicate() {
                 state.remove_trigger(&m);
-                // TODO only schedule after actions
-                self.schedule_exec(m, now, now, &mut state, false, only_after);
+                self.schedule_exec(m, now, now, &mut state, false, true);
             } else {
-                self.schedule_exec(m, now, now, &mut state, false);
+                self.schedule_exec(m, now, now, &mut state, false, false);
             }
         }
 
@@ -135,7 +134,7 @@ impl FilterManager {
         let mut state = self.state.lock().unwrap();
         state.remove_match(&match_);
         state.add_trigger(match_.clone(), now);
-        self.schedule_exec(match_, now, now, &mut state, false);
+        self.schedule_exec(match_, now, now, &mut state, false, false);
 
         Ok(())
     }
@@ -245,6 +244,7 @@ impl FilterManager {
         now: Time,
         state: &mut MutexGuard<State>,
         startup: bool,
+        only_after: bool,
     ) {
         for action in self
             .filter
@@ -252,6 +252,8 @@ impl FilterManager {
             .values()
             // On startup, skip oneshot actions
             .filter(|action| !startup || !action.oneshot())
+            // If only_after, keep only after actions
+            .filter(|action| !only_after || action.after_duration().is_some())
         {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();
@@ -313,7 +315,7 @@ impl FilterManager {
                     // Insert back the upcoming times
                     new_map.insert(t, number_of_actions);
                     // Schedule the upcoming times
-                    self.schedule_exec(m.clone(), t, now, &mut state, true);
+                    self.schedule_exec(m.clone(), t, now, &mut state, true, false);
                 }
             }
             if new_map.is_empty() {

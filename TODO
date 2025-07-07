@@ -1,6 +1,5 @@
-Test what happens when a Filter pattern set changes (I think it's shitty)
+Test what happens when a Filter's pattern Set changes (I think it's shitty)
 
-fix trigger only after when extend
 move match logging from concepts/filter to daemon/filter
 
 test new treedb::helpers
