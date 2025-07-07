@@ -177,8 +177,8 @@ impl Filter {
                         ));
                 }
                 regex_buf = regex_buf.replacen(pattern.name_with_braces(), &pattern.regex, 1);
-                new_regex.push(regex_buf.clone());
             }
+            new_regex.push(regex_buf.clone());
             let compiled = Regex::new(&regex_buf).map_err(|err| err.to_string())?;
             self.compiled_regex.push(compiled);
             first = false;
