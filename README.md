@@ -6,13 +6,6 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 🚧 This program hasn't received external security audit. However, it already works well on my servers 🚧
 
-## Rust rewrite
-
-reaction v2.x is a complete Rust rewrite of reaction.
-It's in feature parity with the Go version, v1.x, which is now deprecated.
-
-See https://blog.ppom.me/en-reaction-v2.
-
 ## Rationale
 
 I was using the honorable fail2ban since quite a long time, but i was a bit frustrated by its CPU consumption
@@ -27,6 +20,13 @@ reaction does not have all the features of the honorable fail2ban, but it's more
 
 [🇬🇧 in-depth blog article](https://blog.ppom.me/en-reaction)
 / [🇫🇷 french version](https://blog.ppom.me/fr-reaction)
+
+## Rust rewrite
+
+reaction v2.x is a complete Rust rewrite of reaction.
+It's in feature parity with the Go version, v1.x, which is now deprecated.
+
+See https://blog.ppom.me/en-reaction-v2.
 
 ## Configuration
 
