@@ -1,5 +1,7 @@
 local log(cat) = [
-  'sh', '-c', 'echo "' + cat + ' <id>" >>log',
+  // NOTE: do not log the ID as it would be out of order since all cat commands
+  // are executed at once
+  'sh', '-c', 'echo "' + cat + '" >>log',
 ];
 {
   patterns: {
@@ -9,7 +11,7 @@ local log(cat) = [
   },
   streams: {
     idle: {
-      cmd: ['sh', '-c', 'for n in 1 1 3 2 3 1 2 2 3; do echo $n; done; sleep 2'],
+      cmd: ['sh', '-c', 'for n in $(seq 9); do echo $n; done; sleep 2'],
       filters: {
         filt1: {
           regex: [
@@ -34,4 +36,3 @@ local log(cat) = [
     },
   },
 }
-

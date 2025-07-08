@@ -10,7 +10,7 @@
   },
   streams: {
     binary: {
-      cmd: ['sh', '-c', 'for n in 123 456 987; do printf "\\n\\x1b$n\\xe2 \\x05"; sleep 0.5; done; printf "\\n"; sleep 0.2'],
+      cmd: ['sh', '-c', 'for n in $(seq 3); do printf "\\n\\x1babc\\xe2 \\x05"; done; printf "\\n"; sleep 0.2'],
       filters: {
         filt1: {
           regex: [
@@ -18,7 +18,7 @@
           ],
           actions: {
             act: {
-              cmd: ['echo', 'received "<id>"'],
+              cmd: ['sh', '-c', 'echo \'received "<id>"\' >>log'],
             },
           },
         },
