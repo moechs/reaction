@@ -4,24 +4,24 @@ A daemon that scans program outputs for repeated patterns, and takes action.
 
 A common usage is to scan ssh and webserver logs, and to ban hosts that cause multiple authentication errors.
 
-🚧 This program hasn't received external audit. however, it already works well on my servers 🚧
+🚧 This program hasn't received external security audit. However, it already works well on my servers 🚧
 
-## Current project status
+## Rust rewrite
 
-reaction just reached v2.0.0-rc2 version, which is a complete rust rewrite of reaction.
-It's in feature parity with the Go version, and breaking changes should be small.
+reaction v2.x is a complete Rust rewrite of reaction.
+It's in feature parity with the Go version, v1.x, which is now deprecated.
 
-See https://reaction.ppom.me/migrate-to-v2.html
+See https://blog.ppom.me/en-reaction-v2.
 
 ## Rationale
 
-I was using the honorable fail2ban since quite a long time, but i was a bit frustrated by its cpu consumption
+I was using the honorable fail2ban since quite a long time, but i was a bit frustrated by its CPU consumption
 and all its heavy default configuration.
 
 In my view, a security-oriented program should be simple to configure
 and an always-running daemon should be implemented in a fast*er* language.
 
-reaction does not have all the features of the honorable fail2ban, but it's ~10x faster and has more manageable configuration.
+reaction does not have all the features of the honorable fail2ban, but it's more than 10x faster and has more manageable configuration.
 
 [📽️ quick french name explanation 😉](https://u.ppom.me/reaction.webm)
 
@@ -219,7 +219,16 @@ make install_systemd
 - [NGI's Diversity and Inclusion Guide](https://nlnet.nl/NGI0/bestpractices/DiversityAndInclusionGuide-v4.pdf)
 
 I'll do my best to maintain a safe contribution place, as free as possible from discrimination and elitism.
+
+### Ideas
+
+Please take a look at issues which have the "Opinion Welcome 👀" label!
+*Your opinion is welcome.*
+
 Your ideas are welcome in the issues.
+
+### Code
+
 Contributions are welcome.
 
 For any substantial feature, please file an issue first, to be assured that we agree on the feature, and to avoid unnecessary work.
