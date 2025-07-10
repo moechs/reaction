@@ -23,7 +23,7 @@ fn string_to_time(val: &str) -> Result<Time, String> {
 
 /// Tries to convert a [`Value`] into a [`Time`]
 pub fn to_time(val: &Value) -> Result<Time, String> {
-    Ok(string_to_time(val.as_str().ok_or("not a number")?)?)
+    Ok(string_to_time(val.as_str().ok_or("not a datetime")?)?)
 }
 
 /// Tries to convert a [`Value`] into a [`Match`]
@@ -199,5 +199,38 @@ mod tests {
         assert!(to_timeset(&(true.into())).is_err());
         assert!(to_timeset(&(8.into())).is_err());
         assert!(to_timeset(&(None::<String>.into())).is_err());
+    }
+
+    #[test]
+    fn test_to_timemap() {
+        let time1 = "2025-07-10T12:35:00.000+02:00";
+        let time1_t = DateTime::parse_from_rfc3339(time1)
+            .unwrap()
+            .with_timezone(&Local);
+        let time2 = "2026-08-11T12:36:01.000+02:00";
+        let time2_t = DateTime::parse_from_rfc3339(time2)
+            .unwrap()
+            .with_timezone(&Local);
+
+        assert_eq!(
+            to_timemap(&Value::from_iter([(time2, 1)])),
+            Ok(BTreeMap::from([(time2_t, 1)]))
+        );
+        assert_eq!(
+            to_timemap(&Value::from_iter([(time1, 4), (time2, 0)])),
+            Ok(BTreeMap::from([(time1_t, 4), (time2_t, 0)]))
+        );
+
+        assert!(to_timemap(&Value::from_iter([("1", time2)])).is_err());
+        assert!(to_timemap(&Value::from_iter([(time2, time2)])).is_err());
+        assert!(to_timemap(&Value::from_iter([(time2)])).is_err());
+        assert!(to_timemap(&Value::from_iter([(1)])).is_err());
+
+        assert!(to_timemap(&(["1970-01-01T01:20:34.567+01:00"].into())).is_err());
+        assert!(to_timemap(&([""].into())).is_err());
+        assert!(to_timemap(&(["ploup"].into())).is_err());
+        assert!(to_timemap(&(true.into())).is_err());
+        assert!(to_timemap(&(8.into())).is_err());
+        assert!(to_timemap(&(None::<String>.into())).is_err());
     }
 }

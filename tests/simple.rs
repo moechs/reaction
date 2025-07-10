@@ -36,6 +36,7 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
                     regex: ['here is <num>'],
                     retry: 2,
                     retryperiod: '2s',
+                    duplicate: 'rerun',
                     actions: {
                         // Don't mix code and data at home!
                         // You may permit arbitrary execution from vilains,

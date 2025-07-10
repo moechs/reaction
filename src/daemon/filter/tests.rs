@@ -11,7 +11,7 @@ use tokio::sync::Semaphore;
 
 use super::{state::filter_ordered_times_db_name, FilterManager, React};
 use crate::{
-    concepts::{Action, Filter, MatchTime, Pattern, Patterns, Time},
+    concepts::{Action, Filter, Pattern, Patterns, Time},
     daemon::shutdown::ShutdownController,
     tests::TempDatabase,
 };
@@ -173,13 +173,7 @@ async fn three_matches_then_action_then_delayed_action() {
         );
         assert_eq!(
             state.triggers.tree(),
-            &BTreeMap::from([(
-                MatchTime {
-                    m: one.clone(),
-                    t: now2s
-                },
-                1
-            )]),
+            &BTreeMap::from([(one.clone(), BTreeMap::from([(now2s, 1)]))]),
             // 1 and not 2 because the decrement_trigger() doesn't wait for the semaphore
             "triggers now contain the triggered match with 1 action left"
         );
@@ -191,13 +185,7 @@ async fn three_matches_then_action_then_delayed_action() {
     // Check first action
     assert_eq!(
         bed.manager.state.lock().unwrap().triggers.tree(),
-        &BTreeMap::from([(
-            MatchTime {
-                m: one.clone(),
-                t: now2s
-            },
-            1
-        )]),
+        &BTreeMap::from([(one.clone(), BTreeMap::from([(now2s, 1)]))]),
         "triggers still contain the triggered match with 1 action left"
     );
     assert_eq!(
@@ -302,13 +290,7 @@ async fn one_match_one_delayed_action() {
         assert!(state.ordered_times.is_empty(), "ordered_times stay empty");
         assert_eq!(
             state.triggers.tree(),
-            &BTreeMap::from([(
-                MatchTime {
-                    m: one.clone(),
-                    t: now,
-                },
-                1
-            )]),
+            &BTreeMap::from([(one.clone(), BTreeMap::from([(now, 1)]))]),
             "triggers still contain the triggered match with 1 action left"
         );
     }
@@ -497,13 +479,7 @@ async fn trigger_unmatched_pattern() {
         assert!(state.ordered_times.is_empty());
         assert_eq!(
             state.triggers.tree(),
-            &BTreeMap::from([(
-                MatchTime {
-                    m: one.clone(),
-                    t: now,
-                },
-                1
-            )])
+            &BTreeMap::from([(one.clone(), BTreeMap::from([(now, 1)]))]),
         );
     }
     assert_eq!(
@@ -578,13 +554,7 @@ async fn trigger_matched_pattern() {
         assert!(state.ordered_times.is_empty());
         assert_eq!(
             state.triggers.tree(),
-            &BTreeMap::from([(
-                MatchTime {
-                    m: one.clone(),
-                    t: now,
-                },
-                1
-            )])
+            &BTreeMap::from([(one.clone(), BTreeMap::from([(now, 1)]))]),
         );
     }
     assert_eq!(
