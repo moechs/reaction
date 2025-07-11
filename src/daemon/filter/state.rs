@@ -42,6 +42,23 @@ pub struct State {
     /// Alternative view of the current Matches for O(1) cleaning of old Matches
     /// without added async Tasks to remove them
     /// Persisted
+    ///
+    /// I'm pretty confident that Time will always be unique, because it has enough precision.
+    /// See this code that gives different times, even in a minimal loop:
+    /// ```rust
+    /// use chrono::{Local};
+    ///
+    /// fn main() {
+    ///   let mut res = vec![];
+    ///   for _ in 0..10 {
+    ///     let now = Local::now();
+    ///     res.push(format!("Now: {now}"));
+    ///   }
+    ///   for s in res {
+    ///     println!("{s}");
+    ///   }
+    /// }
+    /// ```
     pub ordered_times: Tree<Time, Match>,
     /// Saves all the current Triggers for this Filter
     /// Persisted
@@ -49,12 +66,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(
-        filter: &'static Filter,
-        has_after: bool,
-        db: &mut Database,
-        now: Time,
-    ) -> Result<Self, String> {
+    pub fn new(filter: &'static Filter, db: &mut Database, now: Time) -> Result<Self, String> {
         let ordered_times = db.open_tree(
             filter_ordered_times_db_name(filter),
             filter.retry_duration().unwrap_or_default(),
@@ -62,13 +74,13 @@ impl State {
         )?;
         let mut triggers = db.open_tree(
             filter_triggers_db_name(filter),
-            filter.retry_duration().unwrap_or_default(),
+            filter.longuest_action_duration(),
             |(key, value)| Ok((to_match(&key)?, to_timemap(&value)?)),
         )?;
         if triggers.is_empty() {
             let old_triggers = db.open_tree(
                 filter_triggers_old_db_name(filter),
-                filter.retry_duration().unwrap_or_default(),
+                filter.longuest_action_duration(),
                 |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
             )?;
             for (mt, n) in old_triggers.iter() {
@@ -85,7 +97,7 @@ impl State {
         }
         let mut this = Self {
             filter,
-            has_after,
+            has_after: !filter.longuest_action_duration().is_zero(),
             matches: BTreeMap::new(),
             ordered_times,
             triggers,
@@ -210,5 +222,244 @@ impl State {
             let set = self.matches.entry(m.clone()).or_default();
             set.insert(*t);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use chrono::{DateTime, Local, TimeDelta};
+
+    use crate::{
+        concepts::{filter_tests::ok_filter, Action, Filter, Pattern},
+        daemon::filter::state::State,
+        tests::TempDatabase,
+    };
+
+    // Tests `new`, `clear_past_matches` and `load_matches_from_ordered_times`
+    #[tokio::test]
+    async fn state_new() {
+        let patterns = Pattern::new_map("az", "[a-z]+").unwrap();
+        let filter = Filter::new_static(
+            vec![Action::new(
+                vec!["true"],
+                None,
+                false,
+                "s1",
+                "f1",
+                "a1",
+                &patterns,
+            )],
+            vec!["test <az>"],
+            Some(3),
+            Some("2s"),
+            "s1",
+            "f1",
+            &patterns,
+        );
+
+        let now = DateTime::parse_from_rfc3339("2025-07-10T12:35:00.000+00:00")
+            .unwrap()
+            .with_timezone(&Local);
+        let now_plus_1m = now + TimeDelta::minutes(1);
+        let now_plus_1m01 = now_plus_1m + TimeDelta::seconds(1);
+        let now_less_1m = now - TimeDelta::minutes(1);
+        let now_less_1s = now - TimeDelta::seconds(1);
+        let now_less_4s = now - TimeDelta::seconds(4);
+        let now_less_5s = now - TimeDelta::seconds(5);
+
+        let mut db = TempDatabase::default().await;
+        db.set_loaded_db(HashMap::from([(
+            "filter_ordered_times_s1.f1".into(),
+            HashMap::from([
+                // Will stay
+                (now_plus_1m.to_rfc3339().into(), ["one"].into()),
+                (now_plus_1m01.to_rfc3339().into(), ["one"].into()),
+                (now_less_1s.to_rfc3339().into(), ["two"].into()), // stays because retry: 2s
+                // Will get cleaned
+                (now_less_4s.to_rfc3339().into(), ["two"].into()),
+                (now_less_5s.to_rfc3339().into(), ["three"].into()),
+                (now_less_1m.to_rfc3339().into(), ["two"].into()),
+            ]),
+        )]));
+
+        let state = State::new(filter, &mut db, now).unwrap();
+
+        assert_eq!(
+            state.ordered_times.tree(),
+            &BTreeMap::from([
+                (now_less_1s, vec!["two".into()]),
+                (now_plus_1m, vec!["one".into()]),
+                (now_plus_1m01, vec!["one".into()]),
+            ])
+        );
+        assert_eq!(
+            state.matches,
+            BTreeMap::from([
+                (vec!["one".into()], [now_plus_1m, now_plus_1m01].into()),
+                (vec!["two".into()], [now_less_1s].into()),
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn state_match_add_remove() {
+        let filter = Box::leak(Box::new(ok_filter()));
+
+        let one = vec!["one".into()];
+
+        let now = DateTime::parse_from_rfc3339("2025-07-10T12:35:00.000+00:00")
+            .unwrap()
+            .with_timezone(&Local);
+        let now_less_1s = now - TimeDelta::seconds(1);
+        let now_less_4s = now - TimeDelta::seconds(4);
+
+        let mut db = TempDatabase::default().await;
+        let mut state = State::new(filter, &mut db, now).unwrap();
+
+        assert!(state.ordered_times.tree().is_empty());
+        assert!(state.matches.is_empty());
+
+        // Add non-previously added match
+        state.add_match(one.clone(), now_less_1s);
+        assert_eq!(
+            state.ordered_times.tree(),
+            &BTreeMap::from([(now_less_1s, one.clone()),])
+        );
+        assert_eq!(
+            state.matches,
+            BTreeMap::from([(one.clone(), [now_less_1s].into())])
+        );
+
+        // Add previously added match
+        state.add_match(one.clone(), now_less_4s);
+        assert_eq!(
+            state.ordered_times.tree(),
+            &BTreeMap::from([(now_less_1s, one.clone()), (now_less_4s, one.clone())])
+        );
+        assert_eq!(
+            state.matches,
+            BTreeMap::from([(one.clone(), [now_less_1s, now_less_4s].into())])
+        );
+
+        // Remove added match
+        state.remove_match(&one);
+        assert!(state.ordered_times.tree().is_empty());
+        assert!(state.matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn state_trigger_no_after_add_remove_decrement() {
+        let filter = Box::leak(Box::new(ok_filter()));
+
+        let one = vec!["one".into()];
+        let now = Local::now();
+
+        let mut db = TempDatabase::default().await;
+        let mut state = State::new(filter, &mut db, now).unwrap();
+
+        assert!(state.triggers.tree().is_empty());
+
+        // Add unique trigger
+        state.add_trigger(one.clone(), now);
+        // Nothing is really added
+        assert!(state.triggers.tree().is_empty());
+
+        // Will be called immediately after, it returns true
+        assert!(state.decrement_trigger(&one, now));
+    }
+
+    #[tokio::test]
+    async fn state_trigger_has_after_add_remove_decrement() {
+        let patterns = Pattern::new_map("az", "[a-z]+").unwrap();
+        let filter = Filter::new_static(
+            vec![
+                Action::new(vec!["true"], None, false, "s1", "f1", "a1", &patterns),
+                Action::new(vec!["true"], Some("1s"), false, "s1", "f1", "a2", &patterns),
+                Action::new(vec!["true"], Some("3s"), false, "s1", "f1", "a3", &patterns),
+            ],
+            vec!["test <az>"],
+            Some(3),
+            Some("2s"),
+            "s1",
+            "f1",
+            &patterns,
+        );
+
+        let one = vec!["one".into()];
+        let now = Local::now();
+        let now_plus_1s = now + TimeDelta::seconds(1);
+
+        let mut db = TempDatabase::default().await;
+        let mut state = State::new(filter, &mut db, now).unwrap();
+
+        assert!(state.triggers.tree().is_empty());
+
+        // Add unique trigger
+        state.add_trigger(one.clone(), now);
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 3)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 2)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 1)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert!(state.triggers.tree().is_empty());
+        // Decrement → false
+        assert!(!state.decrement_trigger(&one, now));
+
+        // Add trigger with neighbour
+        state.add_trigger(one.clone(), now);
+        state.add_trigger(one.clone(), now_plus_1s);
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 2)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 1)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now_plus_1s, 3)].into())])
+        );
+        // Decrement → false
+        assert!(!state.decrement_trigger(&one, now));
+        // Remove neighbour
+        state.remove_trigger(&one);
+        assert!(state.triggers.tree().is_empty());
+
+        // Add two neighbour triggers
+        state.add_trigger(one.clone(), now);
+        state.add_trigger(one.clone(), now_plus_1s);
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
+        );
+        // Remove them
+        state.remove_trigger(&one);
+        assert!(state.triggers.tree().is_empty());
     }
 }

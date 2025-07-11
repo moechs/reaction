@@ -67,7 +67,6 @@ impl FilterManager {
             shutdown,
             state: Arc::new(Mutex::new(State::new(
                 filter,
-                !filter.longuest_action_duration().is_zero(),
                 db,
                 now,
             )?)),

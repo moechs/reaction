@@ -267,7 +267,7 @@ impl Database {
     /// Creates a new Tree with the given name and entry timeout.
     /// Takes a closure (or regular function) that converts (Value, Value) JSON entries
     /// into (K, V) typed entries.
-    /// Helpers for this closure can be find in the [`helpers`] module.
+    /// Helpers for this closure can be found in the [`helpers`] module.
     pub fn open_tree<K: KeyType, V: ValueType, F>(
         &mut self,
         name: String,
