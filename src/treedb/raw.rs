@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::{Error as IoError, Write},
-};
+use std::{collections::HashMap, io::Error as IoError};
 
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -68,7 +65,7 @@ pub struct WriteDB {
     file: BufWriter<File>,
     names: HashMap<String, u64>,
     next_id: u64,
-    buffer: Buffer,
+    buffer: Vec<u8>,
 }
 
 impl WriteDB {
@@ -80,7 +77,7 @@ impl WriteDB {
             // names: HashMap::from([(DB_TREE_NAME.into(), DB_TREE_ID)]),
             names: HashMap::default(),
             next_id: 1,
-            buffer: Buffer::new(),
+            buffer: Vec::default(),
         }
     }
 
@@ -121,11 +118,8 @@ impl WriteDB {
     async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<usize, SerdeOrIoError> {
         self.buffer.clear();
         serde_json::to_writer(&mut self.buffer, &raw_entry)?;
-        self.buffer.push("\n".as_bytes());
-        self.file
-            .write(self.buffer.as_ref())
-            .await
-            .map_err(|err| err.into())
+        self.buffer.push(b'\n');
+        Ok(self.file.write(self.buffer.as_ref()).await?)
     }
 
     /// Flushes the inner [`tokio::io::BufWriter`]
@@ -249,45 +243,6 @@ impl ReadDB {
             })),
             None => Err(DatabaseError::MissingKeyId(raw_entry.tree)),
         }
-    }
-}
-
-/// This [`String`] buffer implements [`Write`] to permit allocation reuse.
-/// Using [`serde_json::to_string`] allocates for every entry.
-/// This Buffer permits to use [`serde_json::to_writer`] instead.
-struct Buffer {
-    b: Vec<u8>,
-}
-
-impl AsRef<Vec<u8>> for Buffer {
-    fn as_ref(&self) -> &Vec<u8> {
-        &self.b
-    }
-}
-
-impl Buffer {
-    fn new() -> Self {
-        Buffer { b: Vec::new() }
-    }
-
-    /// Truncates the buffer without touching its capacity
-    fn clear(&mut self) {
-        self.b.clear()
-    }
-
-    fn push(&mut self, buf: &[u8]) {
-        self.b.extend_from_slice(buf);
-    }
-}
-
-impl Write for Buffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.push(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 
