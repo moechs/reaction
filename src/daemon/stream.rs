@@ -1,16 +1,14 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     process::Stdio,
-    task::Poll,
     time::Duration,
 };
 
 use chrono::Local;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, Stream as AsyncStream, StreamExt};
 use regex::RegexSet;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    pin,
     process::{Child, ChildStderr, ChildStdout, Command},
     time::sleep,
 };
@@ -30,45 +28,24 @@ fn to_line(data: &[u8]) -> String {
         .replace(std::char::REPLACEMENT_CHARACTER, "")
 }
 
-#[allow(clippy::type_complexity)]
-fn lines_to_stream<T: tokio::io::AsyncRead + Unpin>(
-    mut lines: BufReader<T>,
-) -> futures::stream::PollFn<
-    impl FnMut(&mut std::task::Context) -> Poll<Option<Result<String, std::io::Error>>>,
-> {
-    let mut at_eof = false;
-    let mut buffer = vec![];
-    futures::stream::poll_fn(move |cx| {
-        if at_eof {
-            // reached EOF earlier, avoid calling read again
-            return Poll::Ready(None);
-        }
-        // Try to read until LF or EOF. If interrupted, buffer might contain data, in which case
-        // new data will be happened to it
-        let nl = lines.read_until(b'\n', &mut buffer);
-        pin!(nl);
-        match futures::Future::poll(nl, cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(0)) => {
-                if buffer.is_empty() {
-                    // at eof
-                    Poll::Ready(None)
-                } else {
-                    // reached eof with data in the buffer
-                    at_eof = true;
-                    let line = to_line(&buffer);
-                    buffer.clear();
-                    Poll::Ready(Some(Ok(line)))
-                }
-            }
-            Poll::Ready(Ok(_)) => {
+fn reader_to_stream(
+    reader: impl tokio::io::AsyncRead + Unpin,
+) -> impl AsyncStream<Item = Result<String, std::io::Error>> {
+    let buf_reader = BufReader::new(reader);
+    let buffer = vec![];
+    futures::stream::try_unfold(
+        (buf_reader, buffer),
+        |(mut buf_reader, mut buffer)| async move {
+            let nl = buf_reader.read_until(b'\n', &mut buffer).await?;
+            if nl > 0 {
                 let line = to_line(&buffer);
                 buffer.clear();
-                Poll::Ready(Some(Ok(line)))
+                Ok(Some((line, (buf_reader, buffer))))
+            } else {
+                Ok(None)
             }
-            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
-        }
-    })
+        },
+    )
 }
 
 pub struct StreamManager {
@@ -189,10 +166,11 @@ impl StreamManager {
     }
 
     async fn handle_io(&self, child_stdout: ChildStdout, child_stderr: ChildStderr) {
-        let lines_stdout = lines_to_stream(BufReader::new(child_stdout));
-        let lines_stderr = lines_to_stream(BufReader::new(child_stderr));
+        let lines_stdout = reader_to_stream(child_stdout);
+        let lines_stderr = reader_to_stream(child_stderr);
         // aggregate outputs, will end when both streams end
-        let mut lines = futures::stream::select(lines_stdout, lines_stderr);
+        let lines = futures::stream::select(lines_stdout, lines_stderr);
+        tokio::pin!(lines);
 
         loop {
             match lines.next().await {
