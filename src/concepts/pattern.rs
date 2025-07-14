@@ -3,6 +3,10 @@ use std::cmp::Ordering;
 use regex::{Regex, RegexSet};
 use serde::{Deserialize, Serialize};
 
+mod ip;
+
+use ip::PatternIP;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
@@ -16,6 +20,9 @@ pub struct Pattern {
     ignore_regex: Vec<String>,
     #[serde(skip)]
     compiled_ignore_regex: RegexSet,
+
+    #[serde(flatten)]
+    ip: PatternIP,
 
     #[serde(skip)]
     name: String,
@@ -52,6 +59,10 @@ impl Pattern {
         }
         if self.name.contains('.') {
             return Err("character '.' is not allowed in pattern name".into());
+        }
+
+        if let Some(regex) = self.ip.setup()? {
+            self.regex = regex;
         }
 
         if self.regex.is_empty() {
@@ -119,6 +130,7 @@ impl Pattern {
     pub fn is_ignore(&self, match_: &str) -> bool {
         self.ignore.iter().any(|ignore| ignore == match_)
             || self.compiled_ignore_regex.is_match(match_)
+            || self.ip.is_ignore(match_)
     }
 }
 
@@ -172,6 +184,7 @@ pub mod tests {
             ignore: Vec::new(),
             ignore_regex: Vec::new(),
             compiled_ignore_regex: RegexSet::default(),
+            ip: PatternIP::default(),
             name: "".into(),
             name_with_braces: "".into(),
         }

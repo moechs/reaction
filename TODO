@@ -2,7 +2,6 @@ Test what happens when a Filter's pattern Set changes (I think it's shitty)
 
 move match logging from concepts/filter to daemon/filter
 
-test new treedb::helpers
-test different duplicates modes
 test migration
-document new option
+stream: test regex ending with $
+test Filter::regex conformity after setup
