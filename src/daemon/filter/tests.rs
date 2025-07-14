@@ -584,3 +584,119 @@ async fn trigger_matched_pattern() {
         );
     }
 }
+
+#[tokio::test]
+async fn multiple_triggers() {
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        let bed = TestBed::new();
+        let filter = Filter::new_static(
+            vec![
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                    None,
+                    false,
+                    "test",
+                    "test",
+                    "a1",
+                    &bed.az_patterns,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                    Some("200ms"),
+                    false,
+                    "test",
+                    "test",
+                    "a2",
+                    &bed.az_patterns,
+                ),
+            ],
+            vec!["test <az>"],
+            Some(2),
+            Some("1s"),
+            "test",
+            "test",
+            dup,
+            &bed.az_patterns,
+        );
+
+        let bed = bed.part2(filter, Local::now(), None).await;
+
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            React::Match,
+            "Duplicate: {dup:?}"
+        );
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            React::Trigger,
+            "Duplicate: {dup:?}"
+        );
+
+        // Wait for first action to execute
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert_eq!(
+            "a1 one\n",
+            &read_to_string(&bed.out_file).unwrap(),
+            "Duplicate: {dup:?}"
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            match dup {
+                Duplicate::Ignore => React::Match,
+                _ => React::Match,
+            },
+            "Duplicate: {dup:?}"
+        );
+
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            match dup {
+                Duplicate::Ignore => React::Match,
+                _ => React::Trigger,
+            },
+            "Duplicate: {dup:?}"
+        );
+
+        // Wait for second action to execute
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert_eq!(
+            &read_to_string(&bed.out_file).unwrap(),
+            match dup {
+                Duplicate::Rerun => "a1 one\na1 one\n",
+                _ => "a1 one\n",
+            },
+            "Duplicate: {dup:?}"
+        );
+
+        // Wait for first after action to execute
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(
+            &read_to_string(&bed.out_file).unwrap(),
+            match dup {
+                Duplicate::Rerun => "a1 one\na1 one\na2 one\n",
+                Duplicate::Extend => "a1 one\n",
+                Duplicate::Ignore => "a1 one\na2 one\n",
+            },
+            "Duplicate: {dup:?}"
+        );
+
+        // Wait for second after action to execute
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(
+            &read_to_string(&bed.out_file).unwrap(),
+            match dup {
+                Duplicate::Rerun => "a1 one\na1 one\na2 one\na2 one\n",
+                Duplicate::Extend => "a1 one\na2 one\n",
+                Duplicate::Ignore => "a1 one\na2 one\n",
+            },
+            "Duplicate: {dup:?}"
+        );
+    }
+}

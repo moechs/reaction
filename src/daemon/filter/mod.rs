@@ -65,11 +65,7 @@ impl FilterManager {
             filter,
             exec_limit,
             shutdown,
-            state: Arc::new(Mutex::new(State::new(
-                filter,
-                db,
-                now,
-            )?)),
+            state: Arc::new(Mutex::new(State::new(filter, db, now)?)),
         };
         this.clear_past_triggers_and_schedule_future_actions(now);
         Ok(this)
@@ -110,13 +106,12 @@ impl FilterManager {
 
         if trigger {
             state.remove_match(&m);
-            state.add_trigger(m.clone(), now);
-            if already_triggered && Duplicate::Extend == self.filter.duplicate() {
+            let extend = already_triggered && Duplicate::Extend == self.filter.duplicate();
+            if extend {
                 state.remove_trigger(&m);
-                self.schedule_exec(m, now, now, &mut state, false, true);
-            } else {
-                self.schedule_exec(m, now, now, &mut state, false, false);
             }
+            state.add_trigger(m.clone(), now);
+            self.schedule_exec(m, now, now, &mut state, false, extend);
         }
 
         trigger
