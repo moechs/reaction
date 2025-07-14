@@ -232,7 +232,7 @@ mod tests {
     use chrono::{DateTime, Local, TimeDelta};
 
     use crate::{
-        concepts::{filter_tests::ok_filter, Action, Filter, Pattern},
+        concepts::{filter_tests::ok_filter, Action, Duplicate, Filter, Pattern},
         daemon::filter::state::State,
         tests::TempDatabase,
     };
@@ -256,6 +256,7 @@ mod tests {
             Some("2s"),
             "s1",
             "f1",
+            Duplicate::default(),
             &patterns,
         );
 
@@ -384,6 +385,7 @@ mod tests {
             Some("2s"),
             "s1",
             "f1",
+            Duplicate::default(),
             &patterns,
         );
 

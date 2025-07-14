@@ -354,6 +354,7 @@ impl Filter {
         retry_period: Option<&str>,
         stream_name: &str,
         name: &str,
+        duplicate: Duplicate,
         config_patterns: &Patterns,
     ) -> Self {
         let mut filter = Self {
@@ -361,6 +362,7 @@ impl Filter {
             regex: regex.into_iter().map(|s| s.into()).collect(),
             retry,
             retry_period: retry_period.map(|s| s.into()),
+            duplicate,
             ..Default::default()
         };
         filter.setup(stream_name, name, config_patterns).unwrap();
@@ -374,6 +376,7 @@ impl Filter {
         retry_period: Option<&str>,
         stream_name: &str,
         name: &str,
+        duplicate: Duplicate,
         config_patterns: &Patterns,
     ) -> &'static Self {
         Box::leak(Box::new(Self::new(
@@ -383,6 +386,7 @@ impl Filter {
             retry_period,
             stream_name,
             name,
+            duplicate,
             config_patterns,
         )))
     }
