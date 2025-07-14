@@ -62,6 +62,7 @@ streams:
     # note that if the command is not in environment's `PATH`
     # its full path must be given.
     cmd: [ 'journalctl', '-n0', '-fu', 'sshd.service' ]
+
     # filters run actions when they match regexes on a stream
     filters:
       # filters have a user-defined name
@@ -75,6 +76,7 @@ streams:
           - 'Invalid user .* from <ip>'
           - 'Connection (reset|closed) by (authenticating|invalid) user .* <ip>'
           - 'banner exchange: Connection from <ip> port [0-9]*: invalid format'
+
         # if retry and retryperiod are defined,
         # the actions will only take place if a same pattern is
         # found `retry` times in a `retryperiod` interval
@@ -89,14 +91,22 @@ streams:
         #   - h / hour / hours
         #   - d / day / days
         retryperiod: 6h
-        # duplicates!
-        duplicate: rerun
+
+        # duplicate specify how to handle matches after an action has already been taken.
+        # 3 options are possible:
+        # - extend (default): update the pending actions' time, so they run later
+        # - ignore: don't do anything, ignore the match
+        # - rerun: run the actions again. so we may have the same pending actions multiple times.
+        #   (this was the default before 2.2.0)
+        # duplicate: extend
+
         # actions are run by the filter when regexes are matched
         actions:
           # actions have a user-defined name
           ban:
             # YAML substitutes *reference by the value anchored at &reference
             cmd: *iptablesban
+
           unban:
             cmd:  *iptablesunban
             # if after is defined, the action will not take place immediately, but after a specified duration
@@ -108,6 +118,7 @@ streams:
             # (defaults to false)
             # here it is not useful because we will flush and delete the chain containing the bans anyway
             # (with the stop commands)
+
           mail:
             cmd: ['sendmail', '...', '<ip>']
             # some commands, such as alerting commands, are "oneshot".

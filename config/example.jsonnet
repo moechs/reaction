@@ -78,6 +78,7 @@ local banFor(time) = {
       // note that if the command is not in environment's `PATH`
       // its full path must be given.
       cmd: ['journalctl', '-n0', '-fu', 'sshd.service'],
+
       // filters run actions when they match regexes on a stream
       filters: {
         // filters have a user-defined name
@@ -92,6 +93,7 @@ local banFor(time) = {
             @'Connection (reset|closed) by (authenticating|invalid) user .* <ip>',
             @'banner exchange: Connection from <ip> port [0-9]*: invalid format',
           ],
+
           // if retry and retryperiod are defined,
           // the actions will only take place if a same pattern is
           // found `retry` times in a `retryperiod` interval
@@ -106,12 +108,22 @@ local banFor(time) = {
           //   - h / hour / hours
           //   - d / day / days
           retryperiod: '6h',
+
+          // duplicate specify how to handle matches after an action has already been taken.
+          // 3 options are possible:
+          // - extend (default): update the pending actions' time, so they run later
+          // - ignore: don't do anything, ignore the match
+          // - rerun: run the actions again. so we may have the same pending actions multiple times.
+          //   (this was the default before 2.2.0)
+          // duplicate: extend
+
           // actions are run by the filter when regexes are matched
           actions: {
             // actions have a user-defined name
             ban: {
               cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'DROP']),
             },
+
             unban: {
               cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
               // if after is defined, the action will not take place immediately, but after a specified duration
@@ -124,6 +136,7 @@ local banFor(time) = {
               // here it is not useful because we will flush and delete the chain containing the bans anyway
               // (with the stop commands)
             },
+
             mail: {
               cmd: ['sendmail', '...', '<ip>'],
               // some commands, such as alerting commands, are "oneshot".
