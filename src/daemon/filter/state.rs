@@ -58,7 +58,7 @@ impl State {
             )?,
             triggers: db.open_tree(
                 filter_triggers_db_name(filter),
-                filter.retry_duration().unwrap_or_default(),
+                filter.longuest_action_duration(),
                 |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
             )?,
         };
