@@ -1,10 +1,10 @@
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    ops::BitOr,
     str::FromStr,
 };
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum PatternType {
@@ -50,6 +50,22 @@ impl PatternIP {
             PatternType::IP | PatternType::IPv4 | PatternType::IPv6 => {
                 for cidr in &self.ignore_cidr {
                     let cidr_normalized = Cidr::from_str(cidr)?;
+                    if let PatternType::IPv4 = self.pattern_type {
+                        if let Cidr::IPv6(_) = cidr_normalized {
+                            return Err(format!(
+                                "An IPv4-only pattern can't have an IPv6 ({}) as an ignore",
+                                cidr
+                            ));
+                        }
+                    }
+                    if let PatternType::IPv6 = self.pattern_type {
+                        if let Cidr::IPv4(_) = cidr_normalized {
+                            return Err(format!(
+                                "An IPv6-only pattern can't have an IPv4 ({}) as an ignore",
+                                cidr
+                            ));
+                        }
+                    }
                     self.ignore_cidr_normalized.push(cidr_normalized);
                 }
                 self.ignore_cidr = Vec::default();
@@ -64,23 +80,20 @@ impl PatternIP {
     }
 
     pub fn is_ignore(&self, match_: &str) -> bool {
-        // TODO
-        todo!()
+        let match_ip = match IpAddr::from_str(match_) {
+            Ok(ip) => ip,
+            Err(_) => return false,
+        };
+        self.ignore_cidr_normalized
+            .iter()
+            .all(|cidr| !cidr.includes(&match_ip))
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cidr {
     IPv4((Ipv4Addr, Ipv4Addr)),
     IPv6((Ipv6Addr, Ipv6Addr)),
-}
-
-fn make_mask<T: BitOr>(mut mask_u32: u32) -> T {
-    let mask = 0;
-    while mask_u32 > 0 {
-        mask |= 1 << mask_u32;
-        mask_u32 -= 1;
-    }
 }
 
 impl FromStr for Cidr {
@@ -92,43 +105,183 @@ impl FromStr for Cidr {
         ))?;
         let ip = IpAddr::from_str(ip)
             .map_err(|err| format!("malformed IP '{ip}' in '{cidr}': {err}"))?;
-        let mut mask_u32 = u32::from_str(mask)
+        let mask_count = u32::from_str(mask)
             .map_err(|err| format!("malformed mask '{mask}' in '{cidr}': {err}"))?;
+
+        if mask_count < 2 {
+            return Err(format!("Can't have a network mask of 0 or 1. You're either ignoring all Internet or half of it."));
+        } else if mask_count
+            < (match ip {
+                IpAddr::V4(_) => 8,
+                IpAddr::V6(_) => 16,
+            })
+        {
+            warn!("With a mask of {mask_count}, you're ignoring a big part of Internet. Are you sure you want to do this?");
+        }
 
         let (ip_type, ip_bits) = match ip {
             IpAddr::V4(_) => ("IPv4", 32),
             IpAddr::V6(_) => ("IPv6", 128),
         };
 
-        if mask_u32 > ip_bits {
+        if mask_count > ip_bits {
             return Err(format!(
-                "{ip_type} mask must be between 0 and {} inclusive. {mask_u32} is too big.",
+                "{ip_type} mask must be between 0 and {} inclusive. {mask_count} is too big.",
                 ip_bits
             ));
         }
 
         match ip {
             IpAddr::V4(ipv4_addr) => {
-                let mask = match mask_u32 {
+                // Create bitmask
+                let mask = match mask_count {
                     0 => 0u32,
                     n => !0u32 << (32 - n),
                 };
                 let mask = Ipv4Addr::from_bits(mask);
+                // Normalize IP from mask
+                let ipv4_addr = ipv4_addr & mask;
+
                 Ok(Cidr::IPv4((ipv4_addr, mask)))
             }
             IpAddr::V6(ipv6_addr) => {
-                let mask = match mask_u32 {
+                // Create bitmask
+                let mask = match mask_count {
                     0 => 0u128,
                     n => !0u128 << (128 - n),
                 };
                 let mask = Ipv6Addr::from_bits(mask);
+                // Normalize IP from mask
+                let ipv6_addr = ipv6_addr & mask;
+
                 Ok(Cidr::IPv6((ipv6_addr, mask)))
             }
         }
+    }
+}
 
-        // TODO normalize IP
+impl Cidr {
+    fn includes(&self, ip: &IpAddr) -> bool {
+        match self {
+            Cidr::IPv4((network_ipv4, mask)) => match ip {
+                IpAddr::V6(_) => false,
+                IpAddr::V4(ipv4_addr) => *network_ipv4 == ipv4_addr & mask,
+            },
+            Cidr::IPv6((network_ipv6, mask)) => match ip {
+                IpAddr::V4(_) => false,
+                IpAddr::V6(ipv6_addr) => *network_ipv6 == ipv6_addr & mask,
+            },
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        str::FromStr,
+    };
+
+    use super::Cidr;
+
+    #[test]
+    fn cidrv4_from_str() {
+        assert_eq!(
+            Ok(Cidr::IPv4((Ipv4Addr::new(192, 168, 1, 4), u32::MAX.into()))),
+            Cidr::from_str("192.168.1.4/32")
+        );
+        // Test IP normalization from mask
+        assert_eq!(
+            Ok(Cidr::IPv4((
+                Ipv4Addr::new(192, 168, 1, 0),
+                Ipv4Addr::new(255, 255, 255, 0),
+            ))),
+            Cidr::from_str("192.168.1.4/24")
+        );
+        // Another ok-test "pour la route"
+        assert_eq!(
+            Ok(Cidr::IPv4((
+                Ipv4Addr::new(1, 1, 0, 0),
+                Ipv4Addr::new(255, 255, 0, 0),
+            ))),
+            Cidr::from_str("1.1.248.25/16")
+        );
+        // Errors
+        assert!(Cidr::from_str("256.1.1.1/8").is_err());
+        assert!(Cidr::from_str("1.1.1.1/0").is_err());
+        assert!(Cidr::from_str("1.1.1.1/1").is_err());
+        assert!(Cidr::from_str("1.1.1.1.1").is_err());
+        assert!(Cidr::from_str("1.1.1.1/16/16").is_err());
+    }
+
+    #[test]
+    fn cidrv6_from_str() {
+        assert_eq!(
+            Ok(Cidr::IPv6((
+                Ipv6Addr::new(0xfe80, 0, 0, 0, 0xdf68, 0x2ee, 0xe4f9, 0xe68),
+                u128::MAX.into()
+            ))),
+            Cidr::from_str("fe80::df68:2ee:e4f9:e68/128")
+        );
+        // Test IP normalization from mask
+        assert_eq!(
+            Ok(Cidr::IPv6((
+                Ipv6Addr::new(0x2001, 0xdb8, 0x85a3, 0x9de5, 0, 0, 0, 0),
+                Ipv6Addr::new(u16::MAX, u16::MAX, u16::MAX, u16::MAX, 0, 0, 0, 0),
+            ))),
+            Cidr::from_str("2001:db8:85a3:9de5::8a2e:370:7334/64")
+        );
+        // Another ok-test "pour la route"
+        assert_eq!(
+            Ok(Cidr::IPv6((
+                Ipv6Addr::new(0x2001, 0xdb8, 0x85a3, 0x9d00, 0, 0, 0, 0),
+                Ipv6Addr::new(
+                    u16::MAX,
+                    u16::MAX,
+                    u16::MAX,
+                    u16::MAX - u8::MAX as u16,
+                    0,
+                    0,
+                    0,
+                    0
+                ),
+            ))),
+            Cidr::from_str("2001:db8:85a3:9d00::8a2e:370:7334/56")
+        );
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:7334/56").is_ok());
+        assert!(Cidr::from_str("2001:DB8:85A3:0:0:8A2E:370:7334/56").is_ok());
+        // Errors
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:g334/56").is_err());
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:7334/0").is_err());
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:7334/1").is_err());
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:7334:11/56").is_err());
+        assert!(Cidr::from_str("2001:db8:85a3:0:0:8a2e:370:7334/11/56").is_err());
+    }
+
+    #[test]
+    fn cidrv4_includes() {
+        let cidr = Cidr::from_str("192.168.1.0/24").unwrap();
+        assert!(cidr.includes(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0))));
+        assert!(cidr.includes(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(cidr.includes(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 234))));
+        assert!(!cidr.includes(&IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
+        assert!(!cidr.includes(&IpAddr::V6(Ipv6Addr::new(
+            0xfe80, 0, 0, 0, 0xdf68, 0x2ee, 0xe4f9, 0xe68
+        ),)));
+    }
+
+    #[test]
+    fn cidrv6_includes() {
+        let cidr = Cidr::from_str("2001:db8:85a3:9d00:0:8a2e:370:7334/56").unwrap();
+        assert!(cidr.includes(&IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x85a3, 0x9d00, 0, 0, 0, 0
+        ))));
+        assert!(cidr.includes(&IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x85a3, 0x9da4, 0x34fc, 0x0d8b, 0xffff, 0x1111
+        ))));
+        assert!(!cidr.includes(&IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x85a3, 0xad00, 0, 0, 0, 1
+        ))));
+        assert!(!cidr.includes(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0))));
+    }
+}
