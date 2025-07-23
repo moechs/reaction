@@ -231,7 +231,9 @@ impl Filter {
                         // there may be no captured group for it.
                         if let Some(match_) = matches.name(pattern.name()) {
                             if !pattern.is_ignore(match_.as_str()) {
-                                result.push(match_.as_str().to_string());
+                                let mut match_ = match_.as_str().to_string();
+                                pattern.normalize(&mut match_);
+                                result.push(match_);
                             }
                         }
                     }
@@ -252,7 +254,7 @@ impl Filter {
     /// Then returns a corresponding [`Match`].
     pub fn get_match_from_patterns(
         &self,
-        patterns: BTreeMap<Arc<Pattern>, String>,
+        mut patterns: BTreeMap<Arc<Pattern>, String>,
     ) -> Result<Match, String> {
         // Check pattern length
         if patterns.len() != self.patterns().len() {
@@ -270,7 +272,7 @@ impl Filter {
             ));
         }
 
-        for (pattern, match_) in &patterns {
+        for (pattern, match_) in &mut patterns {
             if self.patterns.get(pattern).is_none() {
                 return Err(format!(
                     "pattern {} is not present in the filter {}.{}",
@@ -295,6 +297,8 @@ impl Filter {
                     pattern.name(),
                 ));
             }
+
+            pattern.normalize(match_);
         }
 
         for pattern in self.patterns.iter() {

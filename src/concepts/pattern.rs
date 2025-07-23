@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod ip;
 
-use ip::PatternIP;
+use ip::PatternIp;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -22,7 +22,7 @@ pub struct Pattern {
     compiled_ignore_regex: RegexSet,
 
     #[serde(flatten)]
-    ip: PatternIP,
+    ip: PatternIp,
 
     #[serde(skip)]
     name: String,
@@ -110,6 +110,13 @@ impl Pattern {
         Regex::new(&format!("^{}$", self.regex)).map_err(|err| err.to_string())
     }
 
+    /// Normalize the pattern.
+    /// No-op when the pattern is not an IP.
+    /// Otherwise BitAnd the IP with its configured mask.
+    pub fn normalize(&self, match_: &mut String) {
+        self.ip.normalize(match_)
+    }
+
     /// Whether the provided string is a match for this pattern or not.
     ///
     /// Doesn't take into account ignore and ignore_regex:
@@ -184,7 +191,7 @@ pub mod tests {
             ignore: Vec::new(),
             ignore_regex: Vec::new(),
             compiled_ignore_regex: RegexSet::default(),
-            ip: PatternIP::default(),
+            ip: PatternIp::default(),
             name: "".into(),
             name_with_braces: "".into(),
         }
