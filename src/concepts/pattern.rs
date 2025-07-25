@@ -62,6 +62,9 @@ impl Pattern {
         }
 
         if let Some(regex) = self.ip.setup()? {
+            if !self.regex.is_empty() {
+                return Err("patterns of type ip, ipv4, ipv6 have a built-in regex defined. you should not define it yourself".into());
+            }
             self.regex = regex;
         }
 
@@ -111,8 +114,10 @@ impl Pattern {
     }
 
     /// Normalize the pattern.
+    /// This should happen after checking on ignores.
     /// No-op when the pattern is not an IP.
-    /// Otherwise BitAnd the IP with its configured mask.
+    /// Otherwise BitAnd the IP with its configured mask,
+    /// and add the /<mask>
     pub fn normalize(&self, match_: &mut String) {
         self.ip.normalize(match_)
     }

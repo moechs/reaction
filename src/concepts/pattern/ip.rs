@@ -139,10 +139,11 @@ impl PatternIp {
         };
         self.ignore_cidr_normalized
             .iter()
-            .all(|cidr| !cidr.includes(&match_ip))
+            .any(|cidr| cidr.includes(&match_ip))
     }
 
     /// Normalize the pattern.
+    /// This should happen after checking on ignores.
     /// No-op when the pattern is not an IP.
     /// Otherwise BitAnd the IP with its configured mask,
     /// and add the /<mask>
@@ -330,12 +331,110 @@ mod patternip_tests {
 
     #[test]
     fn test_is_ignore() {
-        // TODO
+        let mut ip_struct = PatternIp {
+            pattern_type: PatternType::Ip,
+            ignore_cidr: vec!["10.0.0.0/8".into(), "2001:db8:85a3:9de5::/64".into()],
+            ..Default::default()
+        };
+        ip_struct.setup().unwrap();
+        assert!(!ip_struct.is_ignore("prout"));
+        assert!(!ip_struct.is_ignore("1.1.1.1"));
+        assert!(!ip_struct.is_ignore("11.1.1.1"));
+        assert!(!ip_struct.is_ignore("2001:db8:85a3:9de6::1"));
+        assert!(ip_struct.is_ignore("10.1.1.1"));
+        assert!(ip_struct.is_ignore("2001:db8:85a3:9de5::1"));
     }
 
     #[test]
     fn test_normalize() {
-        // TODO
+        let ipv4_32 = "1.1.1.1";
+        let ipv4_32_norm = "1.1.1.1";
+        let ipv4_24 = "1.1.1.0";
+        let ipv4_24_norm = "1.1.1.0";
+        let ipv4_24_mask = "1.1.1.0/24";
+        let ipv6_128 = "2001:db8:85a3:9de5:0:0:01:02";
+        let ipv6_128_norm = "2001:db8:85a3:9de5::1:2";
+        let ipv6_64 = "2001:db8:85a3:9de5:0:0:0:0";
+        let ipv6_64_norm = "2001:db8:85a3:9de5::";
+        let ipv6_64_mask = "2001:db8:85a3:9de5::/64";
+
+        for (ipv4_mask, ipv6_mask) in [(Some(24), None), (None, Some(64)), (Some(24), Some(64))] {
+            let mut ip_struct = PatternIp {
+                pattern_type: PatternType::Ip,
+                ipv4_mask,
+                ipv6_mask,
+                ..Default::default()
+            };
+            ip_struct.setup().unwrap();
+
+            let mut ipv4_32_modified = ipv4_32.to_string();
+            let mut ipv4_24_modified = ipv4_24.to_string();
+            let mut ipv6_128_modified = ipv6_128.to_string();
+            let mut ipv6_64_modified = ipv6_64.to_string();
+
+            ip_struct.normalize(&mut ipv4_32_modified);
+            ip_struct.normalize(&mut ipv4_24_modified);
+            ip_struct.normalize(&mut ipv6_128_modified);
+            ip_struct.normalize(&mut ipv6_64_modified);
+
+            match ipv4_mask {
+                Some(_) => {
+                    // modified with mask
+                    assert_eq!(
+                        ipv4_32_modified, ipv4_24_mask,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                    assert_eq!(
+                        ipv4_24_modified, ipv4_24_mask,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                }
+                None => {
+                    // only normaized
+                    assert_eq!(
+                        ipv4_32_modified, ipv4_32_norm,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                    assert_eq!(
+                        ipv4_24_modified, ipv4_24_norm,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                }
+            }
+
+            match ipv6_mask {
+                Some(_) => {
+                    // modified with mask
+                    assert_eq!(
+                        ipv6_128_modified, ipv6_64_mask,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                    assert_eq!(
+                        ipv6_64_modified, ipv6_64_mask,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                }
+                None => {
+                    // only normaized
+                    assert_eq!(
+                        ipv6_128_modified, ipv6_128_norm,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                    assert_eq!(
+                        ipv6_64_modified, ipv6_64_norm,
+                        "ipv4mask: {:?}, ipv6mask: {:?}",
+                        ipv4_mask, ipv6_mask
+                    );
+                }
+            }
+        }
     }
 }
 
