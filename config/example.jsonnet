@@ -27,15 +27,40 @@ local banFor(time) = {
   // patterns are substitued in regexes.
   // when a filter performs an action, it replaces the found pattern
   patterns: {
-    ip: {
+
+    name: {
       // reaction regex syntax is defined here: https://docs.rs/regex/latest/regex/#syntax
-      // jsonnet's @'string' is for verbatim strings
-      // simple version: regex: @'(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3})|(?:[0-9a-fA-F:]{2,90})',
-      regex: @'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9]))',
-      ignore: ['127.0.0.1', '::1'],
-      // Patterns can be ignored based on regexes, it will try to match the whole string detected by the pattern
-      // ignoreregex: [@'10\.0\.[0-9]{1,3}\.[0-9]{1,3}'],
+      // common patterns have a 'regex' field
+      regex: '[a-z]+',
+      // patterns can ignore specific strings
+      ignore: ['cecilia'],
+      // patterns can also be ignored based on regexes, it will try to match the whole string detected by the pattern
+      ignoreregex: [
+        // ignore names starting with 'jo'
+        'jo.*',
+      ],
     },
+
+    ip: {
+      // patterns can have a special 'ip' type that matches both ipv4 and ipv6
+      // or 'ipv4' or 'ipv6' to match only that ip version
+      type: 'ip',
+      ignore: ['127.0.0.1', '::1'],
+      // they can also ignore whole CIDR ranges of ip
+      ignorecidr: ['10.0.0.0/8'],
+      // last but not least, patterns of type ip, ipv4, ipv6 can also group their matched ips by mask
+      // ipv4mask: 30
+      // this means that ipv6 matches will be converted to their network part.
+      ipv6mask: 64,
+      // for example,"2001:db8:85a3:9de5::8a2e:370:7334" will be converted to "2001:db8:85a3:9de5::/64".
+    },
+
+    // ipv4: {
+    //   type: 'ipv4',
+    //   ignore: ...
+    //   ipv4mask: ...
+    // },
+
   },
 
   // where the state (database) must be read
