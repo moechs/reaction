@@ -22,10 +22,28 @@ impl PatternType {
     }
 
     pub fn regex(&self) -> Option<String> {
+        let num4 = r#"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"#;
+        let num6 = r#"[0-9a-fA-F]{1,4}"#;
+        let ipv4 = format!(r#"{num4}(?:\.{num4}){{3}}"#);
+        let ipv6 = [
+            format!(r#"(?:{num6}:){{7}}{num6}"#),
+            format!(r#"(?:{num6}:){{1,7}}:"#),
+            format!(r#"(?:{num6}:){{1,6}}:{num6}"#),
+            format!(r#"(?:{num6}:){{1,5}}(?::{num6}){{1,2}}"#),
+            format!(r#"(?:{num6}:){{1,4}}(?::{num6}){{1,3}}"#),
+            format!(r#"(?:{num6}:){{1,3}}(?::{num6}){{1,4}}"#),
+            format!(r#"(?:{num6}:){{1,2}}(?::{num6}){{1,5}}"#),
+            format!(r#"{num6}:(?:(?::{num6}){{1,6}})"#),
+            format!(r#":(?:(?::{num6}){{1,7}}|:)"#),
+            format!(r#"fe80:(?::[0-9a-fA-F]{{0,4}}){{0,4}}%[0-9a-zA-Z]+"#),
+            format!(r#"::(?:ffff(?::0{{1,4}})?:)?{ipv4}"#),
+            format!(r#"(?:{num6}:){{1,4}}:{ipv4}"#),
+        ]
+        .join("|");
         match self {
-            PatternType::Ipv4 => Some(r#"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}"#.into()),
-            PatternType::Ipv6 => Some(r#"(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])"#.into()),
-            PatternType::Ip =>  Some(r#"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9]))"#.into()),
+            PatternType::Ipv4 => Some(ipv4),
+            PatternType::Ipv6 => Some(ipv6),
+            PatternType::Ip => Some(format!("{ipv4}|{ipv6}")),
             PatternType::Regex => None,
         }
     }
@@ -189,7 +207,7 @@ impl PatternIp {
 mod patternip_tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    use crate::concepts::pattern::ip::Cidr;
+    use crate::concepts::{pattern::ip::Cidr, Pattern};
 
     use super::{PatternIp, PatternType};
 
@@ -421,7 +439,7 @@ mod patternip_tests {
                     );
                 }
                 None => {
-                    // only normaized
+                    // only normalized
                     assert_eq!(
                         ipv6_128_modified, ipv6_128_norm,
                         "ipv4mask: {:?}, ipv6mask: {:?}",
@@ -434,6 +452,58 @@ mod patternip_tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_ip_regexes() {
+        for pattern_type in [PatternType::Ip, PatternType::Ipv4, PatternType::Ipv6] {
+            let mut pattern = Pattern {
+                ip: PatternIp {
+                    pattern_type,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert!(pattern.setup("zblorg").is_ok());
+            let regex = pattern.compiled().unwrap();
+
+            let accepts_ipv4 = pattern_type == PatternType::Ip || pattern_type == PatternType::Ipv4;
+            let accepts_ipv6 = pattern_type == PatternType::Ip || pattern_type == PatternType::Ipv6;
+
+            macro_rules! assert2 {
+                ($a:expr) => {
+                    assert!($a, "PatternType: {pattern_type:?}");
+                };
+            }
+
+            assert2!(accepts_ipv4 == regex.is_match("1.2.3.4"));
+            assert2!(accepts_ipv4 == regex.is_match("255.255.255.255"));
+
+            assert2!(!regex.is_match(".1.2.3.4"));
+            assert2!(!regex.is_match(" 1.2.3.4"));
+            assert2!(!regex.is_match("1.2.3.4 "));
+            assert2!(!regex.is_match("1.2. 3.4"));
+            assert2!(!regex.is_match("257.2.3.4"));
+            assert2!(!regex.is_match("1.2.3.4.5"));
+            assert2!(!regex.is_match("1.2..4"));
+            assert2!(!regex.is_match("1.2..3.4"));
+
+            assert2!(accepts_ipv6 == regex.is_match("1:2:3:4:5:6:7:8"));
+            assert2!(accepts_ipv6 == regex.is_match("::"));
+            assert2!(accepts_ipv6 == regex.is_match("1::"));
+            assert2!(accepts_ipv6 == regex.is_match("::1"));
+            assert2!(accepts_ipv6 == regex.is_match("1:2::6:7:8"));
+            assert2!(accepts_ipv6 == regex.is_match("0123:4567:89:ab:cdef:AB:CD:EF"));
+            assert2!(accepts_ipv6 == regex.is_match("::ffff:1.2.3.4"));
+            assert2!(accepts_ipv6 == regex.is_match("ffff::1.2.3.4"));
+
+            assert2!(!regex.is_match("1:"));
+            assert2!(!regex.is_match("1:::"));
+            assert2!(!regex.is_match("1:::2"));
+            assert2!(!regex.is_match("1:2:3:4:5:6:7:8:9"));
+            assert2!(!regex.is_match("1:23456:3:4:5:6:7:8"));
+            assert2!(!regex.is_match("1:2:3:4:5:6:7:8:"));
         }
     }
 }
@@ -510,6 +580,10 @@ mod utils_tests {
             normalize("::ffff:192.168.1.34"),
             Ok(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 34)))
         );
+        assert_eq!(
+            normalize("::ffff:1.2.3.4"),
+            Ok(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))
+        );
     }
 
     #[test]
@@ -550,6 +624,7 @@ mod utils_tests {
     }
 }
 
+/// Stores an IP and an associated mask.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cidr {
     IPv4((Ipv4Addr, Ipv4Addr)),
