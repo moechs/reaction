@@ -5,3 +5,6 @@ move match logging from concepts/filter to daemon/filter
 test migration
 stream: test regex ending with $
 test Filter::regex conformity after setup
+
+should an ipv6-mapped ipv4 match a pattern of type ipv6?
+should it be normalized as ipv4 then?

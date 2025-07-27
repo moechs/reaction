@@ -20,6 +20,7 @@ struct TestBed {
     pub _out_path: TempPath,
     pub out_file: String,
     pub az_patterns: Patterns,
+    pub ip_patterns: Patterns,
 }
 
 impl TestBed {
@@ -28,10 +29,45 @@ impl TestBed {
         let out_file = _out_path.to_str().unwrap().to_string();
 
         let az_patterns = Pattern::new_map("az", "[a-z]+").unwrap();
+        let ip_patterns = [
+            "type: ip",
+            "
+type: ipv4
+ignorecidr:
+  - 192.168.1.0/24
+",
+            "
+type: ipv4
+ipv4mask: 24
+ignorecidr:
+  - 192.168.1.0/24
+",
+            "
+type: ipv6
+ignorecidr:
+  - fe80::/16
+",
+            "
+type: ipv6
+ipv6mask: 64
+ignorecidr:
+  - 1::/120
+",
+        ]
+        .into_iter()
+        .map(serde_yaml::from_str::<Pattern>)
+        .map(Result::unwrap)
+        .zip(["ip", "ipv4", "ipv4_mask24", "ipv6", "ipv6_mask64"])
+        .map(|(mut pat, name)| {
+            pat.setup(name).unwrap();
+            (name.into(), pat.into())
+        })
+        .collect();
         Self {
             _out_path,
             out_file,
             az_patterns,
+            ip_patterns,
         }
     }
 
@@ -46,6 +82,7 @@ impl TestBed {
             _out_path: self._out_path,
             out_file: self.out_file,
             az_patterns: self.az_patterns,
+            ip_patterns: self.ip_patterns,
             now,
             manager: FilterManager::new(
                 filter,
@@ -67,6 +104,7 @@ struct TestBed2 {
     pub now: Time,
     pub manager: FilterManager,
     pub az_patterns: Patterns,
+    pub ip_patterns: Patterns,
 }
 
 impl TestBed2 {
@@ -698,5 +736,56 @@ async fn multiple_triggers() {
             },
             "Duplicate: {dup:?}"
         );
+    }
+}
+
+#[tokio::test]
+async fn ip_pattern_matches() {
+    let bed = TestBed::new();
+    let filter = Filter::new_static(
+        vec![Action::new(
+            vec!["sh", "-c", &format!("echo <ip> >> {}", &bed.out_file)],
+            None,
+            false,
+            "test",
+            "test",
+            "a1",
+            &bed.ip_patterns,
+        )],
+        vec!["borned <ip> test", "unborned <ip>.*"],
+        None,
+        None,
+        "test",
+        "test",
+        Duplicate::Ignore,
+        &bed.ip_patterns,
+    );
+    let bed = bed.part2(filter, Local::now(), None).await;
+
+    let ips = [
+        // IPv4
+        ("83.4.92.35", "83.4.92.35"),
+        ("83.4.92.0", "83.4.92.0"),
+        // Normal IPv6
+        ("1:2:3:4:5:6:7:08", "1:2:3:4:5:6:7:8"),
+        // IPv6 with ::
+        ("1:2:3:04:0:0:7:8", "1:2:3:4::7:8"),
+        ("1:2:3:4:0::", "1:2:3:4::"),
+        // IPv6-mapped IPv4 ::
+        ("ffff::1.2.3.4", "1.2.3.4"),
+    ];
+
+    for (ip, ip_normalized) in ips {
+        assert_eq!(
+            bed.manager
+                .handle_line(&format!("borned {ip} test"), Local::now()),
+            React::Trigger
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            read_to_string(&bed.out_file).unwrap().trim_end(),
+            ip_normalized
+        );
+        tokio::fs::write(&bed.out_file, "").await.unwrap();
     }
 }

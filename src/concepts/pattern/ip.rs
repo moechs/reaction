@@ -10,9 +10,13 @@ use tracing::warn;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum PatternType {
     #[default]
+    #[serde(rename = "regex")]
     Regex,
+    #[serde(rename = "ip")]
     Ip,
+    #[serde(rename = "ipv4")]
     Ipv4,
+    #[serde(rename = "ipv6")]
     Ipv6,
 }
 

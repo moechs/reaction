@@ -11,6 +11,7 @@ use ip::PatternIp;
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Pattern {
+    #[serde(default)]
     pub regex: String,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -103,7 +104,7 @@ impl Pattern {
         Ok(())
     }
 
-    /// Returns the pattern's regex compiled standalone.
+    /// Returns the pattern's regex compiled standalone, enclosed in ^ and $
     /// It's not kept as a field of the [`Pattern`] struct
     /// because it's only used during setup and for the `trigger` manual command.
     ///
