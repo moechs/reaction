@@ -26,22 +26,90 @@ impl PatternType {
     }
 
     pub fn regex(&self) -> Option<String> {
-        let num4 = r#"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"#;
-        let num6 = r#"[0-9a-fA-F]{1,4}"#;
+        // Those orders of preference are very important for <ip>
+        // patterns that have greedy catch-all regexes becore or after them,
+        // for example: "Failed password .*<ip>.*"
+
+        let num4 = [
+            // Order is important, first is preferred.
+
+            // first 25x
+            "(?:25[0-5]",
+            // then 2xx
+            "2[0-4][0-9]",
+            // then 1xx
+            "1[0-9][0-9]",
+            // then 0xx
+            "[0-9][0-9]",
+            // then 0x
+            "[0-9])",
+        ]
+        .join("|");
+
+        let numsix = "[0-9a-fA-F]{1,4}";
+
         let ipv4 = format!(r#"{num4}(?:\.{num4}){{3}}"#);
+
         let ipv6 = [
-            format!(r#"(?:{num6}:){{7}}{num6}"#),
-            format!(r#"(?:{num6}:){{1,7}}:"#),
-            format!(r#"(?:{num6}:){{1,6}}:{num6}"#),
-            format!(r#"(?:{num6}:){{1,5}}(?::{num6}){{1,2}}"#),
-            format!(r#"(?:{num6}:){{1,4}}(?::{num6}){{1,3}}"#),
-            format!(r#"(?:{num6}:){{1,3}}(?::{num6}){{1,4}}"#),
-            format!(r#"(?:{num6}:){{1,2}}(?::{num6}){{1,5}}"#),
-            format!(r#"{num6}:(?:(?::{num6}){{1,6}})"#),
-            format!(r#":(?:(?::{num6}){{1,7}}|:)"#),
-            format!(r#"fe80:(?::[0-9a-fA-F]{{0,4}}){{0,4}}%[0-9a-zA-Z]+"#),
+            // We're unrolling all possibilities, longer IPv6 first,
+            // to make it super-greedy,
+            // more than an eventual .* before or after <ip> ,
+            // that would "eat" its first or last blocks.
+
+            // Order is important, first is preferred.
+
+            // We put IPv4-suffixed regexes first
             format!(r#"::(?:ffff(?::0{{1,4}})?:)?{ipv4}"#),
-            format!(r#"(?:{num6}:){{1,4}}:{ipv4}"#),
+            format!(r#"(?:{numsix}:){{1,4}}:{ipv4}"#),
+            // Then link-local addresses with interface name
+            format!(r#"fe80:(?::[0-9a-fA-F]{{0,4}}){{0,4}}%[0-9a-zA-Z]+"#),
+            // Full IPv6
+            format!("(?:{numsix}:){{7}}{numsix}"),
+            // 1 block cut
+            format!("(?:{numsix}:){{7}}:"),
+            format!("(?:{numsix}:){{6}}:{numsix}"),
+            format!("(?:{numsix}:){{5}}(?::{numsix}){{2}}"),
+            format!("(?:{numsix}:){{4}}(?::{numsix}){{3}}"),
+            format!("(?:{numsix}:){{3}}(?::{numsix}){{4}}"),
+            format!("(?:{numsix}:){{2}}(?::{numsix}){{5}}"),
+            format!("{numsix}:(?:(?::{numsix}){{6}})"),
+            format!(":(?:(?::{numsix}){{7}})"),
+            // 2 blocks cut
+            format!("(?:{numsix}:){{6}}:"),
+            format!("(?:{numsix}:){{5}}:{numsix}"),
+            format!("(?:{numsix}:){{4}}(?::{numsix}){{2}}"),
+            format!("(?:{numsix}:){{3}}(?::{numsix}){{3}}"),
+            format!("(?:{numsix}:){{2}}(?::{numsix}){{4}}"),
+            format!("{numsix}:(?:(?::{numsix}){{5}})"),
+            format!(":(?:(?::{numsix}){{6}})"),
+            // 3 blocks cut
+            format!("(?:{numsix}:){{5}}:"),
+            format!("(?:{numsix}:){{4}}:{numsix}"),
+            format!("(?:{numsix}:){{3}}(?::{numsix}){{2}}"),
+            format!("(?:{numsix}:){{2}}(?::{numsix}){{3}}"),
+            format!("{numsix}:(?:(?::{numsix}){{4}})"),
+            format!(":(?:(?::{numsix}){{5}})"),
+            // 4 blocks cut
+            format!("(?:{numsix}:){{4}}:"),
+            format!("(?:{numsix}:){{3}}:{numsix}"),
+            format!("(?:{numsix}:){{2}}(?::{numsix}){{2}}"),
+            format!("{numsix}:(?:(?::{numsix}){{3}})"),
+            format!(":(?:(?::{numsix}){{4}})"),
+            // 5 blocks cut
+            format!("(?:{numsix}:){{3}}:"),
+            format!("(?:{numsix}:){{2}}:{numsix}"),
+            format!("{numsix}:(?:(?::{numsix}){{2}})"),
+            format!(":(?:(?::{numsix}){{3}})"),
+            // 6 blocks cut
+            format!("(?:{numsix}:){{2}}:"),
+            format!("{numsix}::{numsix}"),
+            format!(":(?:(?::{numsix}){{2}})"),
+            // 7 blocks cut
+            format!("{numsix}::"),
+            format!("::{numsix}"),
+            // special cuts
+            // 8 blocks cut
+            format!("::"),
         ]
         .join("|");
         match self {
@@ -211,7 +279,13 @@ impl PatternIp {
 mod patternip_tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    use crate::concepts::{pattern::ip::Cidr, Pattern};
+    use chrono::Local;
+    use tokio::{fs::read_to_string, task::JoinSet};
+
+    use crate::{
+        concepts::{pattern::ip::Cidr, Action, Duplicate, Filter, Pattern},
+        daemon::{tests::TestBed, React},
+    };
 
     use super::{PatternIp, PatternType};
 
@@ -459,6 +533,73 @@ mod patternip_tests {
         }
     }
 
+    pub const VALID_IPV4: [&str; 8] = [
+        "252.4.92.250",
+        "212.4.92.210",
+        "112.4.92.110",
+        "83.4.92.35",
+        "83.4.92.0",
+        "3.254.92.4",
+        "1.2.3.4",
+        "255.255.255.255",
+    ];
+
+    pub const VALID_IPV6: [&str; 42] = [
+        // all accepted characters
+        "0123:4567:89:ab:cdef:AB:CD:EF",
+        // ipv6-mapped ipv4
+        "::ffff:1.2.3.4",
+        "ffff::1.2.3.4",
+        // 8 blocks
+        "1111:2:3:4:5:6:7:8888",
+        // 7 blocks
+        "::2:3:4:5:6:7:8888",
+        "1111::3:4:5:6:7:8888",
+        "1111:2::4:5:6:7:8888",
+        "1111:2:3::5:6:7:8888",
+        "1111:2:3:4::6:7:8888",
+        "1111:2:3:4:5::7:8888",
+        "1111:2:3:4:5:6::8888",
+        "1111:2:3:4:5:6:7::",
+        // 6 blocks
+        "::3:4:5:6:7:8888",
+        "1111::4:5:6:7:8888",
+        "1111:2::5:6:7:8888",
+        "1111:2:3::6:7:8888",
+        "1111:2:3:4::7:8888",
+        "1111:2:3:4:5::8888",
+        "1111:2:3:4:5:6::",
+        // 5 blocks
+        "::4:5:6:7:8888",
+        "1111::5:6:7:8888",
+        "1111:2::6:7:8888",
+        "1111:2:3::7:8888",
+        "1111:2:3:4::8888",
+        "1111:2:3:4:5::",
+        // 4 blocks
+        "::5:6:7:8888",
+        "1111::6:7:8888",
+        "1111:2::7:8888",
+        "1111:2:3::8888",
+        "1111:2:3:4::",
+        // 3 blocks
+        "::6:7:8888",
+        "1111::7:8888",
+        "1111:2::8888",
+        "1111:2:3::",
+        // 2 blocks
+        "::7:8888",
+        "1111::8888",
+        "1111:2::",
+        // 1 block
+        "::8",
+        "::8888",
+        "1::",
+        "1111::",
+        // 0 block
+        "::",
+    ];
+
     #[test]
     fn test_ip_regexes() {
         for pattern_type in [PatternType::Ip, PatternType::Ipv4, PatternType::Ipv6] {
@@ -481,8 +622,9 @@ mod patternip_tests {
                 };
             }
 
-            assert2!(accepts_ipv4 == regex.is_match("1.2.3.4"));
-            assert2!(accepts_ipv4 == regex.is_match("255.255.255.255"));
+            for ip in VALID_IPV4 {
+                assert2!(accepts_ipv4 == regex.is_match(ip));
+            }
 
             assert2!(!regex.is_match(".1.2.3.4"));
             assert2!(!regex.is_match(" 1.2.3.4"));
@@ -493,14 +635,9 @@ mod patternip_tests {
             assert2!(!regex.is_match("1.2..4"));
             assert2!(!regex.is_match("1.2..3.4"));
 
-            assert2!(accepts_ipv6 == regex.is_match("1:2:3:4:5:6:7:8"));
-            assert2!(accepts_ipv6 == regex.is_match("::"));
-            assert2!(accepts_ipv6 == regex.is_match("1::"));
-            assert2!(accepts_ipv6 == regex.is_match("::1"));
-            assert2!(accepts_ipv6 == regex.is_match("1:2::6:7:8"));
-            assert2!(accepts_ipv6 == regex.is_match("0123:4567:89:ab:cdef:AB:CD:EF"));
-            assert2!(accepts_ipv6 == regex.is_match("::ffff:1.2.3.4"));
-            assert2!(accepts_ipv6 == regex.is_match("ffff::1.2.3.4"));
+            for ip in VALID_IPV6 {
+                assert2!(accepts_ipv6 == regex.is_match(ip));
+            }
 
             assert2!(!regex.is_match("1:"));
             assert2!(!regex.is_match("1:::"));
@@ -509,6 +646,74 @@ mod patternip_tests {
             assert2!(!regex.is_match("1:23456:3:4:5:6:7:8"));
             assert2!(!regex.is_match("1:2:3:4:5:6:7:8:"));
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ip_pattern_matches() {
+        let mut join_set = JoinSet::new();
+
+        for ip in VALID_IPV4.iter().chain(&VALID_IPV6) {
+            for line in [
+                format!("borned {ip} test"),
+                //
+                format!("right-unborned {ip} text"),
+                format!("right-unborned {ip}text"),
+                format!("right-unborned {ip}:"),
+                //
+                format!("left-unborned text {ip}"),
+                format!("left-unborned text{ip}"),
+                format!("left-unborned :{ip}"),
+                //
+                format!("full-unborned text {ip} text"),
+                format!("full-unborned text{ip} text"),
+                format!("full-unborned text {ip}text"),
+                format!("full-unborned text{ip}text"),
+                format!("full-unborned :{ip}:"),
+                format!("full-unborned : {ip}:"),
+            ] {
+                join_set.spawn(tokio::spawn(async move {
+                    let bed = TestBed::new();
+                    let filter = Filter::new_static(
+                        vec![Action::new(
+                            vec!["sh", "-c", &format!("echo <ip> >> {}", &bed.out_file)],
+                            None,
+                            false,
+                            "test",
+                            "test",
+                            "a1",
+                            &bed.ip_patterns,
+                        )],
+                        vec![
+                            "^borned <ip> test",
+                            "^right-unborned <ip>.*",
+                            "^left-unborned .*<ip>",
+                            "^full-unborned .*<ip>.*",
+                        ],
+                        None,
+                        None,
+                        "test",
+                        "test",
+                        Duplicate::Ignore,
+                        &bed.ip_patterns,
+                    );
+                    let bed = bed.part2(filter, Local::now(), None).await;
+                    assert_eq!(
+                        bed.manager.handle_line(&line, Local::now()),
+                        React::Trigger,
+                        "line: {line}"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    assert_eq!(
+                        &read_to_string(&bed.out_file).await.unwrap().trim_end(),
+                        ip,
+                        "line: {line}"
+                    );
+                    println!("line ok: {line}");
+                }));
+            }
+        }
+
+        join_set.join_all().await;
     }
 }
 

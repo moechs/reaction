@@ -16,7 +16,7 @@ use crate::{
     tests::TempDatabase,
 };
 
-struct TestBed {
+pub struct TestBed {
     pub _out_path: TempPath,
     pub out_file: String,
     pub az_patterns: Patterns,
@@ -24,7 +24,7 @@ struct TestBed {
 }
 
 impl TestBed {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let _out_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
         let out_file = _out_path.to_str().unwrap().to_string();
 
@@ -71,7 +71,12 @@ ignorecidr:
         }
     }
 
-    async fn part2(self, filter: &'static Filter, now: Time, db: Option<TempDatabase>) -> TestBed2 {
+    pub async fn part2(
+        self,
+        filter: &'static Filter,
+        now: Time,
+        db: Option<TempDatabase>,
+    ) -> TestBed2 {
         let mut db = match db {
             Some(db) => db,
             None => TempDatabase::default().await,
@@ -97,7 +102,7 @@ ignorecidr:
     }
 }
 
-struct TestBed2 {
+pub struct TestBed2 {
     pub _out_path: TempPath,
     pub out_file: String,
     pub semaphore: Arc<Semaphore>,
@@ -108,7 +113,7 @@ struct TestBed2 {
 }
 
 impl TestBed2 {
-    fn assert_empty_trees(&self) {
+    pub fn assert_empty_trees(&self) {
         let state = self.manager.state.lock().unwrap();
         assert!(state.matches.is_empty(), "matches must be empty");
         assert!(
@@ -736,56 +741,5 @@ async fn multiple_triggers() {
             },
             "Duplicate: {dup:?}"
         );
-    }
-}
-
-#[tokio::test]
-async fn ip_pattern_matches() {
-    let bed = TestBed::new();
-    let filter = Filter::new_static(
-        vec![Action::new(
-            vec!["sh", "-c", &format!("echo <ip> >> {}", &bed.out_file)],
-            None,
-            false,
-            "test",
-            "test",
-            "a1",
-            &bed.ip_patterns,
-        )],
-        vec!["borned <ip> test", "unborned <ip>.*"],
-        None,
-        None,
-        "test",
-        "test",
-        Duplicate::Ignore,
-        &bed.ip_patterns,
-    );
-    let bed = bed.part2(filter, Local::now(), None).await;
-
-    let ips = [
-        // IPv4
-        ("83.4.92.35", "83.4.92.35"),
-        ("83.4.92.0", "83.4.92.0"),
-        // Normal IPv6
-        ("1:2:3:4:5:6:7:08", "1:2:3:4:5:6:7:8"),
-        // IPv6 with ::
-        ("1:2:3:04:0:0:7:8", "1:2:3:4::7:8"),
-        ("1:2:3:4:0::", "1:2:3:4::"),
-        // IPv6-mapped IPv4 ::
-        ("ffff::1.2.3.4", "1.2.3.4"),
-    ];
-
-    for (ip, ip_normalized) in ips {
-        assert_eq!(
-            bed.manager
-                .handle_line(&format!("borned {ip} test"), Local::now()),
-            React::Trigger
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(
-            read_to_string(&bed.out_file).unwrap().trim_end(),
-            ip_normalized
-        );
-        tokio::fs::write(&bed.out_file, "").await.unwrap();
     }
 }

@@ -18,9 +18,13 @@ use tracing::{debug, info};
 
 use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
+pub use filter::React;
 pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use socket::socket_manager;
 use stream::StreamManager;
+
+#[cfg(test)]
+pub use filter::tests;
 
 mod filter;
 mod shutdown;
