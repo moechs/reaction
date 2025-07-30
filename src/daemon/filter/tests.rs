@@ -23,8 +23,8 @@ pub struct TestBed {
     pub ip_patterns: Patterns,
 }
 
-impl TestBed {
-    pub fn new() -> Self {
+impl Default for TestBed {
+    fn default() -> Self {
         let _out_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
         let out_file = _out_path.to_str().unwrap().to_string();
 
@@ -70,7 +70,9 @@ ignorecidr:
             ip_patterns,
         }
     }
+}
 
+impl TestBed {
     pub async fn part2(
         self,
         filter: &'static Filter,
@@ -127,7 +129,7 @@ impl TestBed2 {
 #[tokio::test]
 async fn three_matches_then_action_then_delayed_action() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![
                 Action::new(
@@ -259,7 +261,7 @@ async fn three_matches_then_action_then_delayed_action() {
 #[tokio::test]
 async fn one_match_one_action() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![Action::new(
                 vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
@@ -305,7 +307,7 @@ async fn one_match_one_action() {
 #[tokio::test]
 async fn one_match_one_delayed_action() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![Action::new(
                 vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
@@ -370,7 +372,7 @@ async fn one_match_one_delayed_action() {
 #[tokio::test]
 async fn one_db_match_one_runtime_match_one_action() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![Action::new(
                 vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
@@ -436,7 +438,7 @@ async fn one_db_match_one_runtime_match_one_action() {
 #[tokio::test]
 async fn one_outdated_db_match() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![Action::new(
                 vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
@@ -482,7 +484,7 @@ async fn flush() {
 #[tokio::test]
 async fn trigger_unmatched_pattern() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![
                 Action::new(
@@ -553,7 +555,7 @@ async fn trigger_unmatched_pattern() {
 #[tokio::test]
 async fn trigger_matched_pattern() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![
                 Action::new(
@@ -631,7 +633,7 @@ async fn trigger_matched_pattern() {
 #[tokio::test]
 async fn multiple_triggers() {
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        let bed = TestBed::new();
+        let bed = TestBed::default();
         let filter = Filter::new_static(
             vec![
                 Action::new(

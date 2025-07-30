@@ -23,7 +23,7 @@ fn string_to_time(val: &str) -> Result<Time, String> {
 
 /// Tries to convert a [`Value`] into a [`Time`]
 pub fn to_time(val: &Value) -> Result<Time, String> {
-    Ok(string_to_time(val.as_str().ok_or("not a datetime")?)?)
+    string_to_time(val.as_str().ok_or("not a datetime")?)
 }
 
 /// Tries to convert a [`Value`] into a [`Match`]

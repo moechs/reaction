@@ -349,6 +349,7 @@ impl Hash for Filter {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 impl Filter {
     /// Test-only constructor designed to be easy to call
     pub fn new(

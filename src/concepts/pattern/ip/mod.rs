@@ -55,6 +55,7 @@ impl PatternType {
 
         let ipv4 = format!(r#"{num4}(?:\.{num4}){{3}}"#);
 
+        #[allow(clippy::useless_format)]
         let ipv6 = [
             // We're unrolling all possibilities, longer IPv6 first,
             // to make it super-greedy,
@@ -677,7 +678,7 @@ mod patternip_tests {
                 format!("full-unborned : {ip}:"),
             ] {
                 join_set.spawn(tokio::spawn(async move {
-                    let bed = TestBed::new();
+                    let bed = TestBed::default();
                     let filter = Filter::new_static(
                         vec![Action::new(
                             vec!["sh", "-c", &format!("echo <ip> >> {}", &bed.out_file)],

@@ -48,15 +48,13 @@ pub struct State {
     /// ```rust
     /// use chrono::{Local};
     ///
-    /// fn main() {
-    ///   let mut res = vec![];
-    ///   for _ in 0..10 {
+    /// let mut res = vec![];
+    /// for _ in 0..10 {
     ///     let now = Local::now();
     ///     res.push(format!("Now: {now}"));
-    ///   }
-    ///   for s in res {
+    /// }
+    /// for s in res {
     ///     println!("{s}");
-    ///   }
     /// }
     /// ```
     pub ordered_times: Tree<Time, Match>,
@@ -171,9 +169,9 @@ impl State {
                     });
                 } else {
                     self.triggers.fetch_update(mt.m, |map| {
-                        map.and_then(|mut map| {
+                        map.map(|mut map| {
                             map.insert(mt.t, count - 1);
-                            Some(map)
+                            map
                         })
                     });
                 }

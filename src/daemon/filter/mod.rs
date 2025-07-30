@@ -189,7 +189,7 @@ impl FilterManager {
             .triggers
             .keys()
             // match filtering
-            .filter(|match_| is_match(&match_))
+            .filter(|match_| is_match(match_))
             // clone necessary to drop all references to State
             .cloned()
             .collect::<Vec<_>>();
