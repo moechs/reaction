@@ -303,6 +303,26 @@ pub mod tests {
     }
 
     #[test]
+    fn setup_yml() {
+        let mut pattern: Pattern = serde_yaml::from_str("{}").unwrap();
+        assert!(pattern.setup("name").is_err());
+
+        let mut pattern: Pattern = serde_yaml::from_str(r#"regex: "[abc]""#).unwrap();
+        assert!(pattern.setup("name").is_ok());
+
+        let mut pattern: Pattern = serde_yaml::from_str(r#"type: ip"#).unwrap();
+        assert!(pattern.setup("name").is_ok());
+
+        let mut pattern: Pattern = serde_yaml::from_str(r#"type: ipv4"#).unwrap();
+        assert!(pattern.setup("name").is_ok());
+
+        let mut pattern: Pattern = serde_yaml::from_str(r#"type: ipv6"#).unwrap();
+        assert!(pattern.setup("name").is_ok());
+
+        assert!(serde_yaml::from_str::<Pattern>(r#"type: zblorg"#).is_err());
+    }
+
+    #[test]
     fn is_ignore() {
         let mut pattern;
 
