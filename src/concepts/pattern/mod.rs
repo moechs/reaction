@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod ip;
 
-use ip::PatternIp;
+pub use ip::{PatternIp, PatternType};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -45,6 +45,10 @@ impl Pattern {
     }
     pub fn name_with_braces(&self) -> &String {
         &self.name_with_braces
+    }
+
+    pub fn pattern_type(&self) -> PatternType {
+        self.ip.pattern_type()
     }
 
     pub fn setup(&mut self, name: &str) -> Result<(), String> {

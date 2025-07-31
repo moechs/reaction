@@ -152,6 +152,10 @@ pub struct PatternIp {
 }
 
 impl PatternIp {
+    pub fn pattern_type(&self) -> PatternType {
+        self.pattern_type
+    }
+
     /// Setup the IP-specific part of a Pattern.
     /// Returns an optional regex string if of type IP, else None
     /// Returns an error if one of:
@@ -688,6 +692,7 @@ mod patternip_tests {
                             "test",
                             "a1",
                             &bed.ip_patterns,
+                            0,
                         )],
                         vec![
                             "^borned <ip> test",
@@ -714,7 +719,6 @@ mod patternip_tests {
                         ip,
                         "line: {line}"
                     );
-                    println!("line ok: {line}");
                 }));
             }
         }

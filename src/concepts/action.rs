@@ -5,7 +5,7 @@ use chrono::TimeDelta;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-use super::parse_duration::*;
+use super::{parse_duration::*, PatternType};
 use super::{Match, Pattern};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -27,6 +27,11 @@ pub struct Action {
     on_exit: bool,
     #[serde(default = "set_false", skip_serializing_if = "is_false")]
     oneshot: bool,
+
+    #[serde(default = "set_false", skip_serializing_if = "is_false")]
+    ipv4only: bool,
+    #[serde(default = "set_false", skip_serializing_if = "is_false")]
+    ipv6only: bool,
 
     #[serde(skip)]
     patterns: Arc<BTreeSet<Arc<Pattern>>>,
@@ -61,6 +66,13 @@ impl Action {
 
     pub fn oneshot(&self) -> bool {
         self.oneshot
+    }
+
+    pub fn ipv4only(&self) -> bool {
+        self.ipv4only
+    }
+    pub fn ipv6only(&self) -> bool {
+        self.ipv6only
     }
 
     pub fn setup(
@@ -108,6 +120,22 @@ impl Action {
             self.after = None;
         } else if self.on_exit {
             return Err("cannot have `onexit: true`, without an `after` directive".into());
+        }
+
+        if self.ipv4only && self.ipv6only {
+            return Err("cannot have `ipv4only: true` and `ipv6only: true` in one action".into());
+        }
+        if self
+            .patterns
+            .iter()
+            .all(|pattern| pattern.pattern_type() != PatternType::Ip)
+        {
+            if self.ipv4only {
+                return Err("it makes no sense to have an action with `ipv4only: true` when no pattern of type ip is defined on the filter".into());
+            }
+            if self.ipv6only {
+                return Err("it makes no sense to have an action with `ipv6only: true` when no pattern of type ip is defined on the filter".into());
+            }
         }
 
         Ok(())
@@ -175,11 +203,14 @@ impl Action {
         filter_name: &str,
         name: &str,
         config_patterns: &super::Patterns,
+        ip_only: u8,
     ) -> Self {
         let mut action = Self {
             cmd: cmd.into_iter().map(|s| s.into()).collect(),
             after: after.map(|s| s.into()),
             on_exit,
+            ipv4only: ip_only == 4,
+            ipv6only: ip_only == 6,
             ..Default::default()
         };
         action
@@ -203,28 +234,14 @@ pub mod tests {
 
     use super::*;
 
-    fn default_action() -> Action {
-        Action {
-            cmd: Vec::new(),
-            name: "".into(),
-            filter_name: "".into(),
-            stream_name: "".into(),
-            after: None,
-            after_duration: None,
-            on_exit: false,
-            oneshot: false,
-            patterns: Arc::new(BTreeSet::default()),
-        }
-    }
-
     pub fn ok_action() -> Action {
-        let mut action = default_action();
+        let mut action = Action::default();
         action.cmd = vec!["command".into()];
         action
     }
 
     pub fn ok_action_with_after(d: String, name: &str) -> Action {
-        let mut action = default_action();
+        let mut action = Action::default();
         action.cmd = vec!["command".into()];
         action.after = Some(d);
         action
@@ -240,16 +257,16 @@ pub mod tests {
         let patterns = Arc::new(BTreeSet::default());
 
         // No command
-        action = default_action();
+        action = Action::default();
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // No command
-        action = default_action();
+        action = Action::default();
         action.cmd = vec!["".into()];
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 
         // No command
-        action = default_action();
+        action = Action::default();
         action.cmd = vec!["".into(), "arg1".into()];
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_err());
 

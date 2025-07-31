@@ -124,6 +124,10 @@ impl TestBed2 {
         );
         assert!(state.triggers.is_empty(), "triggers must be empty");
     }
+
+    pub async fn reset_out_file(&self) {
+        tokio::fs::write(&self.out_file, "").await.unwrap();
+    }
 }
 
 #[tokio::test]
@@ -140,6 +144,7 @@ async fn three_matches_then_action_then_delayed_action() {
                     "test",
                     "a1",
                     &bed.az_patterns,
+                    0,
                 ),
                 Action::new(
                     vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
@@ -149,6 +154,7 @@ async fn three_matches_then_action_then_delayed_action() {
                     "test",
                     "a2",
                     &bed.az_patterns,
+                    0,
                 ),
             ],
             vec!["test <az>"],
@@ -271,6 +277,7 @@ async fn one_match_one_action() {
                 "test",
                 "a1",
                 &bed.az_patterns,
+                0,
             )],
             vec!["test <az>"],
             None,
@@ -317,6 +324,7 @@ async fn one_match_one_delayed_action() {
                 "test",
                 "a1",
                 &bed.az_patterns,
+                0,
             )],
             vec!["test <az>"],
             None,
@@ -382,6 +390,7 @@ async fn one_db_match_one_runtime_match_one_action() {
                 "test",
                 "a1",
                 &bed.az_patterns,
+                0,
             )],
             vec!["test <az>"],
             Some(2),
@@ -448,6 +457,7 @@ async fn one_outdated_db_match() {
                 "test",
                 "a1",
                 &bed.az_patterns,
+                0,
             )],
             vec!["test <az>"],
             Some(2),
@@ -495,6 +505,7 @@ async fn trigger_unmatched_pattern() {
                     "test",
                     "a1",
                     &bed.az_patterns,
+                    0,
                 ),
                 Action::new(
                     vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
@@ -504,6 +515,7 @@ async fn trigger_unmatched_pattern() {
                     "test",
                     "a2",
                     &bed.az_patterns,
+                    0,
                 ),
             ],
             vec!["test <az>"],
@@ -566,6 +578,7 @@ async fn trigger_matched_pattern() {
                     "test",
                     "a1",
                     &bed.az_patterns,
+                    0,
                 ),
                 Action::new(
                     vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
@@ -575,6 +588,7 @@ async fn trigger_matched_pattern() {
                     "test",
                     "a2",
                     &bed.az_patterns,
+                    0,
                 ),
             ],
             vec!["test <az>"],
@@ -644,6 +658,7 @@ async fn multiple_triggers() {
                     "test",
                     "a1",
                     &bed.az_patterns,
+                    0,
                 ),
                 Action::new(
                     vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
@@ -653,6 +668,7 @@ async fn multiple_triggers() {
                     "test",
                     "a2",
                     &bed.az_patterns,
+                    0,
                 ),
             ],
             vec!["test <az>"],
@@ -744,4 +760,81 @@ async fn multiple_triggers() {
             "Duplicate: {dup:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn ip_specific() {
+    let bed = TestBed::default();
+    let filter = Filter::new_static(
+        vec![
+            Action::new(
+                vec!["sh", "-c", &format!("echo ipv4 <ip> >> {}", &bed.out_file)],
+                None,
+                false,
+                "test",
+                "test",
+                "a4",
+                &bed.ip_patterns,
+                4,
+            ),
+            Action::new(
+                vec!["sh", "-c", &format!("echo ipv6 <ip> >> {}", &bed.out_file)],
+                None,
+                false,
+                "test",
+                "test",
+                "a6",
+                &bed.ip_patterns,
+                6,
+            ),
+            Action::new(
+                vec!["sh", "-c", &format!("echo any <ip> >> {}", &bed.out_file)],
+                Some("20ms"),
+                false,
+                "test",
+                "test",
+                "ax",
+                &bed.ip_patterns,
+                0,
+            ),
+        ],
+        vec!["test <ip>"],
+        None,
+        None,
+        "test",
+        "test",
+        Duplicate::Extend,
+        &bed.ip_patterns,
+    );
+
+    let bed = bed.part2(filter, Local::now(), None).await;
+
+    assert_eq!(
+        bed.manager.handle_line("test 1.2.3.4", Local::now()),
+        React::Trigger,
+    );
+
+    // Wait for action to execute
+    tokio::time::sleep(Duration::from_millis(70)).await;
+
+    assert_eq!(
+        "ipv4 1.2.3.4\nany 1.2.3.4\n",
+        &read_to_string(&bed.out_file).unwrap(),
+    );
+
+    bed.reset_out_file().await;
+
+    assert_eq!(
+        bed.manager
+            .handle_line("test 1:2:3:4:5:6:7:8", Local::now()),
+        React::Trigger,
+    );
+
+    // Wait for action to execute
+    tokio::time::sleep(Duration::from_millis(70)).await;
+
+    assert_eq!(
+        "ipv6 1:2:3:4:5:6:7:8\nany 1:2:3:4:5:6:7:8\n",
+        &read_to_string(&bed.out_file).unwrap(),
+    );
 }

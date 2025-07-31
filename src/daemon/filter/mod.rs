@@ -14,7 +14,7 @@ use tokio::sync::Semaphore;
 use tracing::{error, info};
 
 use crate::{
-    concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
+    concepts::{Action, Duplicate, Filter, Match, Pattern, PatternType, Time},
     protocol::{Order, PatternStatus},
     treedb::Database,
 };
@@ -240,6 +240,30 @@ impl FilterManager {
         startup: bool,
         only_after: bool,
     ) {
+        // Testing if we have an IPv4 or IPv6
+        let ip_type = if self.filter.check_ip() {
+            self.filter
+                .patterns()
+                .iter()
+                .zip(&m)
+                .find(|(p, _)| p.pattern_type() == PatternType::Ip)
+                .map(|(_, m)| -> _ {
+                    // Using this dumb heuristic is ok,
+                    // because we know we have a valid IP address.
+                    if m.contains(':') {
+                        PatternType::Ipv6
+                    } else if m.contains('.') {
+                        PatternType::Ipv4
+                    } else {
+                        PatternType::Regex
+                    }
+                })
+                .unwrap_or(PatternType::Regex)
+        } else {
+            PatternType::Regex
+        };
+
+        // Scheduling each action
         for action in self
             .filter
             .actions()
@@ -248,6 +272,9 @@ impl FilterManager {
             .filter(|action| !startup || !action.oneshot())
             // If only_after, keep only after actions
             .filter(|action| !only_after || action.after_duration().is_some())
+            // If specific ip version, check it
+            .filter(|action| !action.ipv4only() || ip_type == PatternType::Ipv4)
+            .filter(|action| !action.ipv6only() || ip_type == PatternType::Ipv6)
         {
             let exec_time = t + action.after_duration().unwrap_or_default();
             let m = m.clone();

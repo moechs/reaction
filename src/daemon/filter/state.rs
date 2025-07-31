@@ -248,6 +248,7 @@ mod tests {
                 "f1",
                 "a1",
                 &patterns,
+                0,
             )],
             vec!["test <az>"],
             Some(3),
@@ -374,9 +375,27 @@ mod tests {
         let patterns = Pattern::new_map("az", "[a-z]+").unwrap();
         let filter = Filter::new_static(
             vec![
-                Action::new(vec!["true"], None, false, "s1", "f1", "a1", &patterns),
-                Action::new(vec!["true"], Some("1s"), false, "s1", "f1", "a2", &patterns),
-                Action::new(vec!["true"], Some("3s"), false, "s1", "f1", "a3", &patterns),
+                Action::new(vec!["true"], None, false, "s1", "f1", "a1", &patterns, 0),
+                Action::new(
+                    vec!["true"],
+                    Some("1s"),
+                    false,
+                    "s1",
+                    "f1",
+                    "a2",
+                    &patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["true"],
+                    Some("3s"),
+                    false,
+                    "s1",
+                    "f1",
+                    "a3",
+                    &patterns,
+                    0,
+                ),
             ],
             vec!["test <az>"],
             Some(3),

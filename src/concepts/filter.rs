@@ -32,6 +32,8 @@ pub enum Duplicate {
 pub struct Filter {
     #[serde(skip)]
     longuest_action_duration: TimeDelta,
+    #[serde(skip)]
+    has_ip: bool,
 
     regex: Vec<String>,
     #[serde(skip)]
@@ -117,6 +119,10 @@ impl Filter {
 
     pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
         &self.patterns
+    }
+
+    pub fn check_ip(&self) -> bool {
+        self.has_ip
     }
 
     pub fn setup(
@@ -211,6 +217,10 @@ impl Filter {
         for (key, action) in &mut self.actions {
             action.setup(stream_name, name, key, self.patterns.clone())?;
         }
+        self.has_ip = self
+            .actions
+            .values()
+            .any(|action| action.ipv4only() || action.ipv6only());
 
         self.longuest_action_duration =
             self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
