@@ -79,7 +79,7 @@ fn handle_trigger_order(
     // Check stream existance
     let filters = match shared_state
         .iter()
-        .find(|(stream, _)| stream_name == stream.name())
+        .find(|(stream, _)| stream_name == stream.name)
     {
         Some((_, filters)) => filters,
         None => {
@@ -90,7 +90,7 @@ fn handle_trigger_order(
     // Check filter existance
     let filter_manager = match filters
         .iter()
-        .find(|(filter, _)| filter_name == filter.name())
+        .find(|(filter, _)| filter_name == filter.name)
     {
         Some((_, filter)) => filter,
         None => {
@@ -122,7 +122,7 @@ fn handle_show_or_flush_order(
             stream_name.is_none()
                 || stream_name
                     .clone()
-                    .is_some_and(|name| name == stream.name())
+                    .is_some_and(|name| name == stream.name)
         })
         .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| {
             let inner_map = filter_manager
@@ -132,22 +132,22 @@ fn handle_show_or_flush_order(
                     filter_name.is_none()
                         || filter_name
                             .clone()
-                            .is_some_and(|name| name == filter.name())
+                            .is_some_and(|name| name == filter.name)
                 })
                 // pattern filtering
                 .filter(|(filter, _)| {
                     patterns
                         .iter()
-                        .all(|(pattern, _)| filter.patterns().get(pattern).is_some())
+                        .all(|(pattern, _)| filter.patterns.get(pattern).is_some())
                 })
                 .map(|(filter, manager)| {
                     (
-                        filter.name().to_owned(),
+                        filter.name.to_owned(),
                         manager.handle_order(&patterns, order, now),
                     )
                 })
                 .collect();
-            acc.insert(stream.name().to_owned(), inner_map);
+            acc.insert(stream.name.to_owned(), inner_map);
             acc
         });
     DaemonResponse::Order(cs)
@@ -174,7 +174,7 @@ fn answer_order(
         .map(|(name, reg)| {
             // lookup pattern in config.patterns
             config
-                .patterns()
+                .patterns
                 .iter()
                 // retrieve or Err
                 .find(|(pattern_name, _)| &name == *pattern_name)
@@ -196,7 +196,7 @@ fn answer_order(
                 Ok(reg) => Ok((pattern, reg)),
                 Err(err) => Err(format!(
                     "pattern '{}' regex doesn't compile: {err}",
-                    pattern.name()
+                    pattern.name
                 )),
             })
             .collect::<Result<BTreeMap<Arc<Pattern>, Regex>, String>>()

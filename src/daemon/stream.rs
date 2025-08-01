@@ -65,7 +65,7 @@ impl StreamManager {
             .iter()
             .flat_map(|(filter, filter_manager)| {
                 filter
-                    .regex()
+                    .regex
                     .iter()
                     .map(|regex| (regex, filter_manager.clone()))
             })
@@ -80,9 +80,9 @@ impl StreamManager {
     }
 
     pub async fn start(self) {
-        info!("{}: start {:?}", self.stream.name(), self.stream.cmd());
-        let mut child = match Command::new(&self.stream.cmd()[0])
-            .args(&self.stream.cmd()[1..])
+        info!("{}: start {:?}", self.stream.name, self.stream.cmd);
+        let mut child = match Command::new(&self.stream.cmd[0])
+            .args(&self.stream.cmd[1..])
             .stdin(Stdio::null())
             .stderr(Stdio::piped())
             .stdout(Stdio::piped())
@@ -92,7 +92,7 @@ impl StreamManager {
             Err(err) => {
                 error!(
                     "could not execute stream {} cmd: {}",
-                    self.stream.name(),
+                    self.stream.name,
                     err
                 );
                 return;
@@ -120,7 +120,7 @@ impl StreamManager {
         // wait either for the child process to exit on its own or for the shutdown signal
         futures::select! {
             _ = child.wait().fuse() => {
-                error!("stream {} exited: its command returned.", self.stream.name());
+                error!("stream {} exited: its command returned.", self.stream.name);
                 return;
             }
             _ = self.shutdown.wait().fuse() => {}
@@ -143,7 +143,7 @@ impl StreamManager {
         } else {
             warn!(
                 "could not get PID of child process for stream {}",
-                self.stream.name()
+                self.stream.name
             );
             // still try to use tokio API to kill and reclaim the child process
         }
@@ -160,7 +160,7 @@ impl StreamManager {
         futures::select! {
             _ = child.wait().fuse() => {}
             _ = sleep(Duration::from_secs(STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC)).fuse() => {
-                error!("child process of stream {} did not terminate", self.stream.name());
+                error!("child process of stream {} did not terminate", self.stream.name);
             }
         }
     }
@@ -183,7 +183,7 @@ impl StreamManager {
                 Some(Err(err)) => {
                     error!(
                         "impossible to read output from stream {}: {}",
-                        self.stream.name(),
+                        self.stream.name,
                         err
                     );
                     return;

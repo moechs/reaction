@@ -11,36 +11,36 @@ use super::{Match, Pattern};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
-    cmd: Vec<String>,
+    pub cmd: Vec<String>,
 
     // TODO one shot time deserialization
     #[serde(skip_serializing_if = "Option::is_none")]
-    after: Option<String>,
+    pub after: Option<String>,
     #[serde(skip)]
-    after_duration: Option<TimeDelta>,
+    pub after_duration: Option<TimeDelta>,
 
     #[serde(
         rename = "onexit",
         default = "set_false",
         skip_serializing_if = "is_false"
     )]
-    on_exit: bool,
+    pub on_exit: bool,
     #[serde(default = "set_false", skip_serializing_if = "is_false")]
-    oneshot: bool,
+    pub oneshot: bool,
 
     #[serde(default = "set_false", skip_serializing_if = "is_false")]
-    ipv4only: bool,
+    pub ipv4only: bool,
     #[serde(default = "set_false", skip_serializing_if = "is_false")]
-    ipv6only: bool,
+    pub ipv6only: bool,
 
     #[serde(skip)]
-    patterns: Arc<BTreeSet<Arc<Pattern>>>,
+    pub patterns: Arc<BTreeSet<Arc<Pattern>>>,
     #[serde(skip)]
-    name: String,
+    pub name: String,
     #[serde(skip)]
-    filter_name: String,
+    pub filter_name: String,
     #[serde(skip)]
-    stream_name: String,
+    pub stream_name: String,
 }
 
 fn set_false() -> bool {
@@ -52,29 +52,6 @@ fn is_false(b: &bool) -> bool {
 }
 
 impl Action {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn after_duration(&self) -> Option<TimeDelta> {
-        self.after_duration
-    }
-
-    pub fn on_exit(&self) -> bool {
-        self.on_exit
-    }
-
-    pub fn oneshot(&self) -> bool {
-        self.oneshot
-    }
-
-    pub fn ipv4only(&self) -> bool {
-        self.ipv4only
-    }
-    pub fn ipv6only(&self) -> bool {
-        self.ipv6only
-    }
-
     pub fn setup(
         &mut self,
         stream_name: &str,

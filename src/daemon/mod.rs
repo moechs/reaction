@@ -45,7 +45,7 @@ pub async fn daemon(
 
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency
-        let exec_limit = match config.concurrency() {
+        let exec_limit = match config.concurrency {
             0 => None,
             n => Some(Arc::new(Semaphore::new(n))),
         };
@@ -54,9 +54,9 @@ pub async fn daemon(
         let now = Local::now();
         let mut state = HashMap::new();
         let mut stream_managers = Vec::new();
-        for stream in config.streams().values() {
+        for stream in config.streams.values() {
             let mut filter_managers = HashMap::new();
-            for filter in stream.filters().values() {
+            for filter in stream.filters.values() {
                 let manager =
                     FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)?;
                 filter_managers.insert(filter, manager);

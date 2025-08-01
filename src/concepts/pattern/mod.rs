@@ -15,20 +15,20 @@ pub struct Pattern {
     pub regex: String,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    ignore: Vec<String>,
+    pub ignore: Vec<String>,
 
     #[serde(default, rename = "ignoreregex", skip_serializing_if = "Vec::is_empty")]
-    ignore_regex: Vec<String>,
+    pub ignore_regex: Vec<String>,
     #[serde(skip)]
-    compiled_ignore_regex: RegexSet,
+    pub compiled_ignore_regex: RegexSet,
 
     #[serde(flatten)]
-    ip: PatternIp,
+    pub ip: PatternIp,
 
     #[serde(skip)]
-    name: String,
+    pub name: String,
     #[serde(skip)]
-    name_with_braces: String,
+    pub name_with_braces: String,
 }
 
 impl Pattern {
@@ -40,15 +40,12 @@ impl Pattern {
         }
     }
 
-    pub fn name(&self) -> &String {
-        &self.name
-    }
     pub fn name_with_braces(&self) -> &String {
         &self.name_with_braces
     }
 
     pub fn pattern_type(&self) -> PatternType {
-        self.ip.pattern_type()
+        self.ip.pattern_type
     }
 
     pub fn setup(&mut self, name: &str) -> Result<(), String> {

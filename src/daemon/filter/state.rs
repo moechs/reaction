@@ -11,20 +11,20 @@ use crate::{
 pub fn filter_ordered_times_db_name(filter: &Filter) -> String {
     format!(
         "filter_ordered_times_{}.{}",
-        filter.stream_name(),
-        filter.name()
+        filter.stream_name,
+        filter.name
     )
 }
 
 pub fn filter_triggers_old_db_name(filter: &Filter) -> String {
-    format!("filter_triggers_{}.{}", filter.stream_name(), filter.name())
+    format!("filter_triggers_{}.{}", filter.stream_name, filter.name)
 }
 
 pub fn filter_triggers_db_name(filter: &Filter) -> String {
     format!(
         "filter_triggers2_{}.{}",
-        filter.stream_name(),
-        filter.name()
+        filter.stream_name,
+        filter.name
     )
 }
 
@@ -67,18 +67,18 @@ impl State {
     pub fn new(filter: &'static Filter, db: &mut Database, now: Time) -> Result<Self, String> {
         let ordered_times = db.open_tree(
             filter_ordered_times_db_name(filter),
-            filter.retry_duration().unwrap_or_default(),
+            filter.retry_duration.unwrap_or_default(),
             |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
         )?;
         let mut triggers = db.open_tree(
             filter_triggers_db_name(filter),
-            filter.longuest_action_duration(),
+            filter.longuest_action_duration,
             |(key, value)| Ok((to_match(&key)?, to_timemap(&value)?)),
         )?;
         if triggers.is_empty() {
             let old_triggers = db.open_tree(
                 filter_triggers_old_db_name(filter),
-                filter.longuest_action_duration(),
+                filter.longuest_action_duration,
                 |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
             )?;
             for (mt, n) in old_triggers.iter() {
@@ -95,7 +95,7 @@ impl State {
         }
         let mut this = Self {
             filter,
-            has_after: !filter.longuest_action_duration().is_zero(),
+            has_after: !filter.longuest_action_duration.is_zero(),
             matches: BTreeMap::new(),
             ordered_times,
             triggers,
@@ -115,7 +115,7 @@ impl State {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
-            let n = self.filter.actions().len() as u64;
+            let n = self.filter.actions.len() as u64;
             self.triggers.fetch_update(m, |map| {
                 Some(match map {
                     None => [(t, n)].into(),
@@ -183,7 +183,7 @@ impl State {
     }
 
     pub fn clear_past_matches(&mut self, now: Time) {
-        let retry_duration = self.filter.retry_duration().unwrap_or_default();
+        let retry_duration = self.filter.retry_duration.unwrap_or_default();
         while self
             .ordered_times
             .first_key_value()

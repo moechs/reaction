@@ -91,11 +91,11 @@ impl FilterManager {
         let already_triggered = state.triggers.contains_key(&m);
 
         // if duplicate: ignore and already triggered, skip
-        if already_triggered && Duplicate::Ignore == self.filter.duplicate() {
+        if already_triggered && Duplicate::Ignore == self.filter.duplicate {
             return false;
         }
 
-        let trigger = match self.filter.retry() {
+        let trigger = match self.filter.retry {
             None => true,
             Some(retry) => {
                 state.add_match(m.clone(), now);
@@ -106,7 +106,7 @@ impl FilterManager {
 
         if trigger {
             state.remove_match(&m);
-            let extend = already_triggered && Duplicate::Extend == self.filter.duplicate();
+            let extend = already_triggered && Duplicate::Extend == self.filter.duplicate;
             if extend {
                 state.remove_trigger(&m);
             }
@@ -142,7 +142,7 @@ impl FilterManager {
         let is_match = |match_: &Match| {
             match_
                 .iter()
-                .zip(self.filter.patterns())
+                .zip(self.filter.patterns.as_ref())
                 .filter_map(|(a_match, pattern)| {
                     patterns.get(pattern.as_ref()).map(|regex| (a_match, regex))
                 })
@@ -205,13 +205,13 @@ impl FilterManager {
                 if remaining > 0 {
                     let pattern_status = cs.entry(m.clone()).or_default();
 
-                    for action in self.filter.actions().values() {
-                        let action_time = t + action.after_duration().unwrap_or_default();
+                    for action in self.filter.actions.values() {
+                        let action_time = t + action.after_duration.unwrap_or_default();
                         if action_time > now {
                             // Insert action
                             pattern_status
                                 .actions
-                                .entry(action.name().into())
+                                .entry(action.name.clone())
                                 .or_default()
                                 .push(action_time.to_rfc3339().chars().take(19).collect());
 
@@ -241,9 +241,9 @@ impl FilterManager {
         only_after: bool,
     ) {
         // Testing if we have an IPv4 or IPv6
-        let ip_type = if self.filter.check_ip() {
+        let ip_type = if self.filter.has_ip {
             self.filter
-                .patterns()
+                .patterns
                 .iter()
                 .zip(&m)
                 .find(|(p, _)| p.pattern_type() == PatternType::Ip)
@@ -266,17 +266,17 @@ impl FilterManager {
         // Scheduling each action
         for action in self
             .filter
-            .actions()
+            .actions
             .values()
             // On startup, skip oneshot actions
-            .filter(|action| !startup || !action.oneshot())
+            .filter(|action| !startup || !action.oneshot)
             // If only_after, keep only after actions
-            .filter(|action| !only_after || action.after_duration().is_some())
+            .filter(|action| !only_after || action.after_duration.is_some())
             // If specific ip version, check it
-            .filter(|action| !action.ipv4only() || ip_type == PatternType::Ipv4)
-            .filter(|action| !action.ipv6only() || ip_type == PatternType::Ipv6)
+            .filter(|action| !action.ipv4only || ip_type == PatternType::Ipv4)
+            .filter(|action| !action.ipv6only || ip_type == PatternType::Ipv6)
         {
-            let exec_time = t + action.after_duration().unwrap_or_default();
+            let exec_time = t + action.after_duration.unwrap_or_default();
             let m = m.clone();
 
             if exec_time <= now {
@@ -298,7 +298,7 @@ impl FilterManager {
                         _ = this.shutdown.wait() => true,
                     };
                     // Exec action if triggered hasn't been already flushed
-                    if !exiting || action.on_exit() {
+                    if !exiting || action.on_exit {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().unwrap();
                         if state.decrement_trigger(&m, t) {
@@ -311,13 +311,13 @@ impl FilterManager {
     }
 
     fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
-        let longuest_action_duration = self.filter.longuest_action_duration();
+        let longuest_action_duration = self.filter.longuest_action_duration;
         let number_of_actions = self
             .filter
-            .actions()
+            .actions
             .values()
             // On startup, skip oneshot actions
-            .filter(|action| !action.oneshot())
+            .filter(|action| !action.oneshot)
             .count() as u64;
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok

@@ -19,7 +19,7 @@ pub fn test_regex(
 
     // Code close to Filter::setup()
     let mut used_patterns: BTreeSet<Arc<Pattern>> = BTreeSet::new();
-    for pattern in config.patterns().values() {
+    for pattern in config.patterns.values() {
         if let Some(index) = regex.find(pattern.name_with_braces()) {
             // we already `find` it, so we must be able to `rfind` it
             #[allow(clippy::unwrap_used)]
@@ -43,7 +43,7 @@ pub fn test_regex(
             let mut result = Vec::new();
             if !used_patterns.is_empty() {
                 for pattern in used_patterns.iter() {
-                    if let Some(match_) = matches.name(pattern.name()) {
+                    if let Some(match_) = matches.name(&pattern.name) {
                         result.push(match_.as_str().to_string());
                         if pattern.is_ignore(match_.as_str()) {
                             ignored = true;

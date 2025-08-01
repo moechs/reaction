@@ -31,34 +31,34 @@ pub enum Duplicate {
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     #[serde(skip)]
-    longuest_action_duration: TimeDelta,
+    pub longuest_action_duration: TimeDelta,
     #[serde(skip)]
-    has_ip: bool,
+    pub has_ip: bool,
 
-    regex: Vec<String>,
+    pub regex: Vec<String>,
     #[serde(skip)]
-    compiled_regex: Vec<Regex>,
+    pub compiled_regex: Vec<Regex>,
     // We want patterns to be ordered
     // This is necessary when using matches which contain multiple patterns
     #[serde(skip)]
-    patterns: Arc<BTreeSet<Arc<Pattern>>>,
+    pub patterns: Arc<BTreeSet<Arc<Pattern>>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    retry: Option<u32>,
+    pub retry: Option<u32>,
     #[serde(rename = "retryperiod", skip_serializing_if = "Option::is_none")]
-    retry_period: Option<String>,
+    pub retry_period: Option<String>,
     #[serde(skip)]
-    retry_duration: Option<TimeDelta>,
+    pub retry_duration: Option<TimeDelta>,
 
     #[serde(default)]
-    duplicate: Duplicate,
+    pub duplicate: Duplicate,
 
-    actions: BTreeMap<String, Action>,
+    pub actions: BTreeMap<String, Action>,
 
     #[serde(skip)]
-    name: String,
+    pub name: String,
     #[serde(skip)]
-    stream_name: String,
+    pub stream_name: String,
 }
 
 impl Filter {
@@ -83,46 +83,6 @@ impl Filter {
             patterns: Arc::new(patterns.into_iter().map(Arc::new).collect()),
             ..Filter::default()
         }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn stream_name(&self) -> &str {
-        &self.stream_name
-    }
-
-    pub fn retry(&self) -> Option<u32> {
-        self.retry
-    }
-
-    pub fn retry_duration(&self) -> Option<TimeDelta> {
-        self.retry_duration
-    }
-
-    pub fn longuest_action_duration(&self) -> TimeDelta {
-        self.longuest_action_duration
-    }
-
-    pub fn regex(&self) -> &Vec<String> {
-        &self.regex
-    }
-
-    pub fn duplicate(&self) -> Duplicate {
-        self.duplicate
-    }
-
-    pub fn actions(&self) -> &BTreeMap<String, Action> {
-        &self.actions
-    }
-
-    pub fn patterns(&self) -> &BTreeSet<Arc<Pattern>> {
-        &self.patterns
-    }
-
-    pub fn check_ip(&self) -> bool {
-        self.has_ip
     }
 
     pub fn setup(
@@ -220,11 +180,11 @@ impl Filter {
         self.has_ip = self
             .actions
             .values()
-            .any(|action| action.ipv4only() || action.ipv6only());
+            .any(|action| action.ipv4only || action.ipv6only);
 
         self.longuest_action_duration =
             self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
-                v.after_duration()
+                v.after_duration
                     .map_or(acc, |v| if v > acc { v } else { acc })
             });
 
@@ -239,7 +199,7 @@ impl Filter {
                     for pattern in self.patterns.as_ref() {
                         // if the pattern is in an optional part of the regex,
                         // there may be no captured group for it.
-                        if let Some(match_) = matches.name(pattern.name()) {
+                        if let Some(match_) = matches.name(&pattern.name) {
                             if !pattern.is_ignore(match_.as_str()) {
                                 let mut match_ = match_.as_str().to_string();
                                 pattern.normalize(&mut match_);
@@ -267,16 +227,16 @@ impl Filter {
         mut patterns: BTreeMap<Arc<Pattern>, String>,
     ) -> Result<Match, String> {
         // Check pattern length
-        if patterns.len() != self.patterns().len() {
+        if patterns.len() != self.patterns.len() {
             return Err(format!(
                 "{} patterns specified, while the {}.{} filter has {} pattern: ({})",
                 patterns.len(),
-                self.stream_name(),
-                self.name(),
-                self.patterns().len(),
-                self.patterns()
+                self.stream_name,
+                self.name,
+                self.patterns.len(),
+                self.patterns
                     .iter()
-                    .map(|pattern| pattern.name().clone())
+                    .map(|pattern| pattern.name.clone())
                     .reduce(|acc, pattern| acc + ", " + &pattern)
                     .unwrap_or("".into()),
             ));
@@ -286,7 +246,7 @@ impl Filter {
             if self.patterns.get(pattern).is_none() {
                 return Err(format!(
                     "pattern {} is not present in the filter {}.{}",
-                    pattern.name(),
+                    pattern.name,
                     self.stream_name,
                     self.name
                 ));
@@ -296,7 +256,7 @@ impl Filter {
                 return Err(format!(
                     "'{}' doesn't match pattern {}",
                     match_,
-                    pattern.name(),
+                    pattern.name,
                 ));
             }
 
@@ -304,7 +264,7 @@ impl Filter {
                 return Err(format!(
                     "'{}' is explicitly ignored by pattern {}",
                     match_,
-                    pattern.name(),
+                    pattern.name,
                 ));
             }
 
@@ -315,7 +275,7 @@ impl Filter {
             if !patterns.contains_key(pattern) {
                 return Err(format!(
                     "pattern {} is missing, because it's in the filter {}.{}",
-                    pattern.name(),
+                    pattern.name,
                     self.stream_name,
                     self.name
                 ));
@@ -373,7 +333,7 @@ impl Filter {
         config_patterns: &Patterns,
     ) -> Self {
         let mut filter = Self {
-            actions: actions.into_iter().map(|a| (a.name().into(), a)).collect(),
+            actions: actions.into_iter().map(|a| (a.name.clone(), a)).collect(),
             regex: regex.into_iter().map(|s| s.into()).collect(),
             retry,
             retry_period: retry_period.map(|s| s.into()),

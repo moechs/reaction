@@ -9,29 +9,17 @@ use super::{Filter, Patterns};
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     #[serde(default)]
-    cmd: Vec<String>,
+    pub cmd: Vec<String>,
     #[serde(default)]
-    filters: BTreeMap<String, Filter>,
+    pub filters: BTreeMap<String, Filter>,
 
     #[serde(skip)]
-    name: String,
+    pub name: String,
 }
 
 impl Stream {
-    pub fn filters(&self) -> &BTreeMap<String, Filter> {
-        &self.filters
-    }
-
     pub fn get_filter(&self, filter_name: &str) -> Option<&Filter> {
         self.filters.get(filter_name)
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn cmd(&self) -> &Vec<String> {
-        &self.cmd
     }
 
     pub fn merge(&mut self, other: Stream) -> Result<(), String> {

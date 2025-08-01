@@ -55,10 +55,10 @@ const DB_NEW_NAME: &str = "reaction.new.db";
 
 impl Config {
     fn path_of(&self, name: &str) -> PathBuf {
-        if self.state_directory().is_empty() {
+        if self.state_directory.is_empty() {
             name.into()
         } else {
-            PathBuf::from(self.state_directory()).join(name)
+            PathBuf::from(&self.state_directory).join(name)
         }
     }
 }

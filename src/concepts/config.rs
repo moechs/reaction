@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use super::{Filter, Pattern, Stream};
+use super::{Pattern, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -20,20 +20,20 @@ pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "num_cpus::get")]
-    concurrency: usize,
+    pub concurrency: usize,
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
-    state_directory: String,
+    pub state_directory: String,
 
     #[serde(default)]
-    patterns: Patterns,
+    pub patterns: Patterns,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    start: Vec<Vec<String>>,
+    pub start: Vec<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    stop: Vec<Vec<String>>,
+    pub stop: Vec<Vec<String>>,
 
     #[serde(default)]
-    streams: BTreeMap<String, Stream>,
+    pub streams: BTreeMap<String, Stream>,
 
     // This field only serve the purpose of having a top-level place for saving YAML variables
     #[serde(default, skip_serializing, rename = "definitions")]
@@ -45,35 +45,6 @@ fn dot() -> String {
 }
 
 impl Config {
-    pub fn streams(&self) -> &BTreeMap<String, Stream> {
-        &self.streams
-    }
-
-    pub fn patterns(&self) -> &Patterns {
-        &self.patterns
-    }
-
-    pub fn concurrency(&self) -> usize {
-        self.concurrency
-    }
-
-    pub fn state_directory(&self) -> &str {
-        &self.state_directory
-    }
-
-    pub fn filters(&self) -> Vec<&Filter> {
-        self.streams
-            .values()
-            .flat_map(|stream| stream.filters().values())
-            .collect()
-    }
-
-    pub fn get_filter(&self, name: &(String, String)) -> Option<&Filter> {
-        self.streams
-            .get(&name.0)
-            .and_then(|stream| stream.get_filter(&name.1))
-    }
-
     fn merge(&mut self, mut other: Config) -> Result<(), String> {
         for (key, pattern) in other.patterns.into_iter() {
             match self.patterns.entry(key) {
@@ -644,7 +615,7 @@ mod tests {
         assert!(cfg_org.streams.contains_key("echo"));
         assert_eq!(cfg_org.streams.len(), 1);
 
-        let filters = cfg_org.streams.get("echo").unwrap().filters();
+        let filters = &cfg_org.streams.get("echo").unwrap().filters;
         assert!(filters.contains_key("f1"));
         assert!(filters.contains_key("f2"));
         assert_eq!(filters.len(), 2);
@@ -704,8 +675,8 @@ mod tests {
         assert!(cfg_org.streams.contains_key("echo"));
         assert_eq!(cfg_org.streams.len(), 1);
         let stream = cfg_org.streams.get("echo").unwrap();
-        assert_eq!(stream.cmd().len(), 1);
-        assert_eq!(stream.filters().len(), 1);
+        assert_eq!(stream.cmd.len(), 1);
+        assert_eq!(stream.filters.len(), 1);
     }
 
     #[test]

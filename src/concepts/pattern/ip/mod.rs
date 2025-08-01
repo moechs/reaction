@@ -134,21 +134,21 @@ pub struct PatternIp {
         rename = "type",
         skip_serializing_if = "PatternType::is_default"
     )]
-    pattern_type: PatternType,
+    pub pattern_type: PatternType,
 
     #[serde(default, rename = "ipv4mask")]
-    ipv4_mask: Option<u8>,
+    pub ipv4_mask: Option<u8>,
     #[serde(default, rename = "ipv6mask")]
-    ipv6_mask: Option<u8>,
+    pub ipv6_mask: Option<u8>,
     #[serde(skip)]
-    ipv4_bitmask: Option<Ipv4Addr>,
+    pub ipv4_bitmask: Option<Ipv4Addr>,
     #[serde(skip)]
-    ipv6_bitmask: Option<Ipv6Addr>,
+    pub ipv6_bitmask: Option<Ipv6Addr>,
 
     #[serde(default, rename = "ignorecidr", skip_serializing_if = "Vec::is_empty")]
-    ignore_cidr: Vec<String>,
+    pub ignore_cidr: Vec<String>,
     #[serde(skip)]
-    ignore_cidr_normalized: Vec<Cidr>,
+    pub ignore_cidr_normalized: Vec<Cidr>,
 }
 
 impl PatternIp {
