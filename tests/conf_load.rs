@@ -62,3 +62,16 @@ streams:
 "#));
     Ok(())
 }
+
+#[test]
+fn example_configs_are_equal() {
+    let outputs = ["config/example.yml", "config/example.jsonnet"]
+        .map(|config_path| {
+            let mut cmd = Command::cargo_bin("reaction").unwrap();
+            cmd.args(["test-config", "--config", config_path]);
+            cmd.assert().success().get_output().stdout.clone()
+        })
+        .map(String::from_utf8)
+        .map(Result::unwrap);
+    assert_eq!(outputs[0], outputs[1]);
+}
