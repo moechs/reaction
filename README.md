@@ -33,11 +33,11 @@ See https://blog.ppom.me/en-reaction-v2.
 YAML and [JSONnet](https://jsonnet.org/) (more powerful) are supported.
 both are extensions of JSON, so JSON is transitively supported.
 
-- See [reaction.yml](./config/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference
+- See [reaction.yml](./config/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference (ipv4 + ipv6)
 - See the [wiki](https://reaction.ppom.me) for multiple examples, security recommendations and FAQ.
 - See [server.jsonnet](https://reaction.ppom.me/configurations/ppom/server.jsonnet.html) for a real-world configuration
 - See [reaction.service](./config/reaction.service) for a systemd service file
-- This minimal example shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/security.html) part of the wiki before starting 🆙):
+- This minimal example (ipv4 only) shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/security.html) part of the wiki before starting 🆙):
 
 <details open>
 
@@ -46,21 +46,18 @@ both are extensions of JSON, so JSON is transitively supported.
 ```yaml
 patterns:
   ip:
-    regex: '(([0-9]{1,3}\.){3}[0-9]{1,3})|([0-9a-fA-F:]{2,90})'
-    ignore:
-      - '127.0.0.1'
-      - '::1'
+    type: ipv4
 
 start:
-  - [ 'ip46tables', '-w', '-N', 'reaction' ]
-  - [ 'ip46tables', '-w', '-I', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
-  - [ 'ip46tables', '-w', '-I', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
+  - [ 'iptables', '-w', '-N', 'reaction' ]
+  - [ 'iptables', '-w', '-I', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
+  - [ 'iptables', '-w', '-I', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
 
 stop:
-  - [ 'ip46tables', '-w', '-D', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
-  - [ 'ip46tables', '-w', '-D', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
-  - [ 'ip46tables', '-w', '-F', 'reaction' ]
-  - [ 'ip46tables', '-w', '-X', 'reaction' ]
+  - [ 'iptables', '-w', '-D', 'INPUT',   '-p', 'all', '-j', 'reaction' ]
+  - [ 'iptables', '-w', '-D', 'FORWARD', '-p', 'all', '-j', 'reaction' ]
+  - [ 'iptables', '-w', '-F', 'reaction' ]
+  - [ 'iptables', '-w', '-X', 'reaction' ]
 
 streams:
   ssh:
@@ -76,9 +73,9 @@ streams:
         retryperiod: '6h'
         actions:
           ban:
-            cmd: [ 'ip46tables', '-w', '-I', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
+            cmd: [ 'iptables', '-w', '-I', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
           unban:
-            cmd: [ 'ip46tables', '-w', '-D', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
+            cmd: [ 'iptables', '-w', '-D', 'reaction', '1', '-s', '<ip>', '-j', 'DROP' ]
             after: '48h'
 ```
 
@@ -89,41 +86,40 @@ streams:
 <summary><code>/etc/reaction.jsonnet</code></summary>
 
 ```jsonnet
-local iptables(args) = [ 'ip46tables', '-w' ] + args;
 local banFor(time) = {
   ban: {
-    cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'DROP']),
+    cmd: ['iptables', '-w', '-A', 'reaction', '-s', '<ip>', '-j', 'DROP'],
   },
   unban: {
+    cmd: ['iptables', '-w', '-D', 'reaction', '-s', '<ip>', '-j', 'DROP'],
     after: time,
-    cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
   },
 };
 
 {
   patterns: {
     ip: {
-      regex: @'(?:(?:[ 0-9 ]{1,3}\.){3}[0-9]{1,3})|(?:[0-9a-fA-F:]{2,90})',
+      type: 'ipv4',
     },
   },
   start: [
-    iptables([ '-N', 'reaction' ]),
-    iptables([ '-I', 'INPUT',   '-p', 'all', '-j', 'reaction' ]),
-    iptables([ '-I', 'FORWARD', '-p', 'all', '-j', 'reaction' ]),
+    ['iptables', '-N', 'reaction'],
+    ['iptables', '-I', 'INPUT', '-p', 'all', '-j', 'reaction'],
+    ['iptables', '-I', 'FORWARD', '-p', 'all', '-j', 'reaction'],
   ],
   stop: [
-    iptables([ '-D', 'INPUT',   '-p', 'all', '-j', 'reaction' ]),
-    iptables([ '-D', 'FORWARD', '-p', 'all', '-j', 'reaction' ]),
-    iptables([ '-F', 'reaction' ]),
-    iptables([ '-X', 'reaction' ]),
+    ['iptables', '-D', 'INPUT', '-p', 'all', '-j', 'reaction'],
+    ['iptables', '-D', 'FORWARD', '-p', 'all', '-j', 'reaction'],
+    ['iptables', '-F', 'reaction'],
+    ['iptables', '-X', 'reaction'],
   ],
   streams: {
     ssh: {
-      cmd: [ 'journalctl', '-fu', 'sshd.service' ],
+      cmd: ['journalctl', '-fu', 'sshd.service'],
       filters: {
         failedlogin: {
           regex: [
-            @'authentication failure;.*rhost=<ip>'
+            @'authentication failure;.*rhost=<ip>',
             @'Failed password for .* from <ip>',
             @'banner exchange: Connection from <ip> port [0-9]*: invalid format',
             @'Invalid user .* from <ip>',
@@ -156,12 +152,19 @@ If you don't know where to start reaction, `/var/lib/reaction` should be a sane 
 - `reaction test-config` shows loaded configuration
 - `reaction help` for full usage.
 
-### `ip46tables`
+### `ip46tables` and `nft46`
 
-`ip46tables` is a minimal c program present in its own subdirectory with only standard posix dependencies.
+> ⚠️Deprecated since v2.2.0:
+> reaction now provides builtin support for executing different actions on ipv4 and ipv6.
+> They will be removed in a future version.
 
-It permits to configure `iptables` and `ip6tables` at the same time.
+`ip46tables` and `nft46` are two minimal c programs present in the `helpers_c` directory with only standard posix dependencies.
+
+`ip46tables` permits to configure `iptables` and `ip6tables` at the same time.
 It will execute `iptables` when detecting ipv4, `ip6tables` when detecting ipv6 and both if no ip address is present on the command line.
+
+`nft46` works slightly differently: it will replace the `X` in its argument by 4 or 6 depending on the ip address on the command line.
+This permits to have 2 IP sets, one of type `ipv4_addr` and one of type `ipv6_addr`.
 
 ## Wiki
 
