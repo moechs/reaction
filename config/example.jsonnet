@@ -7,21 +7,37 @@
 // strongly encouraged to take a look at the full documentation: https://reaction.ppom.me
 
 // JSONnet functions
-local iptables(args) = ['ip46tables', '-w'] + args;
-// ip46tables is a minimal C program (only POSIX dependencies) present in a
-// subdirectory of this repo.
-// it permits to handle both ipv4/iptables and ipv6/ip6tables commands
+local ipBan(cmd) = [cmd, '-w', '-A', 'reaction', '-s', '<ip>', '-j', 'DROP'];
+local ipUnban(cmd) = [cmd, '-w', '-D', 'reaction', '-s', '<ip>', '-j', 'DROP'];
 
-// See meaning and usage of this function around L106
+// See meaning and usage of this function around L180
 local banFor(time) = {
-  ban: {
-    cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'DROP']),
+  ban4: {
+    cmd: ipBan('iptables'),
+    ipv4only: true,
   },
-  unban: {
+  ban6: {
+    cmd: ipBan('ip6tables'),
+    ipv6only: true,
+  },
+  unban4: {
+    cmd: ipUnban('iptables'),
     after: time,
-    cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
+    ipv4only: true,
+  },
+  unban6: {
+    cmd: ipUnban('ip6tables'),
+    after: time,
+    ipv6only: true,
   },
 };
+
+// See usage of this function around L90
+// Generates a command for iptables and ip46tables
+local ip46tables(arguments) = [
+  ['iptables', '-w'] + arguments,
+  ['ip6tables', '-w'] + arguments,
+];
 
 {
   // patterns are substitued in regexes.
@@ -74,24 +90,23 @@ local banFor(time) = {
   concurrency: 0,
 
   // Those commands will be executed in order at start, before everything else
-  start: [
+  start:
     // Create an iptables chain for reaction
-    iptables(['-N', 'reaction']),
+    ip46tables(['-N', 'reaction']) +
     // Insert this chain as the first item of the INPUT & FORWARD chains (for incoming connections)
-    iptables(['-I', 'INPUT', '-p', 'all', '-j', 'reaction']),
-    iptables(['-I', 'FORWARD', '-p', 'all', '-j', 'reaction']),
-  ],
+    ip46tables(['-I', 'INPUT', '-p', 'all', '-j', 'reaction']) +
+    ip46tables(['-I', 'FORWARD', '-p', 'all', '-j', 'reaction']),
 
   // Those commands will be executed in order at stop, after everything else
-  stop: [
+  stop:
     // Remove the chain from the INPUT & FORWARD chains
-    iptables(['-D', 'INPUT', '-p', 'all', '-j', 'reaction']),
-    iptables(['-D', 'FORWARD', '-p', 'all', '-j', 'reaction']),
+    ip46tables(['-D', 'INPUT', '-p', 'all', '-j', 'reaction']) +
+    ip46tables(['-D', 'FORWARD', '-p', 'all', '-j', 'reaction']) +
     // Empty the chain
-    iptables(['-F', 'reaction']),
+    ip46tables(['-F', 'reaction']) +
     // Delete the chain
-    iptables(['-X', 'reaction']),
-  ],
+    ip46tables(['-X', 'reaction']),
+
 
   // streams are commands
   // they are run and their ouptut is captured
@@ -145,12 +160,20 @@ local banFor(time) = {
           // actions are run by the filter when regexes are matched
           actions: {
             // actions have a user-defined name
-            ban: {
-              cmd: iptables(['-A', 'reaction', '-s', '<ip>', '-j', 'DROP']),
+            ban4: {
+              cmd: ['iptables', '-w', '-A', 'reaction', '-s', '<ip>', '-j', 'DROP'],
+              // this optional field permits to run an action only when a pattern of type ip contains an ipv4
+              ipv4only: true,
             },
 
-            unban: {
-              cmd: iptables(['-D', 'reaction', '-s', '<ip>', '-j', 'DROP']),
+            ban6: {
+              cmd: ['ip6tables', '-w', '-A', 'reaction', '-s', '<ip>', '-j', 'DROP'],
+              // this optional field permits to run an action only when a pattern of type ip contains an ipv6
+              ipv6only: true,
+            },
+
+            unban4: {
+              cmd: ['iptables', '-w', '-D', 'reaction', '-s', '<ip>', '-j', 'DROP'],
               // if after is defined, the action will not take place immediately, but after a specified duration
               // same format as retryperiod
               after: '2 days',
@@ -160,6 +183,13 @@ local banFor(time) = {
               // (defaults to false)
               // here it is not useful because we will flush and delete the chain containing the bans anyway
               // (with the stop commands)
+              ipv4only: true,
+            },
+
+            unban6: {
+              cmd: ['ip6tables', '-w', '-D', 'reaction', '-s', '<ip>', '-j', 'DROP'],
+              after: '2 days',
+              ipv6only: true,
             },
 
             mail: {
