@@ -181,7 +181,7 @@ impl Pattern {
     }
 
     /// Test-only constructor designed to be easy to call.
-    /// Constructs a full super::Paterns collection with one given pattern
+    /// Constructs a full [`super::Patterns`] collection with one given pattern
     pub fn new_map(name: &str, regex: &str) -> Result<super::Patterns, String> {
         Ok(std::iter::once((name.into(), Self::new(name, regex)?.into())).collect())
     }

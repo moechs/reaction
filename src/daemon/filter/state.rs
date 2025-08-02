@@ -115,7 +115,7 @@ impl State {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
-            let n = self.filter.actions.len() as u64;
+            let n = self.filter.filtered_actions_from_match(&m).count() as u64;
             self.triggers.fetch_update(m, |map| {
                 Some(match map {
                     None => [(t, n)].into(),

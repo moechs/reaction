@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use super::parse_duration;
+use super::{parse_duration, PatternType};
 use super::{Action, Match, Pattern, Patterns};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -284,6 +284,39 @@ impl Filter {
 
         Ok(patterns.into_values().collect())
     }
+
+    /// Filters [`Filter`]'s [`Action`]s according to its [`Pattern`]s [`PatternType`]
+    /// and those of the given [`Match`]
+    pub fn filtered_actions_from_match(&self, m: &Match) -> impl Iterator<Item = &Action> {
+        let ip_type = if self.has_ip {
+            self.patterns
+                .iter()
+                .zip(m)
+                .find(|(p, _)| p.pattern_type() == PatternType::Ip)
+                .map(|(_, m)| -> _ {
+                    // Using this dumb heuristic is ok,
+                    // because we know we have a valid IP address.
+                    if m.contains(':') {
+                        PatternType::Ipv6
+                    } else if m.contains('.') {
+                        PatternType::Ipv4
+                    } else {
+                        // This else should not happen, but better falling back on something than
+                        // panicking, right? Maybe we should add a warning there?
+                        PatternType::Regex
+                    }
+                })
+                .unwrap_or(PatternType::Regex)
+        } else {
+            PatternType::Regex
+        };
+
+        self.actions
+            .values()
+            // If specific ip version, check it
+            .filter(move |action| !action.ipv4only || ip_type == PatternType::Ipv4)
+            .filter(move |action| !action.ipv6only || ip_type == PatternType::Ipv6)
+    }
 }
 
 impl Display for Filter {
@@ -373,6 +406,7 @@ pub mod tests {
     use crate::concepts::pattern::tests::{
         boubou_pattern_with_ignore, default_pattern, number_pattern, ok_pattern_with_ignore,
     };
+    use crate::concepts::pattern::PatternIp;
 
     use super::*;
 
@@ -763,5 +797,164 @@ pub mod tests {
         );
         assert_eq!(filter.get_match("insert b here and boubou there"), None);
         assert_eq!(filter.get_match("also add boubou here and b there"), None);
+    }
+
+    #[test]
+    fn get_match_from_patterns() {
+        // TODO
+    }
+
+    #[test]
+    fn filtered_actions_from_match_one_regex_pattern() {
+        let az_patterns = Pattern::new_map("az", "[a-z]+").unwrap();
+        let action = Action::new(
+            vec!["zblorg <az>"],
+            None,
+            false,
+            "test",
+            "test",
+            "a1",
+            &az_patterns,
+            0,
+        );
+        let filter = Filter::new(
+            vec![action.clone()],
+            vec![""],
+            None,
+            None,
+            "test",
+            "test",
+            Duplicate::default(),
+            &az_patterns,
+        );
+        assert_eq!(
+            vec![&action],
+            filter
+                .filtered_actions_from_match(&vec!["zboum".into()])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn filtered_actions_from_match_two_regex_patterns() {
+        let patterns = BTreeMap::from([
+            (
+                "az".to_string(),
+                Arc::new(Pattern::new("az", "[a-z]+").unwrap()),
+            ),
+            (
+                "num".to_string(),
+                Arc::new(Pattern::new("num", "[0-9]{1,3}").unwrap()),
+            ),
+        ]);
+        let action1 = Action::new(
+            vec!["zblorg <az> <num>"],
+            None,
+            false,
+            "test",
+            "test",
+            "a1",
+            &patterns,
+            0,
+        );
+        let action2 = Action::new(
+            vec!["zbleurg <num> <az>"],
+            None,
+            false,
+            "test",
+            "test",
+            "a2",
+            &patterns,
+            0,
+        );
+        let filter = Filter::new(
+            vec![action1.clone(), action2.clone()],
+            vec![""],
+            None,
+            None,
+            "test",
+            "test",
+            Duplicate::default(),
+            &patterns,
+        );
+        assert_eq!(
+            vec![&action1, &action2],
+            filter
+                .filtered_actions_from_match(&vec!["zboum".into()])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn filtered_actions_from_match_one_regex_one_ip() {
+        let patterns = BTreeMap::from([
+            (
+                "az".to_string(),
+                Arc::new(Pattern::new("az", "[a-z]+").unwrap()),
+            ),
+            ("ip".to_string(), {
+                let mut pattern = Pattern {
+                    ip: PatternIp {
+                        pattern_type: PatternType::Ip,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                pattern.setup("ip").unwrap();
+                Arc::new(pattern)
+            }),
+        ]);
+        let action4 = Action::new(
+            vec!["zblorg4 <az> <ip>"],
+            None,
+            false,
+            "test",
+            "test",
+            "action4",
+            &patterns,
+            4,
+        );
+        let action6 = Action::new(
+            vec!["zblorg6 <az> <ip>"],
+            None,
+            false,
+            "test",
+            "test",
+            "action6",
+            &patterns,
+            6,
+        );
+        let action = Action::new(
+            vec!["zblorg <az> <ip>"],
+            None,
+            false,
+            "test",
+            "test",
+            "action",
+            &patterns,
+            0,
+        );
+        let filter = Filter::new(
+            vec![action4.clone(), action6.clone(), action.clone()],
+            vec!["<az>: <ip>"],
+            None,
+            None,
+            "test",
+            "test",
+            Duplicate::default(),
+            &patterns,
+        );
+        assert_eq!(
+            filter
+                .filtered_actions_from_match(&vec!["zboum".into(), "1.2.3.4".into()])
+                .collect::<Vec<_>>(),
+            vec![&action, &action4],
+        );
+        assert_eq!(
+            filter
+                .filtered_actions_from_match(&vec!["zboum".into(), "ab4:35f::1".into()])
+                .collect::<Vec<_>>(),
+            vec![&action, &action6],
+        );
     }
 }
