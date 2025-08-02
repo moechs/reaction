@@ -79,6 +79,8 @@ mod utils_tests {
             normalize("::ffff:1.2.3.4"),
             Ok(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))
         );
+        // octal numbers are forbidden
+        assert!(normalize("083.44.23.14").is_err());
     }
 
     #[test]

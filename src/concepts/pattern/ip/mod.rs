@@ -45,7 +45,7 @@ impl PatternType {
             // then 1xx
             "1[0-9][0-9]",
             // then 0xx
-            "[0-9][0-9]",
+            "[1-9][0-9]",
             // then 0x
             "[0-9])",
         ]
@@ -641,6 +641,7 @@ mod patternip_tests {
             assert2!(!regex.is_match("1.2.3.4 "));
             assert2!(!regex.is_match("1.2. 3.4"));
             assert2!(!regex.is_match("257.2.3.4"));
+            assert2!(!regex.is_match("074.2.3.4"));
             assert2!(!regex.is_match("1.2.3.4.5"));
             assert2!(!regex.is_match("1.2..4"));
             assert2!(!regex.is_match("1.2..3.4"));
