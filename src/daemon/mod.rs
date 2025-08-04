@@ -33,42 +33,51 @@ pub async fn daemon(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
 
-    if !config.start() {
-        return Err("a start command failed, exiting.".into());
-    }
-
     // Cancellation Token
     let shutdown = ShutdownController::new();
-
-    // Semaphore limiting action execution concurrency
-    let exec_limit = match config.concurrency() {
-        0 => None,
-        n => Some(Arc::new(Semaphore::new(n))),
-    };
 
     // Open Database
     let mut db = Database::open(config).await?;
 
-    // Filter managers
-    let now = Local::now();
-    let mut state = HashMap::new();
-    let mut stream_managers = Vec::new();
-    for stream in config.streams().values() {
-        let mut filter_managers = HashMap::new();
-        for filter in stream.filters().values() {
-            let manager =
-                FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)?;
-            filter_managers.insert(filter, manager);
-        }
-        state.insert(stream, filter_managers.clone());
+    let (state, stream_managers) = {
+        // Semaphore limiting action execution concurrency
+        let exec_limit = match config.concurrency() {
+            0 => None,
+            n => Some(Arc::new(Semaphore::new(n))),
+        };
 
-        stream_managers.push(StreamManager::new(
-            stream,
-            filter_managers,
-            shutdown.token(),
-        )?);
+        // Filter managers
+        let now = Local::now();
+        let mut state = HashMap::new();
+        let mut stream_managers = Vec::new();
+        for stream in config.streams().values() {
+            let mut filter_managers = HashMap::new();
+            for filter in stream.filters().values() {
+                let manager =
+                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)?;
+                filter_managers.insert(filter, manager);
+            }
+            state.insert(stream, filter_managers.clone());
+
+            stream_managers.push(StreamManager::new(
+                stream,
+                filter_managers,
+                shutdown.token(),
+            )?);
+        }
+        (state, stream_managers)
+    };
+
+    // Run database task
+    let mut db_status_rx = db.manager(shutdown.token());
+
+    // Run socket task
+    socket_manager(config, socket, state, shutdown.token()).await?;
+
+    // reaction won't abort on startup anymore, we can run start commands
+    if !config.start() {
+        return Err("a start command failed, exiting.".into());
     }
-    drop(exec_limit);
 
     // Start Stream managers
     let mut stream_task_handles = Vec::new();
@@ -76,22 +85,9 @@ pub async fn daemon(
         stream_task_handles.push(tokio::spawn(async move { stream_manager.start().await }));
     }
 
-    // Run database task
-    let mut db_status_rx = {
-        let token = shutdown.token();
-        db.manager(token)
-    };
-
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
     handle_signals(shutdown.delegate(), signal_received.clone())?;
-
-    // Run socket task
-    {
-        let socket = socket.to_owned();
-        let token = shutdown.token();
-        tokio::spawn(async move { socket_manager(config, socket, state, token).await });
-    }
 
     // Wait for all streams to quit
     for task_handle in stream_task_handles {

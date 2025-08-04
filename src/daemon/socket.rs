@@ -1,15 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fs, io,
     path::PathBuf,
-    process::exit,
     sync::Arc,
 };
 
 use chrono::Local;
 use futures::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio::net::UnixListener;
+use tokio::{fs, net::UnixListener};
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
@@ -29,24 +27,24 @@ macro_rules! err_str {
     };
 }
 
-fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
+async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     // First create all directories to the file
     let dir = path
         .parent()
         .ok_or(format!("socket {path:?} has no parent directory"))?;
-    err_str!(fs::create_dir_all(dir))?;
+    err_str!(fs::create_dir_all(dir).await)?;
     // Test if file exists
-    match fs::metadata(&path) {
+    match fs::metadata(&path).await {
         Ok(meta) => {
             if meta.file_type().is_dir() {
                 Err(format!("socket {path:?} is already a directory"))
             } else {
                 warn!("socket {path:?} already exists: is the daemon already running? deleting.");
-                err_str!(fs::remove_file(&path))
+                err_str!(fs::remove_file(&path).await)
             }
         }
         Err(err) => err_str!(match err.kind() {
-            io::ErrorKind::NotFound => Ok(()),
+            std::io::ErrorKind::NotFound => Ok(()),
             _ => Err(err),
         }),
     }?;
@@ -234,52 +232,55 @@ pub async fn socket_manager(
     socket: PathBuf,
     shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
     shutdown: ShutdownToken,
-) {
-    let listener = match open_socket(socket.clone()) {
+) -> Result<(), String> {
+    let listener = match open_socket(socket.clone()).await {
         Ok(l) => l,
         Err(err) => {
-            error!("while creating communication socket: {err}");
-            exit(1);
+            return Err(format!("while creating communication socket: {err}"));
         }
     };
 
-    loop {
-        tokio::select! {
-            _ = shutdown.wait() => break,
-            try_conn = listener.accept() => {
-                match try_conn {
-                    Ok((conn, _)) => {
-                        let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-                        // Decode
-                        let received = transport.next().await;
-                        let encoded_request = match received {
-                            Some(r) => or_next!("while reading request", r),
-                            None => {
-                                error!("failed to answer client: client sent no request");
-                                continue;
-                            }
-                        };
-                        let request = or_next!(
-                            "failed to decode request",
-                            serde_json::from_slice(&encoded_request)
-                            );
-                        // Process
-                        let response = answer_order(config, &shared_state, request);
-                        // Encode
-                        let encoded_response =
-                            or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
-                        or_next!(
-                            "failed to send response:",
-                            transport.send(Bytes::from(encoded_response)).await
-                            );
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown.wait() => break,
+                try_conn = listener.accept() => {
+                    match try_conn {
+                        Ok((conn, _)) => {
+                            let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+                            // Decode
+                            let received = transport.next().await;
+                            let encoded_request = match received {
+                                Some(r) => or_next!("while reading request", r),
+                                None => {
+                                    error!("failed to answer client: client sent no request");
+                                    continue;
+                                }
+                            };
+                            let request = or_next!(
+                                "failed to decode request",
+                                serde_json::from_slice(&encoded_request)
+                                );
+                            // Process
+                            let response = answer_order(config, &shared_state, request);
+                            // Encode
+                            let encoded_response =
+                                or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
+                            or_next!(
+                                "failed to send response:",
+                                transport.send(Bytes::from(encoded_response)).await
+                                );
+                        }
+                        Err(err) => error!("failed to open connection from cli: {err}"),
                     }
-                    Err(err) => error!("failed to open connection from cli: {err}"),
                 }
             }
         }
-    }
 
-    if let Err(err) = fs::remove_file(socket) {
-        error!("failed to remove socket: {}", err);
-    }
+        if let Err(err) = fs::remove_file(socket).await {
+            error!("failed to remove socket: {}", err);
+        }
+    });
+
+    Ok(())
 }
