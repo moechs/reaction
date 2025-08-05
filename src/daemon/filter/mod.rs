@@ -314,6 +314,16 @@ impl FilterManager {
             if map.is_empty() {
                 state.triggers.remove(&m);
             } else {
+                // Filter duplicates
+                // unwrap is fine because map is not empty (see if)
+                let map = match self.filter.duplicate {
+                    // Keep only last item
+                    Duplicate::Extend => BTreeMap::from([map.into_iter().last().unwrap()]),
+                    // Keep only first item
+                    Duplicate::Ignore => BTreeMap::from([map.into_iter().next().unwrap()]),
+                    // No filtering
+                    Duplicate::Rerun => map,
+                };
                 let times = map.clone();
                 state.triggers.insert(m.clone(), map);
                 for (t, _) in times {
