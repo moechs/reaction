@@ -172,6 +172,7 @@ impl Display for Action {
 #[cfg(test)]
 impl Action {
     /// Test-only constructor designed to be easy to call
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cmd: Vec<&str>,
         after: Option<&str>,
@@ -212,15 +213,18 @@ pub mod tests {
     use super::*;
 
     pub fn ok_action() -> Action {
-        let mut action = Action::default();
-        action.cmd = vec!["command".into()];
-        action
+        Action {
+            cmd: vec!["command".into()],
+            ..Default::default()
+        }
     }
 
     pub fn ok_action_with_after(d: String, name: &str) -> Action {
-        let mut action = Action::default();
-        action.cmd = vec!["command".into()];
-        action.after = Some(d);
+        let mut action = Action {
+            cmd: vec!["command".into()],
+            after: Some(d),
+            ..Default::default()
+        };
         action
             .setup("", "", name, Arc::new(BTreeSet::default()))
             .unwrap();

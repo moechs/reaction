@@ -318,7 +318,7 @@ impl FilterManager {
                 // unwrap is fine because map is not empty (see if)
                 let map = match self.filter.duplicate {
                     // Keep only last item
-                    Duplicate::Extend => BTreeMap::from([map.into_iter().last().unwrap()]),
+                    Duplicate::Extend => BTreeMap::from([map.into_iter().next_back().unwrap()]),
                     // Keep only first item
                     Duplicate::Ignore => BTreeMap::from([map.into_iter().next().unwrap()]),
                     // No filtering
