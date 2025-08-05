@@ -6,10 +6,14 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
+use serde_json::json;
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
-use super::{state::filter_ordered_times_db_name, FilterManager, React};
+use super::{
+    state::{filter_ordered_times_db_name, filter_triggers_db_name},
+    FilterManager, React,
+};
 use crate::{
     concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time},
     daemon::shutdown::ShutdownController,
@@ -640,6 +644,92 @@ async fn trigger_matched_pattern() {
             "a1 one\n",
             &read_to_string(&bed.out_file).unwrap(),
             "the output file contains the result of the action"
+        );
+    }
+}
+
+#[tokio::test]
+async fn trigger_deduplication_on_start() {
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        let bed = TestBed::default();
+        let filter = Filter::new_static(
+            vec![
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                    None,
+                    false,
+                    "test",
+                    "test",
+                    "a1",
+                    &bed.az_patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                    Some("2s"),
+                    false,
+                    "test",
+                    "test",
+                    "a2",
+                    &bed.az_patterns,
+                    0,
+                ),
+            ],
+            vec!["test <az>"],
+            None,
+            None,
+            "test",
+            "test",
+            dup,
+            &bed.az_patterns,
+        );
+
+        let now = Local::now();
+        let now1s = now - TimeDelta::milliseconds(1000);
+        let now2s = now - TimeDelta::milliseconds(1030);
+        let one = vec!["one".to_string()];
+
+        let mut db = TempDatabase::default().await;
+        db.set_loaded_db(HashMap::from([(
+            filter_triggers_db_name(filter),
+            HashMap::from([(
+                one.clone().into(),
+                json!({
+                    now1s.to_rfc3339(): 1,
+                    now2s.to_rfc3339(): 1,
+                }),
+            )]),
+        )]));
+        let bed = bed.part2(filter, now, Some(db)).await;
+
+        // the action executes
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // No matches, one or two action·s registered
+        {
+            let state = bed.manager.state.lock().unwrap();
+            assert!(state.matches.is_empty());
+            assert!(state.ordered_times.is_empty());
+            assert_eq!(
+                state.triggers.tree(),
+                &BTreeMap::from([(
+                    one.clone(),
+                    match dup {
+                        Duplicate::Extend => BTreeMap::from([(now1s, 1)]),
+                        Duplicate::Ignore => BTreeMap::from([(now2s, 1)]),
+                        Duplicate::Rerun => BTreeMap::from([(now1s, 1), (now2s, 1)]),
+                    }
+                )]),
+                "the state contains one or two triggers. Duplicate: {dup:?}"
+            );
+        }
+        assert_eq!(
+            match dup {
+                Duplicate::Ignore | Duplicate::Extend => "a1 one\n",
+                Duplicate::Rerun => "a1 one\na1 one\n",
+            },
+            &read_to_string(&bed.out_file).unwrap(),
+            "the output file contains the result of the action. Duplicate: {dup:?}"
         );
     }
 }
