@@ -303,19 +303,23 @@ impl FilterManager {
             .collect::<Vec<_>>();
 
         for (m, map) in cloned_triggers.into_iter() {
-            let mut new_map = BTreeMap::default();
-            for (t, remaining) in map.into_iter() {
-                if remaining > 0 && t + longuest_action_duration > now {
-                    // Insert back the upcoming times
-                    new_map.insert(t, number_of_actions);
+            let map: BTreeMap<_, _> = map
+                .into_iter()
+                // Keep only up-to-date triggers
+                .filter(|(t, remaining)| *remaining > 0 && *t + longuest_action_duration > now)
+                // Reset action count
+                .map(|(t, _)| (t, number_of_actions))
+                .collect();
+
+            if map.is_empty() {
+                state.triggers.remove(&m);
+            } else {
+                let times = map.clone();
+                state.triggers.insert(m.clone(), map);
+                for (t, _) in times {
                     // Schedule the upcoming times
                     self.schedule_exec(m.clone(), t, now, &mut state, true, false);
                 }
-            }
-            if new_map.is_empty() {
-                state.triggers.remove(&m);
-            } else {
-                state.triggers.insert(m, new_map);
             }
         }
     }
