@@ -93,6 +93,8 @@ impl FilterManager {
             return false;
         }
 
+        info!("{}: match {:?}", self.filter, &m);
+
         let trigger = match self.filter.retry {
             None => true,
             Some(retry) => {

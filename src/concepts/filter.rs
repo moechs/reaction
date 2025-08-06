@@ -9,7 +9,6 @@ use std::{
 use chrono::TimeDelta;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use super::{parse_duration, PatternType};
 use super::{Action, Match, Pattern, Patterns};
@@ -208,12 +207,10 @@ impl Filter {
                         }
                     }
                     if result.len() == self.patterns.len() {
-                        info!("{}: match {:?}", self, result);
                         return Some(result);
                     }
                 } else {
-                    info!("{}: match []", self);
-                    return Some(vec![".".to_string()]);
+                    return Some(vec![]);
                 }
             }
         }
