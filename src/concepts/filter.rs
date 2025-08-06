@@ -246,25 +246,21 @@ impl Filter {
             if self.patterns.get(pattern).is_none() {
                 return Err(format!(
                     "pattern {} is not present in the filter {}.{}",
-                    pattern.name,
-                    self.stream_name,
-                    self.name
+                    pattern.name, self.stream_name, self.name
                 ));
             }
 
             if !pattern.is_match(match_) {
                 return Err(format!(
                     "'{}' doesn't match pattern {}",
-                    match_,
-                    pattern.name,
+                    match_, pattern.name,
                 ));
             }
 
             if pattern.is_ignore(match_) {
                 return Err(format!(
                     "'{}' is explicitly ignored by pattern {}",
-                    match_,
-                    pattern.name,
+                    match_, pattern.name,
                 ));
             }
 
@@ -275,9 +271,7 @@ impl Filter {
             if !patterns.contains_key(pattern) {
                 return Err(format!(
                     "pattern {} is missing, because it's in the filter {}.{}",
-                    pattern.name,
-                    self.stream_name,
-                    self.name
+                    pattern.name, self.stream_name, self.name
                 ));
             }
         }
@@ -287,7 +281,7 @@ impl Filter {
 
     /// Filters [`Filter`]'s [`Action`]s according to its [`Pattern`]s [`PatternType`]
     /// and those of the given [`Match`]
-    pub fn filtered_actions_from_match(&self, m: &Match) -> impl Iterator<Item = &Action> {
+    pub fn filtered_actions_from_match(&self, m: &Match) -> Vec<&Action> {
         let ip_type = if self.has_ip {
             self.patterns
                 .iter()
@@ -311,11 +305,21 @@ impl Filter {
             PatternType::Regex
         };
 
-        self.actions
+        let mut actions: Vec<_> = self
+            .actions
             .values()
             // If specific ip version, check it
             .filter(move |action| !action.ipv4only || ip_type == PatternType::Ipv4)
             .filter(move |action| !action.ipv6only || ip_type == PatternType::Ipv6)
+            .collect();
+
+        // Sort by after
+        actions.sort_by(|a, b| {
+            a.after_duration
+                .unwrap_or_default()
+                .cmp(&b.after_duration.unwrap_or_default())
+        });
+        actions
     }
 }
 
@@ -829,9 +833,7 @@ pub mod tests {
         );
         assert_eq!(
             vec![&action],
-            filter
-                .filtered_actions_from_match(&vec!["zboum".into()])
-                .collect::<Vec<_>>()
+            filter.filtered_actions_from_match(&vec!["zboum".into()])
         );
     }
 
@@ -879,9 +881,7 @@ pub mod tests {
         );
         assert_eq!(
             vec![&action1, &action2],
-            filter
-                .filtered_actions_from_match(&vec!["zboum".into()])
-                .collect::<Vec<_>>()
+            filter.filtered_actions_from_match(&vec!["zboum".into()])
         );
     }
 
@@ -945,15 +945,11 @@ pub mod tests {
             &patterns,
         );
         assert_eq!(
-            filter
-                .filtered_actions_from_match(&vec!["zboum".into(), "1.2.3.4".into()])
-                .collect::<Vec<_>>(),
+            filter.filtered_actions_from_match(&vec!["zboum".into(), "1.2.3.4".into()]),
             vec![&action, &action4],
         );
         assert_eq!(
-            filter
-                .filtered_actions_from_match(&vec!["zboum".into(), "ab4:35f::1".into()])
-                .collect::<Vec<_>>(),
+            filter.filtered_actions_from_match(&vec!["zboum".into(), "ab4:35f::1".into()]),
             vec![&action, &action6],
         );
     }

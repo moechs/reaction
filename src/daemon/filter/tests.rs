@@ -851,6 +851,125 @@ async fn multiple_triggers() {
         );
     }
 }
+#[tokio::test]
+async fn extend_trigger_multiple_after_actions() {
+    let last_match_duration = Duration::from_millis(350);
+
+    for (second_match_duration, first_action_list, last_action_list) in [
+        (
+            Duration::from_millis(50),
+            vec!["a0", "a1"],
+            vec!["d2", "c3", "a4"],
+        ),
+        (
+            Duration::from_millis(150),
+            vec!["a0", "a1", "d2"],
+            vec!["c3", "a4"],
+        ),
+        (
+            Duration::from_millis(250),
+            vec!["a0", "a1", "d2", "c3"],
+            vec!["a4"],
+        ),
+    ] {
+        let bed = TestBed::default();
+        let filter = Filter::new_static(
+            vec![
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a0 >> {}", &bed.out_file)],
+                    None,
+                    false,
+                    "test",
+                    "test",
+                    "a0",
+                    &bed.az_patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a1 >> {}", &bed.out_file)],
+                    None,
+                    false,
+                    "test",
+                    "test",
+                    "a1",
+                    &bed.az_patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo d2 >> {}", &bed.out_file)],
+                    Some("100ms"),
+                    false,
+                    "test",
+                    "test",
+                    "d2",
+                    &bed.az_patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo c3 >> {}", &bed.out_file)],
+                    Some("200ms"),
+                    false,
+                    "test",
+                    "test",
+                    "c3",
+                    &bed.az_patterns,
+                    0,
+                ),
+                Action::new(
+                    vec!["sh", "-c", &format!("echo a4 >> {}", &bed.out_file)],
+                    Some("300ms"),
+                    false,
+                    "test",
+                    "test",
+                    "a4",
+                    &bed.az_patterns,
+                    0,
+                ),
+            ],
+            vec!["test <az>"],
+            None,
+            None,
+            "test",
+            "test",
+            Duplicate::Extend,
+            &bed.az_patterns,
+        );
+
+        let bed = bed.part2(filter, Local::now(), None).await;
+
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            React::Trigger,
+        );
+
+        // Wait for first trigger to execute (partially)
+        tokio::time::sleep(second_match_duration).await;
+
+        assert_eq!(
+            first_action_list.join("\n"),
+            read_to_string(&bed.out_file).unwrap().trim(),
+            "Sleep: {second_match_duration:?}"
+        );
+
+        assert_eq!(
+            bed.manager.handle_line("test one", Local::now()),
+            React::Trigger,
+        );
+
+        // Wait for second trigger to execute (fully)
+        tokio::time::sleep(last_match_duration).await;
+
+        assert_eq!(
+            first_action_list
+                .into_iter()
+                .chain(last_action_list.clone())
+                .fold("".to_string(), |acc, elt| format!("{acc}\n{elt}"))
+                .trim(),
+            read_to_string(&bed.out_file).unwrap().trim(),
+            "Sleep: {last_match_duration:?}"
+        );
+    }
+}
 
 #[tokio::test]
 async fn ip_specific() {

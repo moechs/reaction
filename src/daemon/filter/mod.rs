@@ -88,10 +88,8 @@ impl FilterManager {
         let mut state = self.state.lock().unwrap();
         state.clear_past_matches(now);
 
-        let already_triggered = state.triggers.contains_key(&m);
-
-        // if duplicate: ignore and already triggered, skip
-        if already_triggered && Duplicate::Ignore == self.filter.duplicate {
+        // if Duplicate::Ignore and already triggered, skip
+        if state.triggers.contains_key(&m) && Duplicate::Ignore == self.filter.duplicate {
             return false;
         }
 
@@ -106,12 +104,17 @@ impl FilterManager {
 
         if trigger {
             state.remove_match(&m);
-            let extend = already_triggered && Duplicate::Extend == self.filter.duplicate;
-            if extend {
-                state.remove_trigger(&m);
-            }
-            state.add_trigger(m.clone(), now);
-            self.schedule_exec(m, now, now, &mut state, false, extend);
+            let actions_left = if Duplicate::Extend == self.filter.duplicate {
+                // Get number of actions left from last trigger
+                state
+                    .remove_trigger(&m)
+                    // Only one entry in the map because Duplicate::Extend
+                    .and_then(|map| map.first_key_value().map(|(_, n)| n.clone()))
+            } else {
+                None
+            };
+            state.add_trigger(m.clone(), now, actions_left);
+            self.schedule_exec(m, now, now, &mut state, false, actions_left);
         }
 
         trigger
@@ -127,8 +130,8 @@ impl FilterManager {
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
         state.remove_match(&match_);
-        state.add_trigger(match_.clone(), now);
-        self.schedule_exec(match_, now, now, &mut state, false, false);
+        state.add_trigger(match_.clone(), now, None);
+        self.schedule_exec(match_, now, now, &mut state, false, None);
 
         Ok(())
     }
@@ -238,17 +241,22 @@ impl FilterManager {
         now: Time,
         state: &mut MutexGuard<State>,
         startup: bool,
-        only_after: bool,
+        actions_left: Option<u64>,
     ) {
-        // Scheduling each action
-        for action in self
+        let actions = self
             .filter
             .filtered_actions_from_match(&m)
+            .into_iter()
             // On startup, skip oneshot actions
             .filter(|action| !startup || !action.oneshot)
-            // If only_after, keep only after actions
-            .filter(|action| !only_after || action.after_duration.is_some())
-        {
+            // skip any actions
+            .skip(match actions_left {
+                Some(actions_left) => self.filter.actions.len() - actions_left as usize,
+                None => 0,
+            });
+
+        // Scheduling each action
+        for action in actions {
             let exec_time = t + action.after_duration.unwrap_or_default();
             let m = m.clone();
 
@@ -324,11 +332,10 @@ impl FilterManager {
                     // No filtering
                     Duplicate::Rerun => map,
                 };
-                let times = map.clone();
-                state.triggers.insert(m.clone(), map);
-                for (t, _) in times {
+                state.triggers.insert(m.clone(), map.clone());
+                for (t, _) in map {
                     // Schedule the upcoming times
-                    self.schedule_exec(m.clone(), t, now, &mut state, true, false);
+                    self.schedule_exec(m.clone(), t, now, &mut state, true, None);
                 }
             }
         }

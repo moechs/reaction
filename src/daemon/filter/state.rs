@@ -11,8 +11,7 @@ use crate::{
 pub fn filter_ordered_times_db_name(filter: &Filter) -> String {
     format!(
         "filter_ordered_times_{}.{}",
-        filter.stream_name,
-        filter.name
+        filter.stream_name, filter.name
     )
 }
 
@@ -21,11 +20,7 @@ pub fn filter_triggers_old_db_name(filter: &Filter) -> String {
 }
 
 pub fn filter_triggers_db_name(filter: &Filter) -> String {
-    format!(
-        "filter_triggers2_{}.{}",
-        filter.stream_name,
-        filter.name
-    )
+    format!("filter_triggers2_{}.{}", filter.stream_name, filter.name)
 }
 
 /// Internal state of a [`FilterManager`].
@@ -111,11 +106,12 @@ impl State {
         self.ordered_times.insert(t, m);
     }
 
-    pub fn add_trigger(&mut self, m: Match, t: Time) {
+    pub fn add_trigger(&mut self, m: Match, t: Time, action_count: Option<u64>) {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
-            let n = self.filter.filtered_actions_from_match(&m).count() as u64;
+            let n = action_count
+                .unwrap_or_else(|| self.filter.filtered_actions_from_match(&m).len() as u64);
             self.triggers.fetch_update(m, |map| {
                 Some(match map {
                     None => [(t, n)].into(),
@@ -139,8 +135,8 @@ impl State {
     }
 
     /// Completely remove a Match from the triggers
-    pub fn remove_trigger(&mut self, m: &Match) {
-        self.triggers.remove(m);
+    pub fn remove_trigger(&mut self, m: &Match) -> Option<BTreeMap<Time, u64>> {
+        self.triggers.remove(m)
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
@@ -362,7 +358,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Add unique trigger
-        state.add_trigger(one.clone(), now);
+        state.add_trigger(one.clone(), now, None);
         // Nothing is really added
         assert!(state.triggers.tree().is_empty());
 
@@ -416,7 +412,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Add unique trigger
-        state.add_trigger(one.clone(), now);
+        state.add_trigger(one.clone(), now, None);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
@@ -440,8 +436,8 @@ mod tests {
         assert!(!state.decrement_trigger(&one, now));
 
         // Add trigger with neighbour
-        state.add_trigger(one.clone(), now);
-        state.add_trigger(one.clone(), now_plus_1s);
+        state.add_trigger(one.clone(), now, None);
+        state.add_trigger(one.clone(), now_plus_1s, None);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
@@ -471,8 +467,8 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Add two neighbour triggers
-        state.add_trigger(one.clone(), now);
-        state.add_trigger(one.clone(), now_plus_1s);
+        state.add_trigger(one.clone(), now, None);
+        state.add_trigger(one.clone(), now_plus_1s, None);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
