@@ -224,6 +224,7 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use chrono::{DateTime, Local, TimeDelta};
+    use serde_json::json;
 
     use crate::{
         concepts::{filter_tests::ok_filter, Action, Duplicate, Filter, Pattern},
@@ -236,16 +237,19 @@ mod tests {
     async fn state_new() {
         let patterns = Pattern::new_map("az", "[a-z]+").unwrap();
         let filter = Filter::new_static(
-            vec![Action::new(
-                vec!["true"],
-                None,
-                false,
-                "s1",
-                "f1",
-                "a1",
-                &patterns,
-                0,
-            )],
+            vec![
+                Action::new(vec!["true"], None, false, "s1", "f1", "a1", &patterns, 0),
+                Action::new(
+                    vec!["true"],
+                    Some("3s"),
+                    false,
+                    "s1",
+                    "f1",
+                    "a2",
+                    &patterns,
+                    0,
+                ),
+            ],
             vec!["test <az>"],
             Some(3),
             Some("2s"),
@@ -265,38 +269,100 @@ mod tests {
         let now_less_4s = now - TimeDelta::seconds(4);
         let now_less_5s = now - TimeDelta::seconds(5);
 
-        let mut db = TempDatabase::default().await;
-        db.set_loaded_db(HashMap::from([(
-            "filter_ordered_times_s1.f1".into(),
-            HashMap::from([
-                // Will stay
-                (now_plus_1m.to_rfc3339().into(), ["one"].into()),
-                (now_plus_1m01.to_rfc3339().into(), ["one"].into()),
-                (now_less_1s.to_rfc3339().into(), ["two"].into()), // stays because retry: 2s
-                // Will get cleaned
-                (now_less_4s.to_rfc3339().into(), ["two"].into()),
-                (now_less_5s.to_rfc3339().into(), ["three"].into()),
-                (now_less_1m.to_rfc3339().into(), ["two"].into()),
-            ]),
-        )]));
+        let triggers = [
+            // format v1
+            (
+                "filter_triggers_s1.f1".into(),
+                HashMap::from([
+                    // Will stay
+                    (
+                        json!({
+                            "t": now_plus_1m,
+                            "m": ["one"],
+                        }),
+                        json!(1),
+                    ),
+                    (
+                        json!({
+                            "t": now_less_1s,
+                            "m": ["one"],
+                        }),
+                        json!(1),
+                    ),
+                    // Will not get cleaned because it's FilterManager's task
+                    (
+                        json!({
+                            "t": now_less_5s,
+                            "m": ["one"],
+                        }),
+                        json!(1),
+                    ),
+                ]),
+            ),
+            // format v2 (since v2.2.0)
+            (
+                "filter_triggers2_s1.f1".into(),
+                HashMap::from([(
+                    json!(["one"]),
+                    json!({
+                        // Will stay
+                        now_plus_1m.to_rfc3339(): 1,
+                        now_less_1s.to_rfc3339(): 1,
+                    // Will not get cleaned because it's FilterManager's task
+                        now_less_5s.to_rfc3339(): 1,
+                    }),
+                )]),
+            ),
+        ];
 
-        let state = State::new(filter, &mut db, now).unwrap();
+        for trigger_db in triggers {
+            let mut db = TempDatabase::default().await;
+            db.set_loaded_db(HashMap::from([
+                (
+                    "filter_ordered_times_s1.f1".into(),
+                    HashMap::from([
+                        // Will stay
+                        (now_plus_1m.to_rfc3339().into(), ["one"].into()),
+                        (now_plus_1m01.to_rfc3339().into(), ["one"].into()),
+                        (now_less_1s.to_rfc3339().into(), ["two"].into()), // stays because retry: 2s
+                        // Will get cleaned
+                        (now_less_4s.to_rfc3339().into(), ["two"].into()),
+                        (now_less_5s.to_rfc3339().into(), ["three"].into()),
+                        (now_less_1m.to_rfc3339().into(), ["two"].into()),
+                    ]),
+                ),
+                trigger_db,
+            ]));
 
-        assert_eq!(
-            state.ordered_times.tree(),
-            &BTreeMap::from([
-                (now_less_1s, vec!["two".into()]),
-                (now_plus_1m, vec!["one".into()]),
-                (now_plus_1m01, vec!["one".into()]),
-            ])
-        );
-        assert_eq!(
-            state.matches,
-            BTreeMap::from([
-                (vec!["one".into()], [now_plus_1m, now_plus_1m01].into()),
-                (vec!["two".into()], [now_less_1s].into()),
-            ])
-        );
+            let state = State::new(filter, &mut db, now).unwrap();
+
+            assert_eq!(
+                state.ordered_times.tree(),
+                &BTreeMap::from([
+                    (now_less_1s, vec!["two".into()]),
+                    (now_plus_1m, vec!["one".into()]),
+                    (now_plus_1m01, vec!["one".into()]),
+                ])
+            );
+            assert_eq!(
+                state.matches,
+                BTreeMap::from([
+                    (vec!["one".into()], [now_plus_1m, now_plus_1m01].into()),
+                    (vec!["two".into()], [now_less_1s].into()),
+                ])
+            );
+            assert_eq!(
+                state.triggers.tree(),
+                &BTreeMap::from([(
+                    vec!["one".into()],
+                    BTreeMap::from([
+                        (now_less_5s, 1u64),
+                        (now_less_1s, 1u64),
+                        (now_plus_1m, 1u64),
+                    ]),
+                )])
+            );
+        }
     }
 
     #[tokio::test]

@@ -1,6 +1,5 @@
 Test what happens when a Filter's pattern Set changes (I think it's shitty)
 
-test migration
 stream: test regex ending with $
 
 should an ipv6-mapped ipv4 match a pattern of type ipv6?
