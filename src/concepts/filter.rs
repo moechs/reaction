@@ -539,6 +539,7 @@ pub mod tests {
                 .unwrap()
                 .to_string()
         );
+        assert_eq!(&filter.regex[0].to_string(), "insert (?P<name>[abc]) here$");
         assert_eq!(filter.patterns.len(), 1);
         let stored_pattern = filter.patterns.first().unwrap();
         assert_eq!(stored_pattern.regex, pattern.regex);
@@ -564,6 +565,10 @@ pub mod tests {
                 .unwrap()
                 .to_string()
         );
+        assert_eq!(
+            &filter.compiled_regex[0].to_string(),
+            "insert (?P<name>[abc]) here and (?P<boubou>(?:bou){1,3}) there"
+        );
         assert_eq!(filter.patterns.len(), 2);
         let stored_pattern = filter.patterns.first().unwrap();
         assert_eq!(stored_pattern.regex, boubou.regex);
@@ -583,10 +588,18 @@ pub mod tests {
                 .to_string()
         );
         assert_eq!(
+            &filter.compiled_regex[0].to_string(),
+            "insert (?P<name>[abc]) here"
+        );
+        assert_eq!(
             filter.compiled_regex[1].to_string(),
             Regex::new("also add (?P<name>[abc]) there")
                 .unwrap()
                 .to_string()
+        );
+        assert_eq!(
+            &filter.compiled_regex[1].to_string(),
+            "also add (?P<name>[abc]) there"
         );
         assert_eq!(filter.patterns.len(), 1);
         let stored_pattern = filter.patterns.first().unwrap();
@@ -613,6 +626,10 @@ pub mod tests {
             Regex::new("also add (?P<boubou>(?:bou){1,3}) here and (?P<name>[abc]) there")
                 .unwrap()
                 .to_string()
+        );
+        assert_eq!(
+            &filter.compiled_regex[1].to_string(),
+            "also add (?P<boubou>(?:bou){1,3}) here and (?P<name>[abc]) there"
         );
         assert_eq!(filter.patterns.len(), 2);
         let stored_pattern = filter.patterns.first().unwrap();
