@@ -222,7 +222,12 @@ impl FilterManager {
 
                             // Execute the action early
                             if let Order::Flush = order {
-                                exec_now(&self.exec_limit, action, m.clone());
+                                exec_now(
+                                    &self.exec_limit,
+                                    self.shutdown.clone(),
+                                    action,
+                                    m.clone(),
+                                );
                             }
                         }
                     }
@@ -264,7 +269,7 @@ impl FilterManager {
 
             if exec_time <= now {
                 if state.decrement_trigger(&m, t) {
-                    exec_now(&self.exec_limit, action, m);
+                    exec_now(&self.exec_limit, self.shutdown.clone(), action, m);
                 }
             } else {
                 let this = self.clone();
@@ -285,7 +290,7 @@ impl FilterManager {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().unwrap();
                         if state.decrement_trigger(&m, t) {
-                            exec_now(&this.exec_limit, action, m);
+                            exec_now(&this.exec_limit, this.shutdown, action, m);
                         }
                     }
                 });
@@ -344,9 +349,16 @@ impl FilterManager {
     }
 }
 
-fn exec_now(exec_limit: &Option<Arc<Semaphore>>, action: &'static Action, m: Match) {
+fn exec_now(
+    exec_limit: &Option<Arc<Semaphore>>,
+    shutdown: ShutdownToken,
+    action: &'static Action,
+    m: Match,
+) {
     let exec_limit = exec_limit.clone();
     tokio::spawn(async move {
+        // Move ShutdownToken in task
+        let _shutdown = shutdown;
         // Wait for semaphore's permission, if it is Some
         let _permit = match exec_limit {
             #[allow(clippy::unwrap_used)] // We know the semaphore is not closed

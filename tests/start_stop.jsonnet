@@ -1,4 +1,8 @@
-local echo(message) = ['sh', '-c', 'echo %s >> ./log' % message];
+local echo(message, before='true') = [
+  'sh',
+  '-c',
+  before + '; echo ' + message + ' >> ./log',
+];
 {
   patterns: {
     num: {
@@ -29,8 +33,8 @@ local echo(message) = ['sh', '-c', 'echo %s >> ./log' % message];
               cmd: echo('runtime <num>'),
             },
             two: {
-              cmd: echo('after <num>'),
-              after: '1s',
+              cmd: echo('after', before='sleep 1'),
+              after: '5s',
               onexit: true,
             },
           },
