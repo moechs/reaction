@@ -364,7 +364,7 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
         key: K,
         mut f: F,
     ) -> Option<V> {
-        let old_value = self.remove(&key);
+        let old_value = self.get(&key).map(|v| v.to_owned());
         let new_value = f(old_value);
         self.log(&key, new_value.as_ref());
         if let Some(new_value) = new_value {
