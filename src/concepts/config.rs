@@ -352,6 +352,7 @@ mod jsonnet {
 }
 
 fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
+    debug!("Running {moment} commands...");
     let mut ok = true;
     for command in commands {
         info!("{} command: run {:?}\n", moment, command);
