@@ -119,10 +119,7 @@ fn handle_show_or_flush_order(
         .iter()
         // stream filtering
         .filter(|(stream, _)| {
-            stream_name.is_none()
-                || stream_name
-                    .clone()
-                    .is_some_and(|name| name == stream.name)
+            stream_name.is_none() || stream_name.clone().is_some_and(|name| name == stream.name)
         })
         .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| {
             let inner_map = filter_manager
@@ -130,9 +127,7 @@ fn handle_show_or_flush_order(
                 // filter filtering
                 .filter(|(filter, _)| {
                     filter_name.is_none()
-                        || filter_name
-                            .clone()
-                            .is_some_and(|name| name == filter.name)
+                        || filter_name.clone().is_some_and(|name| name == filter.name)
                 })
                 // pattern filtering
                 .filter(|(filter, _)| {

@@ -90,11 +90,7 @@ impl StreamManager {
         {
             Ok(child) => child,
             Err(err) => {
-                error!(
-                    "could not execute stream {} cmd: {}",
-                    self.stream.name,
-                    err
-                );
+                error!("could not execute stream {} cmd: {}", self.stream.name, err);
                 return;
             }
         };
@@ -183,8 +179,7 @@ impl StreamManager {
                 Some(Err(err)) => {
                     error!(
                         "impossible to read output from stream {}: {}",
-                        self.stream.name,
-                        err
+                        self.stream.name, err
                     );
                     return;
                 }
