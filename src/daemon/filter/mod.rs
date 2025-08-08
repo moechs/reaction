@@ -268,7 +268,7 @@ impl FilterManager {
             let m = m.clone();
 
             if exec_time <= now {
-                if state.decrement_trigger(&m, t) {
+                if state.decrement_trigger(&m, t, false) {
                     exec_now(&self.exec_limit, self.shutdown.clone(), action, m);
                 }
             } else {
@@ -289,7 +289,7 @@ impl FilterManager {
                     if !exiting || action.on_exit {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().unwrap();
-                        if state.decrement_trigger(&m, t) {
+                        if state.decrement_trigger(&m, t, exiting) {
                             exec_now(&this.exec_limit, this.shutdown, action, m);
                         }
                     }

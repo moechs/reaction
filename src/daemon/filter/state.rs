@@ -140,7 +140,7 @@ impl State {
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
-    pub fn decrement_trigger(&mut self, m: &Match, t: Time) -> bool {
+    pub fn decrement_trigger(&mut self, m: &Match, t: Time, exiting: bool) -> bool {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             let mut exec_needed = false;
@@ -153,16 +153,24 @@ impl State {
             if let Some(count) = count {
                 exec_needed = true;
                 if count <= 1 {
-                    self.triggers.fetch_update(mt.m, |map| {
-                        map.and_then(|mut map| {
-                            map.remove(&mt.t);
-                            if map.is_empty() {
-                                None
-                            } else {
-                                Some(map)
-                            }
-                        })
-                    });
+                    if !exiting {
+                        self.triggers.fetch_update(mt.m, |map| {
+                            map.and_then(|mut map| {
+                                map.remove(&mt.t);
+                                if map.is_empty() {
+                                    None
+                                } else {
+                                    Some(map)
+                                }
+                            })
+                        });
+                    }
+                    // else don't do anything
+                    // Because that will remove the entry in the DB, and make
+                    // it forget this trigger.
+                    // Maybe we should have 2 maps for triggers:
+                    // - The current for action counting, not persisted
+                    // - Another like ordered_times, Tree<Time, Match>, persisted
                 } else {
                     self.triggers.fetch_update(mt.m, |map| {
                         map.map(|mut map| {
@@ -429,7 +437,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Will be called immediately after, it returns true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
     }
 
     #[tokio::test]
@@ -484,22 +492,52 @@ mod tests {
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 2)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 1)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert!(state.triggers.tree().is_empty());
         // Decrement → false
-        assert!(!state.decrement_trigger(&one, now));
+        assert!(!state.decrement_trigger(&one, now, false));
+
+        // Add unique trigger (but decrement exiting-like)
+        state.add_trigger(one.clone(), now, None);
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 3)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now, true));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 2)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now, true));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 1)].into())])
+        );
+        // Decrement but exiting → true, does nothing
+        assert!(state.decrement_trigger(&one, now, true));
+        assert_eq!(
+            state.triggers.tree(),
+            &BTreeMap::from([(one.clone(), [(now, 1)].into())])
+        );
+        // Decrement → true
+        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.triggers.tree().is_empty());
+        // Decrement → false
+        assert!(!state.decrement_trigger(&one, now, false));
 
         // Add trigger with neighbour
         state.add_trigger(one.clone(), now, None);
@@ -509,25 +547,25 @@ mod tests {
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 2)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 1)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now));
+        assert!(state.decrement_trigger(&one, now, false));
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3)].into())])
         );
         // Decrement → false
-        assert!(!state.decrement_trigger(&one, now));
+        assert!(!state.decrement_trigger(&one, now, false));
         // Remove neighbour
         state.remove_trigger(&one);
         assert!(state.triggers.tree().is_empty());

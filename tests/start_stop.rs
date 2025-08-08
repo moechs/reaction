@@ -5,7 +5,6 @@ use assert_fs::{prelude::*, TempDir};
 use predicates::prelude::predicate;
 
 #[test]
-// #[ignore = "currently failing"] // FIXME
 fn start_stop() {
     let tmp_dir = assert_fs::TempDir::new().unwrap();
 
@@ -27,27 +26,32 @@ fn start_stop() {
     tmp_dir.child("log").assert(&output.join("\n"));
     tmp_dir.child("log").write_str("").unwrap();
 
-    // // Second run
-    // run_reaction(&tmp_dir);
+    println!(
+        "DATABASE:\n{}",
+        std::fs::read_to_string(tmp_dir.child("reaction.db")).unwrap()
+    );
 
-    // // Expected output
-    // let output = [
-    //     "start 1",
-    //     "start 2",
-    //     "runtime 1",
-    //     "runtime 2",
-    //     "runtime 1",
-    //     "runtime 2",
-    //     // no order required because they'll be awaken all together on exit
-    //     "after",
-    //     "after",
-    //     "after",
-    //     "after",
-    //     "stop 1",
-    //     "stop 2",
-    //     "",
-    // ];
-    // tmp_dir.child("log").assert(&output.join("\n"));
+    // Second run
+    run_reaction(&tmp_dir);
+
+    // Expected output
+    let output = [
+        "start 1",
+        "start 2",
+        "runtime 1",
+        "runtime 2",
+        "runtime 1",
+        "runtime 2",
+        // no order required because they'll be awaken all together on exit
+        "after",
+        "after",
+        "after",
+        "after",
+        "stop 1",
+        "stop 2",
+        "",
+    ];
+    tmp_dir.child("log").assert(&output.join("\n"));
 }
 
 fn run_reaction(tmp_dir: &TempDir) {

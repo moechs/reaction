@@ -25,6 +25,7 @@ local echo(message, before='true') = [
       cmd: ['sh', '-c', 'seq 2 | while read i; do echo runtime $i; sleep 0.1; done'],
       filters: {
         f1: {
+          duplicate: 'rerun',
           regex: [
             '^runtime <num>$',
           ],
@@ -33,8 +34,8 @@ local echo(message, before='true') = [
               cmd: echo('runtime <num>'),
             },
             two: {
-              cmd: echo('after', before='sleep 1'),
-              after: '5s',
+              cmd: echo('after', before='sleep 0.2'),
+              after: '5m',
               onexit: true,
             },
           },
