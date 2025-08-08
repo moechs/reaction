@@ -21,13 +21,12 @@ use crate::{
 
 use super::{filter::FilterManager, shutdown::ShutdownToken};
 
-macro_rules! err_str {
-    ($expression:expr) => {
-        $expression.map_err(|err| err.to_string())
-    };
-}
-
 async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
+    macro_rules! err_str {
+        ($expression:expr) => {
+            $expression.map_err(|err| err.to_string())
+        };
+    }
     // First create all directories to the file
     let dir = path
         .parent()
@@ -222,60 +221,67 @@ macro_rules! or_next {
     };
 }
 
-pub async fn socket_manager(
-    config: &'static Config,
-    socket: PathBuf,
-    shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
-    shutdown: ShutdownToken,
-) -> Result<(), String> {
-    let listener = match open_socket(socket.clone()).await {
-        Ok(l) => l,
-        Err(err) => {
-            return Err(format!("while creating communication socket: {err}"));
-        }
-    };
+pub struct Socket {
+    path: PathBuf,
+    socket: UnixListener,
+}
 
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = shutdown.wait() => break,
-                try_conn = listener.accept() => {
-                    match try_conn {
-                        Ok((conn, _)) => {
-                            let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-                            // Decode
-                            let received = transport.next().await;
-                            let encoded_request = match received {
-                                Some(r) => or_next!("while reading request", r),
-                                None => {
-                                    error!("failed to answer client: client sent no request");
-                                    continue;
-                                }
-                            };
-                            let request = or_next!(
-                                "failed to decode request",
-                                serde_json::from_slice(&encoded_request)
-                                );
-                            // Process
-                            let response = answer_order(config, &shared_state, request);
-                            // Encode
-                            let encoded_response =
-                                or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
-                            or_next!(
-                                "failed to send response:",
-                                transport.send(Bytes::from(encoded_response)).await
-                                );
+impl Socket {
+    pub async fn open(socket: PathBuf) -> Result<Self, String> {
+        Ok(Socket {
+            socket: open_socket(socket.clone())
+                .await
+                .map_err(|err| format!("while creating communication socket: {err}"))?,
+            path: socket,
+        })
+    }
+
+    pub fn manager(
+        self,
+        config: &'static Config,
+        shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+        shutdown: ShutdownToken,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = shutdown.wait() => break,
+                    try_conn = self.socket.accept() => {
+                        match try_conn {
+                            Ok((conn, _)) => {
+                                let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+                                // Decode
+                                let received = transport.next().await;
+                                let encoded_request = match received {
+                                    Some(r) => or_next!("while reading request", r),
+                                    None => {
+                                        error!("failed to answer client: client sent no request");
+                                        continue;
+                                    }
+                                };
+                                let request = or_next!(
+                                    "failed to decode request",
+                                    serde_json::from_slice(&encoded_request)
+                                    );
+                                // Process
+                                let response = answer_order(config, &shared_state, request);
+                                // Encode
+                                let encoded_response =
+                                    or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
+                                or_next!(
+                                    "failed to send response:",
+                                    transport.send(Bytes::from(encoded_response)).await
+                                    );
+                            }
+                            Err(err) => error!("failed to open connection from cli: {err}"),
                         }
-                        Err(err) => error!("failed to open connection from cli: {err}"),
                     }
                 }
             }
-        }
 
-        if let Err(err) = fs::remove_file(socket).await {
-            error!("failed to remove socket: {}", err);
-        }
-    });
-
-    Ok(())
+            if let Err(err) = fs::remove_file(self.path).await {
+                error!("failed to remove socket: {}", err);
+            }
+        });
+    }
 }

@@ -20,7 +20,7 @@ use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
 pub use filter::React;
 pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
-use socket::socket_manager;
+use socket::Socket;
 use stream::StreamManager;
 
 #[cfg(test)]
@@ -42,6 +42,14 @@ pub async fn daemon(
 
     // Open Database
     let mut db = Database::open(config).await?;
+
+    // Open Socket
+    let socket = Socket::open(socket).await?;
+
+    // reaction won't abort on startup anymore, we can run start commands
+    if !config.start() {
+        return Err("a start command failed, exiting.".into());
+    }
 
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency
@@ -76,12 +84,7 @@ pub async fn daemon(
     let mut db_status_rx = db.manager(shutdown.token());
 
     // Run socket task
-    socket_manager(config, socket, state, shutdown.token()).await?;
-
-    // reaction won't abort on startup anymore, we can run start commands
-    if !config.start() {
-        return Err("a start command failed, exiting.".into());
-    }
+    socket.manager(config, state, shutdown.token());
 
     // Start Stream managers
     let mut stream_task_handles = Vec::new();

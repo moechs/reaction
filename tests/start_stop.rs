@@ -35,23 +35,43 @@ fn start_stop() {
     run_reaction(&tmp_dir);
 
     // Expected output
-    let output = [
-        "start 1",
-        "start 2",
-        "runtime 1",
-        "runtime 2",
-        "runtime 1",
-        "runtime 2",
-        // no order required because they'll be awaken all together on exit
-        "after",
-        "after",
-        "after",
-        "after",
-        "stop 1",
-        "stop 2",
-        "",
+    // (one of them)
+    let outputs = [
+        [
+            "start 1",
+            "start 2",
+            "runtime 1",
+            "runtime 2",
+            "runtime 1",
+            "runtime 2",
+            // no order required because they'll be awaken all together on exit
+            "after",
+            "after",
+            "after",
+            "after",
+            "stop 1",
+            "stop 2",
+            "",
+        ],
+        [
+            "start 1",
+            "start 2",
+            "runtime 2",
+            "runtime 1",
+            "runtime 1",
+            "runtime 2",
+            // no order required because they'll be awaken all together on exit
+            "after",
+            "after",
+            "after",
+            "after",
+            "stop 1",
+            "stop 2",
+            "",
+        ],
     ];
-    tmp_dir.child("log").assert(&output.join("\n"));
+    let contents = std::fs::read_to_string(tmp_dir.child("log")).unwrap();
+    assert!(contents == outputs[0].join("\n") || contents == outputs[1].join("\n"));
 }
 
 fn run_reaction(tmp_dir: &TempDir) {
