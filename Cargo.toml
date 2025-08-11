@@ -13,6 +13,9 @@ build = "build.rs"
 
 [package.metadata.deb]
 section = "net"
+extended-description = """A daemon that scans program outputs for repeated patterns, and takes action.
+A common usage is to scan ssh and webserver logs, and to ban hosts that cause multiple authentication errors.
+reaction aims at being a successor to fail2ban."""
 maintainer-scripts = "packaging/"
 systemd-units = { enable = false }
 assets = [
