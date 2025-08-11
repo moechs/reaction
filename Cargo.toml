@@ -12,6 +12,7 @@ keywords = ["security", "sysadmin", "fail2ban", "logs", "monitoring"]
 build = "build.rs"
 
 [package.metadata.deb]
+section = "net"
 maintainer-scripts = "packaging/"
 systemd-units = { enable = false }
 assets = [
