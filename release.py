@@ -88,6 +88,7 @@ def main():
     architectures = {
         "x86_64-unknown-linux-musl": "amd64",
         "aarch64-unknown-linux-musl": "arm64",
+        "arm-unknown-linux-gnueabihf": "armhf",
     }
 
     all_files = []
@@ -117,7 +118,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 """.strip(),
     ]
 
-    for (architecture_rs, architecture_pretty) in architectures.items():
+    for architecture_rs, architecture_pretty in architectures.items():
         # Cargo clean
         run_command(["cargo", "clean"])
 
