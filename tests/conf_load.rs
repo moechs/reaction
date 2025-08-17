@@ -1,10 +1,8 @@
-use predicates::prelude::*;
 use std::error::Error;
 
 use assert_cmd::Command;
 
 #[test]
-#[ignore = "currently failing"] // FIXME
 fn load_conf_directory() -> Result<(), Box<dyn Error>> {
     let mut cmd = Command::cargo_bin("reaction")?;
     cmd.args([
@@ -13,18 +11,20 @@ fn load_conf_directory() -> Result<(), Box<dyn Error>> {
         "--config",
         "./tests/test-conf/conf-00.d",
     ]);
-    cmd.assert().success().stdout(predicate::eq(
+    cmd.assert().success().stdout(
         r#"Loaded the configuration from the following files in the directory ./tests/test-conf/conf-00.d in this order:
 part.json
 part.jsonnet
 part.yaml
 part.yml
 
-concurrency: 16
+concurrency: 1
 state_directory: .
 patterns:
   mypat:
     regex: FLAG
+    ipv4mask: null
+    ipv6mask: null
 start:
 - - echo
   - start
@@ -40,6 +40,7 @@ streams:
       from_jsonnet:
         regex:
         - ^<mypat>
+        duplicate: extend
         actions:
           ban:
             cmd:
@@ -53,6 +54,7 @@ streams:
       from_yaml:
         regex:
         - ^'<mypat>'
+        duplicate: extend
         actions:
           print:
             cmd:
@@ -60,7 +62,7 @@ streams:
             - <mypat>
             after: 1s
 
-"#));
+"#);
     Ok(())
 }
 
