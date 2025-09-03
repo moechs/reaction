@@ -54,7 +54,7 @@ pub enum React {
 
 #[allow(clippy::unwrap_used)]
 impl FilterManager {
-    pub fn new(
+    pub async fn new(
         filter: &'static Filter,
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
@@ -65,15 +65,15 @@ impl FilterManager {
             filter,
             exec_limit,
             shutdown,
-            state: Arc::new(Mutex::new(State::new(filter, db, now)?)),
+            state: Arc::new(Mutex::new(State::new(filter, db, now).await?)),
         };
         this.clear_past_triggers_and_schedule_future_actions(now);
         Ok(this)
     }
 
-    pub fn handle_line(&self, line: &str, now: Time) -> React {
+    pub async fn handle_line(&self, line: &str, now: Time) -> React {
         if let Some(match_) = self.filter.get_match(line) {
-            if self.handle_match(match_, now) {
+            if self.handle_match(match_, now).await {
                 React::Trigger
             } else {
                 React::Match
@@ -83,7 +83,7 @@ impl FilterManager {
         }
     }
 
-    fn handle_match(&self, m: Match, now: Time) -> bool {
+    async fn handle_match(&self, m: Match, now: Time) -> bool {
         #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().unwrap();
         state.clear_past_matches(now);
@@ -100,7 +100,7 @@ impl FilterManager {
             Some(retry) => {
                 state.add_match(m.clone(), now);
                 // Number of stored times for this match >= configured retry for this filter
-                state.get_times(&m) >= retry as usize
+                state.get_times(&m).await >= retry as usize
             }
         };
 
@@ -109,7 +109,7 @@ impl FilterManager {
             let actions_left = if Duplicate::Extend == self.filter.duplicate {
                 // Get number of actions left from last trigger
                 state
-                    .remove_trigger(&m)
+                    .remove_trigger(&m).await
                     // Only one entry in the map because Duplicate::Extend
                     .and_then(|map| map.first_key_value().map(|(_, n)| n.clone()))
             } else {
@@ -122,7 +122,7 @@ impl FilterManager {
         trigger
     }
 
-    pub fn handle_trigger(
+    pub async fn handle_trigger(
         &self,
         patterns: BTreeMap<Arc<Pattern>, String>,
         now: Time,
@@ -138,7 +138,7 @@ impl FilterManager {
         Ok(())
     }
 
-    pub fn handle_order(
+    pub async fn handle_order(
         &self,
         patterns: &BTreeMap<Arc<Pattern>, Regex>,
         order: Order,
@@ -241,12 +241,12 @@ impl FilterManager {
     /// Schedule execution for a given Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    fn schedule_exec(
+    async fn schedule_exec<'a>(
         &self,
         m: Match,
         t: Time,
         now: Time,
-        state: &mut MutexGuard<State>,
+        state: &'a mut MutexGuard<'_, State>,
         startup: bool,
         actions_left: Option<u64>,
     ) {
@@ -268,7 +268,7 @@ impl FilterManager {
             let m = m.clone();
 
             if exec_time <= now {
-                if state.decrement_trigger(&m, t, false) {
+                if state.decrement_trigger(&m, t, false).await {
                     exec_now(&self.exec_limit, self.shutdown.clone(), action, m);
                 }
             } else {
@@ -289,7 +289,7 @@ impl FilterManager {
                     if !exiting || action.on_exit {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().unwrap();
-                        if state.decrement_trigger(&m, t, exiting) {
+                        if state.decrement_trigger(&m, t, exiting).await {
                             exec_now(&this.exec_limit, this.shutdown, action, m);
                         }
                     }
@@ -298,7 +298,7 @@ impl FilterManager {
         }
     }
 
-    fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
+    async fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration;
         let number_of_actions = self
             .filter
@@ -349,7 +349,7 @@ impl FilterManager {
     }
 }
 
-fn exec_now(
+async fn exec_now(
     exec_limit: &Option<Arc<Semaphore>>,
     shutdown: ShutdownToken,
     action: &'static Action,

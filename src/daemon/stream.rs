@@ -173,7 +173,7 @@ impl StreamManager {
                 Some(Ok(line)) => {
                     let now = Local::now();
                     for manager in self.matching_filters(&line) {
-                        manager.handle_line(&line, now);
+                        manager.handle_line(&line, now).await;
                     }
                 }
                 Some(Err(err)) => {

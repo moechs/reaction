@@ -59,7 +59,11 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(filter: &'static Filter, db: &mut Database, now: Time) -> Result<Self, String> {
+    pub async fn new(
+        filter: &'static Filter,
+        db: &mut Database,
+        now: Time,
+    ) -> Result<Self, String> {
         let ordered_times = db.open_tree(
             filter_ordered_times_db_name(filter),
             filter.retry_duration.unwrap_or_default(),
@@ -100,13 +104,13 @@ impl State {
         Ok(this)
     }
 
-    pub fn add_match(&mut self, m: Match, t: Time) {
+    pub async fn add_match(&mut self, m: Match, t: Time) {
         let set = self.matches.entry(m.clone()).or_default();
         set.insert(t);
         self.ordered_times.insert(t, m);
     }
 
-    pub fn add_trigger(&mut self, m: Match, t: Time, action_count: Option<u64>) {
+    pub async fn add_trigger(&mut self, m: Match, t: Time, action_count: Option<u64>) {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             // Add the (Match, Time) to the triggers map
@@ -125,7 +129,7 @@ impl State {
     }
 
     // Completely remove a Match from the matches
-    pub fn remove_match(&mut self, m: &Match) {
+    pub async fn remove_match(&mut self, m: &Match) {
         if let Some(set) = self.matches.get(m) {
             for t in set {
                 self.ordered_times.remove(t);
@@ -135,12 +139,12 @@ impl State {
     }
 
     /// Completely remove a Match from the triggers
-    pub fn remove_trigger(&mut self, m: &Match) -> Option<BTreeMap<Time, u64>> {
-        self.triggers.remove(m)
+    pub async fn remove_trigger(&mut self, m: &Match) -> Option<BTreeMap<Time, u64>> {
+        self.triggers.remove(m).await
     }
 
     /// Returns whether we should still execute an action for this (Match, Time) trigger
-    pub fn decrement_trigger(&mut self, m: &Match, t: Time, exiting: bool) -> bool {
+    pub async fn decrement_trigger(&mut self, m: &Match, t: Time, exiting: bool) -> bool {
         // We record triggered filters only when there is an action with an `after` directive
         if self.has_after {
             let mut exec_needed = false;
@@ -186,7 +190,7 @@ impl State {
         }
     }
 
-    pub fn clear_past_matches(&mut self, now: Time) {
+    pub async fn clear_past_matches(&mut self, now: Time) {
         let retry_duration = self.filter.retry_duration.unwrap_or_default();
         while self
             .ordered_times
@@ -212,14 +216,14 @@ impl State {
         }
     }
 
-    pub fn get_times(&self, m: &Match) -> usize {
+    pub async fn get_times(&self, m: &Match) -> usize {
         match self.matches.get(m) {
             Some(vec) => vec.len(),
             None => 0,
         }
     }
 
-    fn load_matches_from_ordered_times(&mut self) {
+    async fn load_matches_from_ordered_times(&mut self) {
         for (t, m) in self.ordered_times.iter() {
             let set = self.matches.entry(m.clone()).or_default();
             set.insert(*t);
@@ -342,7 +346,7 @@ mod tests {
                 trigger_db,
             ]));
 
-            let state = State::new(filter, &mut db, now).unwrap();
+            let state = State::new(filter, &mut db, now).await.unwrap();
 
             assert_eq!(
                 state.ordered_times.tree(),
@@ -386,7 +390,7 @@ mod tests {
         let now_less_4s = now - TimeDelta::seconds(4);
 
         let mut db = TempDatabase::default().await;
-        let mut state = State::new(filter, &mut db, now).unwrap();
+        let mut state = State::new(filter, &mut db, now).await.unwrap();
 
         assert!(state.ordered_times.tree().is_empty());
         assert!(state.matches.is_empty());
@@ -427,7 +431,7 @@ mod tests {
         let now = Local::now();
 
         let mut db = TempDatabase::default().await;
-        let mut state = State::new(filter, &mut db, now).unwrap();
+        let mut state = State::new(filter, &mut db, now).await.unwrap();
 
         assert!(state.triggers.tree().is_empty());
 
@@ -437,7 +441,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Will be called immediately after, it returns true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
     }
 
     #[tokio::test]
@@ -481,7 +485,7 @@ mod tests {
         let now_plus_1s = now + TimeDelta::seconds(1);
 
         let mut db = TempDatabase::default().await;
-        let mut state = State::new(filter, &mut db, now).unwrap();
+        let mut state = State::new(filter, &mut db, now).await.unwrap();
 
         assert!(state.triggers.tree().is_empty());
 
@@ -492,22 +496,22 @@ mod tests {
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 2)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 1)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert!(state.triggers.tree().is_empty());
         // Decrement → false
-        assert!(!state.decrement_trigger(&one, now, false));
+        assert!(!state.decrement_trigger(&one, now, false).await);
 
         // Add unique trigger (but decrement exiting-like)
         state.add_trigger(one.clone(), now, None);
@@ -516,28 +520,28 @@ mod tests {
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, true));
+        assert!(state.decrement_trigger(&one, now, true).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 2)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, true));
+        assert!(state.decrement_trigger(&one, now, true).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 1)].into())])
         );
         // Decrement but exiting → true, does nothing
-        assert!(state.decrement_trigger(&one, now, true));
+        assert!(state.decrement_trigger(&one, now, true).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 1)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert!(state.triggers.tree().is_empty());
         // Decrement → false
-        assert!(!state.decrement_trigger(&one, now, false));
+        assert!(!state.decrement_trigger(&one, now, false).await);
 
         // Add trigger with neighbour
         state.add_trigger(one.clone(), now, None);
@@ -547,25 +551,25 @@ mod tests {
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 2)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 1)].into())])
         );
         // Decrement → true
-        assert!(state.decrement_trigger(&one, now, false));
+        assert!(state.decrement_trigger(&one, now, false).await);
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3)].into())])
         );
         // Decrement → false
-        assert!(!state.decrement_trigger(&one, now, false));
+        assert!(!state.decrement_trigger(&one, now, false).await);
         // Remove neighbour
         state.remove_trigger(&one);
         assert!(state.triggers.tree().is_empty());

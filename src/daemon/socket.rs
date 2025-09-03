@@ -51,7 +51,7 @@ async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     err_str!(UnixListener::bind(path))
 }
 
-fn handle_trigger_order(
+async fn handle_trigger_order(
     stream_name: Option<String>,
     filter_name: Option<String>,
     patterns: BTreeMap<Arc<Pattern>, String>,
@@ -100,13 +100,13 @@ fn handle_trigger_order(
     };
 
     let now = Local::now();
-    match filter_manager.handle_trigger(patterns, now) {
+    match filter_manager.handle_trigger(patterns, now).await {
         Ok(()) => DaemonResponse::Ok(()),
         Err(err) => DaemonResponse::Err(err),
     }
 }
 
-fn handle_show_or_flush_order(
+async fn handle_show_or_flush_order(
     stream_name: Option<String>,
     filter_name: Option<String>,
     patterns: BTreeMap<Arc<Pattern>, Regex>,
@@ -114,40 +114,39 @@ fn handle_show_or_flush_order(
     shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
 ) -> DaemonResponse {
     let now = Local::now();
-    let cs: ClientStatus = shared_state
+    let iter = shared_state
         .iter()
         // stream filtering
         .filter(|(stream, _)| {
             stream_name.is_none() || stream_name.clone().is_some_and(|name| name == stream.name)
-        })
-        .fold(BTreeMap::new(), |mut acc, (stream, filter_manager)| {
-            let inner_map = filter_manager
-                .iter()
-                // filter filtering
-                .filter(|(filter, _)| {
-                    filter_name.is_none()
-                        || filter_name.clone().is_some_and(|name| name == filter.name)
-                })
-                // pattern filtering
-                .filter(|(filter, _)| {
-                    patterns
-                        .iter()
-                        .all(|(pattern, _)| filter.patterns.get(pattern).is_some())
-                })
-                .map(|(filter, manager)| {
-                    (
-                        filter.name.to_owned(),
-                        manager.handle_order(&patterns, order, now),
-                    )
-                })
-                .collect();
-            acc.insert(stream.name.to_owned(), inner_map);
-            acc
         });
+    let mut cs = ClientStatus::new();
+    for (stream, filter_manager) in iter {
+        let iter = filter_manager
+            .iter()
+            // filter filtering
+            .filter(|(filter, _)| {
+                filter_name.is_none() || filter_name.clone().is_some_and(|name| name == filter.name)
+            })
+            // pattern filtering
+            .filter(|(filter, _)| {
+                patterns
+                    .iter()
+                    .all(|(pattern, _)| filter.patterns.get(pattern).is_some())
+            });
+        let mut inner_map = BTreeMap::new();
+        for (filter, manager) in iter {
+            inner_map.insert(
+                filter.name.to_owned(),
+                manager.handle_order(&patterns, order, now).await,
+            );
+        }
+        cs.insert(stream.name.to_owned(), inner_map);
+    }
     DaemonResponse::Order(cs)
 }
 
-fn answer_order(
+async fn answer_order(
     config: &'static Config,
     shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
     options: ClientRequest,
@@ -182,7 +181,7 @@ fn answer_order(
     };
 
     if let Order::Trigger = options.order {
-        handle_trigger_order(stream_name, filter_name, patterns, shared_state)
+        handle_trigger_order(stream_name, filter_name, patterns, shared_state).await
     } else {
         let patterns = match patterns
             .into_iter()
@@ -206,6 +205,7 @@ fn answer_order(
             options.order,
             shared_state,
         )
+        .await
     }
 }
 
@@ -264,7 +264,7 @@ impl Socket {
                                     serde_json::from_slice(&encoded_request)
                                     );
                                 // Process
-                                let response = answer_order(config, &shared_state, request);
+                                let response = answer_order(config, &shared_state, request).await;
                                 // Encode
                                 let encoded_response =
                                     or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));

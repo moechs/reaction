@@ -330,7 +330,7 @@ impl<K: KeyType, V: ValueType> Deref for Tree<K, V> {
 // Reimplement write functions
 impl<K: KeyType, V: ValueType> Tree<K, V> {
     /// Log an [`Entry`] to the [`Database`]
-    fn log(&mut self, k: &K, v: Option<&V>) {
+    async fn log(&mut self, k: &K, v: Option<&V>) {
         let e = Entry {
             tree: self.id.clone(),
             key: serde_json::to_value(k).expect("could not serialize key"),
@@ -339,36 +339,40 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
         };
         let tx = self.tx.clone();
         // FIXME what if send fails?
-        tokio::spawn(async move {
-            let _ = tx.send(e).await;
-        });
+        let _ = tx.send(e).await;
     }
 
     /// Asynchronously persisted version of [`BTreeMap::insert`]
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.log(&key, Some(&value));
+    pub async fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.log(&key, Some(&value)).await;
         self.tree.insert(key, value)
     }
 
     /// Asynchronously persisted version of [`BTreeMap::pop_first`]
-    pub fn pop_first(&mut self) -> Option<(K, V)> {
-        self.tree.pop_first().map(|(key, value)| {
-            self.log(&key, None);
-            (key, value)
-        })
+    pub async fn pop_first(&mut self) -> Option<(K, V)> {
+        match self.tree.pop_first() {
+            Some((key, value)) => {
+                self.log(&key, None).await;
+                Some((key, value))
+            }
+            None => None,
+        }
     }
 
     /// Asynchronously persisted version of [`BTreeMap::pop_last`]
-    pub fn pop_last(&mut self) -> Option<(K, V)> {
-        self.tree.pop_last().map(|(key, value)| {
-            self.log(&key, None);
-            (key, value)
-        })
+    pub async fn pop_last(&mut self) -> Option<(K, V)> {
+        match self.tree.pop_last() {
+            Some((key, value)) => {
+                self.log(&key, None).await;
+                Some((key, value))
+            }
+            None => None,
+        }
     }
 
     /// Asynchronously persisted version of [`BTreeMap::remove`]
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        self.log(key, None);
+    pub async fn remove(&mut self, key: &K) -> Option<V> {
+        self.log(key, None).await;
         self.tree.remove(key)
     }
 
@@ -376,14 +380,14 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
     /// Returning None removes the item if it existed before.
     /// Asynchronously persisted.
     /// *API design borrowed from [`fjall::WriteTransaction::fetch_update`].*
-    pub fn fetch_update<F: FnMut(Option<V>) -> Option<V>>(
+    pub async fn fetch_update<F: FnMut(Option<V>) -> Option<V>>(
         &mut self,
         key: K,
         mut f: F,
     ) -> Option<V> {
         let old_value = self.get(&key).map(|v| v.to_owned());
         let new_value = f(old_value);
-        self.log(&key, new_value.as_ref());
+        self.log(&key, new_value.as_ref()).await;
         if let Some(new_value) = new_value {
             self.tree.insert(key, new_value)
         } else {

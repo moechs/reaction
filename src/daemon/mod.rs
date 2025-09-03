@@ -66,7 +66,7 @@ pub async fn daemon(
             let mut filter_managers = HashMap::new();
             for filter in stream.filters.values() {
                 let manager =
-                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)?;
+                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now).await?;
                 filter_managers.insert(filter, manager);
             }
             state.insert(stream, filter_managers.clone());
