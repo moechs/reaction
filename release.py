@@ -242,6 +242,8 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
         && rm {deb_name}.minisig \\
         && sudo apt install ./{deb_name}
 ```
+
+*You can also use [this third-party package repository](https://packages.azlux.fr).*
         """.strip()
             )
         else:
