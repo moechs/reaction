@@ -89,7 +89,7 @@ impl State {
                             map
                         }
                     })
-                });
+                }).await;
             }
         }
         let mut this = Self {
@@ -99,15 +99,15 @@ impl State {
             ordered_times,
             triggers,
         };
-        this.clear_past_matches(now);
-        this.load_matches_from_ordered_times();
+        this.clear_past_matches(now).await;
+        this.load_matches_from_ordered_times().await;
         Ok(this)
     }
 
     pub async fn add_match(&mut self, m: Match, t: Time) {
         let set = self.matches.entry(m.clone()).or_default();
         set.insert(t);
-        self.ordered_times.insert(t, m);
+        self.ordered_times.insert(t, m).await;
     }
 
     pub async fn add_trigger(&mut self, m: Match, t: Time, action_count: Option<u64>) {
@@ -124,7 +124,7 @@ impl State {
                         value
                     }
                 })
-            });
+            }).await;
         }
     }
 
@@ -132,7 +132,7 @@ impl State {
     pub async fn remove_match(&mut self, m: &Match) {
         if let Some(set) = self.matches.get(m) {
             for t in set {
-                self.ordered_times.remove(t);
+                self.ordered_times.remove(t).await;
             }
             self.matches.remove(m);
         }
@@ -167,7 +167,7 @@ impl State {
                                     Some(map)
                                 }
                             })
-                        });
+                        }).await;
                     }
                     // else don't do anything
                     // Because that will remove the entry in the DB, and make
@@ -181,7 +181,7 @@ impl State {
                             map.insert(mt.t, count - 1);
                             map
                         })
-                    });
+                    }).await;
                 }
             }
             exec_needed
@@ -203,7 +203,7 @@ impl State {
                 let (t, m) = self.ordered_times.first_key_value().unwrap();
                 (*t, m.clone())
             };
-            self.ordered_times.remove(&t);
+            self.ordered_times.remove(&t).await;
             if let Some(set) = self.matches.get(&m) {
                 let mut set = set.clone();
                 set.remove(&t);
@@ -396,7 +396,7 @@ mod tests {
         assert!(state.matches.is_empty());
 
         // Add non-previously added match
-        state.add_match(one.clone(), now_less_1s);
+        state.add_match(one.clone(), now_less_1s).await;
         assert_eq!(
             state.ordered_times.tree(),
             &BTreeMap::from([(now_less_1s, one.clone()),])
@@ -407,7 +407,7 @@ mod tests {
         );
 
         // Add previously added match
-        state.add_match(one.clone(), now_less_4s);
+        state.add_match(one.clone(), now_less_4s).await;
         assert_eq!(
             state.ordered_times.tree(),
             &BTreeMap::from([(now_less_1s, one.clone()), (now_less_4s, one.clone())])
@@ -418,7 +418,7 @@ mod tests {
         );
 
         // Remove added match
-        state.remove_match(&one);
+        state.remove_match(&one).await;
         assert!(state.ordered_times.tree().is_empty());
         assert!(state.matches.is_empty());
     }
@@ -436,7 +436,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Add unique trigger
-        state.add_trigger(one.clone(), now, None);
+        state.add_trigger(one.clone(), now, None).await;
         // Nothing is really added
         assert!(state.triggers.tree().is_empty());
 
@@ -490,7 +490,7 @@ mod tests {
         assert!(state.triggers.tree().is_empty());
 
         // Add unique trigger
-        state.add_trigger(one.clone(), now, None);
+        state.add_trigger(one.clone(), now, None).await;
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
@@ -514,7 +514,7 @@ mod tests {
         assert!(!state.decrement_trigger(&one, now, false).await);
 
         // Add unique trigger (but decrement exiting-like)
-        state.add_trigger(one.clone(), now, None);
+        state.add_trigger(one.clone(), now, None).await;
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now, 3)].into())])
@@ -544,8 +544,8 @@ mod tests {
         assert!(!state.decrement_trigger(&one, now, false).await);
 
         // Add trigger with neighbour
-        state.add_trigger(one.clone(), now, None);
-        state.add_trigger(one.clone(), now_plus_1s, None);
+        state.add_trigger(one.clone(), now, None).await;
+        state.add_trigger(one.clone(), now_plus_1s, None).await;
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
@@ -571,18 +571,18 @@ mod tests {
         // Decrement → false
         assert!(!state.decrement_trigger(&one, now, false).await);
         // Remove neighbour
-        state.remove_trigger(&one);
+        state.remove_trigger(&one).await;
         assert!(state.triggers.tree().is_empty());
 
         // Add two neighbour triggers
-        state.add_trigger(one.clone(), now, None);
-        state.add_trigger(one.clone(), now_plus_1s, None);
+        state.add_trigger(one.clone(), now, None).await;
+        state.add_trigger(one.clone(), now_plus_1s, None).await;
         assert_eq!(
             state.triggers.tree(),
             &BTreeMap::from([(one.clone(), [(now_plus_1s, 3), (now, 3)].into())])
         );
         // Remove them
-        state.remove_trigger(&one);
+        state.remove_trigger(&one).await;
         assert!(state.triggers.tree().is_empty());
     }
 }

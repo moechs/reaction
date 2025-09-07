@@ -3,14 +3,10 @@ pub mod tests;
 
 mod state;
 
-use std::{
-    collections::BTreeMap,
-    process::Stdio,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
 use regex::Regex;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, MutexGuard, Semaphore};
 use tracing::{error, info};
 
 use crate::{
@@ -67,7 +63,8 @@ impl FilterManager {
             shutdown,
             state: Arc::new(Mutex::new(State::new(filter, db, now).await?)),
         };
-        this.clear_past_triggers_and_schedule_future_actions(now);
+        this.clear_past_triggers_and_schedule_future_actions(now)
+            .await;
         Ok(this)
     }
 
@@ -85,8 +82,8 @@ impl FilterManager {
 
     async fn handle_match(&self, m: Match, now: Time) -> bool {
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        let mut state = self.state.lock().unwrap();
-        state.clear_past_matches(now);
+        let mut state = self.state.lock().await;
+        state.clear_past_matches(now).await;
 
         // if Duplicate::Ignore and already triggered, skip
         if state.triggers.contains_key(&m) && Duplicate::Ignore == self.filter.duplicate {
@@ -98,25 +95,27 @@ impl FilterManager {
         let trigger = match self.filter.retry {
             None => true,
             Some(retry) => {
-                state.add_match(m.clone(), now);
+                state.add_match(m.clone(), now).await;
                 // Number of stored times for this match >= configured retry for this filter
                 state.get_times(&m).await >= retry as usize
             }
         };
 
         if trigger {
-            state.remove_match(&m);
+            state.remove_match(&m).await;
             let actions_left = if Duplicate::Extend == self.filter.duplicate {
                 // Get number of actions left from last trigger
                 state
-                    .remove_trigger(&m).await
+                    .remove_trigger(&m)
+                    .await
                     // Only one entry in the map because Duplicate::Extend
                     .and_then(|map| map.first_key_value().map(|(_, n)| n.clone()))
             } else {
                 None
             };
-            state.add_trigger(m.clone(), now, actions_left);
-            self.schedule_exec(m, now, now, &mut state, false, actions_left);
+            state.add_trigger(m.clone(), now, actions_left).await;
+            self.schedule_exec(m, now, now, &mut state, false, actions_left)
+                .await;
         }
 
         trigger
@@ -130,10 +129,11 @@ impl FilterManager {
         let match_ = self.filter.get_match_from_patterns(patterns)?;
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        let mut state = self.state.lock().unwrap();
-        state.remove_match(&match_);
-        state.add_trigger(match_.clone(), now, None);
-        self.schedule_exec(match_, now, now, &mut state, false, None);
+        let mut state = self.state.lock().await;
+        state.remove_match(&match_).await;
+        state.add_trigger(match_.clone(), now, None).await;
+        self.schedule_exec(match_, now, now, &mut state, false, None)
+            .await;
 
         Ok(())
     }
@@ -155,7 +155,7 @@ impl FilterManager {
         };
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().await;
 
         let mut cs: BTreeMap<_, _> = {
             let cloned_matches = state
@@ -167,27 +167,26 @@ impl FilterManager {
                 .cloned()
                 .collect::<Vec<_>>();
 
-            cloned_matches
-                .into_iter()
-                .map(|match_| {
-                    // mutable State required here
-                    if let Order::Flush = order {
-                        state.remove_match(&match_);
-                    }
-                    let matches = state
-                        .matches
-                        .get(&match_)
-                        .map(|times| times.len())
-                        .unwrap_or(0);
-                    (
-                        match_,
-                        PatternStatus {
-                            matches,
-                            ..Default::default()
-                        },
-                    )
-                })
-                .collect()
+            let mut cs = BTreeMap::new();
+            for match_ in cloned_matches {
+                // mutable State required here
+                if let Order::Flush = order {
+                    state.remove_match(&match_).await;
+                }
+                let matches = state
+                    .matches
+                    .get(&match_)
+                    .map(|times| times.len())
+                    .unwrap_or(0);
+                cs.insert(
+                    match_,
+                    PatternStatus {
+                        matches,
+                        ..Default::default()
+                    },
+                );
+            }
+            cs
         };
 
         let cloned_triggers = state
@@ -203,7 +202,7 @@ impl FilterManager {
             let map = state.triggers.get(&m).unwrap().clone();
 
             if let Order::Flush = order {
-                state.remove_trigger(&m);
+                state.remove_trigger(&m).await;
             }
 
             for (t, remaining) in map {
@@ -227,7 +226,7 @@ impl FilterManager {
                                     self.shutdown.clone(),
                                     action,
                                     m.clone(),
-                                );
+                                ).await;
                             }
                         }
                     }
@@ -269,7 +268,7 @@ impl FilterManager {
 
             if exec_time <= now {
                 if state.decrement_trigger(&m, t, false).await {
-                    exec_now(&self.exec_limit, self.shutdown.clone(), action, m);
+                    exec_now(&self.exec_limit, self.shutdown.clone(), action, m).await;
                 }
             } else {
                 let this = self.clone();
@@ -288,9 +287,9 @@ impl FilterManager {
                     // Exec action if triggered hasn't been already flushed
                     if !exiting || action.on_exit {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
-                        let mut state = this.state.lock().unwrap();
+                        let mut state = this.state.lock().await;
                         if state.decrement_trigger(&m, t, exiting).await {
-                            exec_now(&this.exec_limit, this.shutdown, action, m);
+                            exec_now(&this.exec_limit, this.shutdown, action, m).await;
                         }
                     }
                 });
@@ -309,7 +308,7 @@ impl FilterManager {
             .count() as u64;
 
         #[allow(clippy::unwrap_used)] // propagating panics is ok
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().await;
 
         let cloned_triggers = state
             .triggers
@@ -327,7 +326,7 @@ impl FilterManager {
                 .collect();
 
             if map.is_empty() {
-                state.triggers.remove(&m);
+                state.triggers.remove(&m).await;
             } else {
                 // Filter duplicates
                 // unwrap is fine because map is not empty (see if)
@@ -339,10 +338,11 @@ impl FilterManager {
                     // No filtering
                     Duplicate::Rerun => map,
                 };
-                state.triggers.insert(m.clone(), map.clone());
+                state.triggers.insert(m.clone(), map.clone()).await;
                 for (t, _) in map {
                     // Schedule the upcoming times
-                    self.schedule_exec(m.clone(), t, now, &mut state, true, None);
+                    self.schedule_exec(m.clone(), t, now, &mut state, true, None)
+                        .await;
                 }
             }
         }

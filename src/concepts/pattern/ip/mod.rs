@@ -710,7 +710,7 @@ mod patternip_tests {
                     );
                     let bed = bed.part2(filter, Local::now(), None).await;
                     assert_eq!(
-                        bed.manager.handle_line(&line, Local::now()),
+                        bed.manager.handle_line(&line, Local::now()).await,
                         React::Trigger,
                         "line: {line}"
                     );

@@ -102,6 +102,7 @@ impl TestBed {
                 &mut db,
                 now,
             )
+            .await
             .unwrap(),
             semaphore,
         }
@@ -119,8 +120,8 @@ pub struct TestBed2 {
 }
 
 impl TestBed2 {
-    pub fn assert_empty_trees(&self) {
-        let state = self.manager.state.lock().unwrap();
+    pub async fn assert_empty_trees(&self) {
+        let state = self.manager.state.lock().await;
         assert!(state.matches.is_empty(), "matches must be empty");
         assert!(
             state.ordered_times.is_empty(),
@@ -177,14 +178,17 @@ async fn three_matches_then_action_then_delayed_action() {
         let now2s = bed.now + TimeDelta::seconds(2);
 
         // No match
-        assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
-        bed.assert_empty_trees();
+        assert_eq!(
+            bed.manager.handle_line("test 131", now).await,
+            React::NoMatch
+        );
+        bed.assert_empty_trees().await;
 
         // First match
         let one = vec!["one".to_string()];
-        assert_eq!(bed.manager.handle_line("test one", now), React::Match);
+        assert_eq!(bed.manager.handle_line("test one", now).await, React::Match);
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert_eq!(
                 state.matches,
                 BTreeMap::from([(one.clone(), BTreeSet::from([now]))]),
@@ -199,9 +203,12 @@ async fn three_matches_then_action_then_delayed_action() {
         }
 
         // Second match
-        assert_eq!(bed.manager.handle_line("test one", now1s), React::Match);
+        assert_eq!(
+            bed.manager.handle_line("test one", now1s).await,
+            React::Match
+        );
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert_eq!(
                 state.matches,
                 BTreeMap::from([(one.clone(), BTreeSet::from([now, now1s]))]),
@@ -217,9 +224,12 @@ async fn three_matches_then_action_then_delayed_action() {
 
         // Third match, exec
         let _block = bed.semaphore.acquire().await.unwrap();
-        assert_eq!(bed.manager.handle_line("test one", now2s), React::Trigger);
+        assert_eq!(
+            bed.manager.handle_line("test one", now2s).await,
+            React::Trigger
+        );
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert!(
                 state.matches.is_empty(),
                 "matches are emptied after trigger"
@@ -241,7 +251,7 @@ async fn three_matches_then_action_then_delayed_action() {
         tokio::time::sleep(Duration::from_millis(40)).await;
         // Check first action
         assert_eq!(
-            bed.manager.state.lock().unwrap().triggers.tree(),
+            bed.manager.state.lock().await.triggers.tree(),
             &BTreeMap::from([(one.clone(), BTreeMap::from([(now2s, 1)]))]),
             "triggers still contain the triggered match with 1 action left"
         );
@@ -255,7 +265,7 @@ async fn three_matches_then_action_then_delayed_action() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         // Check second action
         assert!(
-            bed.manager.state.lock().unwrap().triggers.is_empty(),
+            bed.manager.state.lock().await.triggers.is_empty(),
             "triggers are empty again"
         );
         assert_eq!(
@@ -264,7 +274,7 @@ async fn three_matches_then_action_then_delayed_action() {
             "the output file contains the result of the 2 actions"
         );
 
-        bed.assert_empty_trees();
+        bed.assert_empty_trees().await;
     }
 }
 
@@ -296,12 +306,18 @@ async fn one_match_one_action() {
         let now = bed.now;
 
         // No match
-        assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
-        bed.assert_empty_trees();
+        assert_eq!(
+            bed.manager.handle_line("test 131", now).await,
+            React::NoMatch
+        );
+        bed.assert_empty_trees().await;
 
         // match
-        assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
-        bed.assert_empty_trees();
+        assert_eq!(
+            bed.manager.handle_line("test one", now).await,
+            React::Trigger
+        );
+        bed.assert_empty_trees().await;
 
         // the action executes
         tokio::time::sleep(Duration::from_millis(40)).await;
@@ -311,7 +327,7 @@ async fn one_match_one_action() {
             "the output file contains the result of the first action"
         );
 
-        bed.assert_empty_trees();
+        bed.assert_empty_trees().await;
     }
 }
 
@@ -343,14 +359,20 @@ async fn one_match_one_delayed_action() {
         let now = bed.now;
 
         // No match
-        assert_eq!(bed.manager.handle_line("test 131", now), React::NoMatch);
-        bed.assert_empty_trees();
+        assert_eq!(
+            bed.manager.handle_line("test 131", now).await,
+            React::NoMatch
+        );
+        bed.assert_empty_trees().await;
 
         // Match
         let one = vec!["one".to_string()];
-        assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
+        assert_eq!(
+            bed.manager.handle_line("test one", now).await,
+            React::Trigger
+        );
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert!(state.matches.is_empty(), "matches stay empty");
             assert!(state.ordered_times.is_empty(), "ordered_times stay empty");
             assert_eq!(
@@ -368,7 +390,7 @@ async fn one_match_one_delayed_action() {
         // The action executes
         tokio::time::sleep(Duration::from_millis(140)).await;
         assert!(
-            bed.manager.state.lock().unwrap().triggers.is_empty(),
+            bed.manager.state.lock().await.triggers.is_empty(),
             "triggers are empty again"
         );
         assert_eq!(
@@ -377,7 +399,7 @@ async fn one_match_one_delayed_action() {
             "the output file contains the result of the action"
         );
 
-        bed.assert_empty_trees();
+        bed.assert_empty_trees().await;
     }
 }
 
@@ -421,7 +443,7 @@ async fn one_db_match_one_runtime_match_one_action() {
         let bed = bed.part2(filter, now, Some(db)).await;
 
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert_eq!(
                 state.matches,
                 BTreeMap::from([(one.clone(), BTreeSet::from([now1s]))]),
@@ -436,8 +458,11 @@ async fn one_db_match_one_runtime_match_one_action() {
         }
 
         // match
-        assert_eq!(bed.manager.handle_line("test one", now), React::Trigger);
-        bed.assert_empty_trees();
+        assert_eq!(
+            bed.manager.handle_line("test one", now).await,
+            React::Trigger
+        );
+        bed.assert_empty_trees().await;
         // the action executes
         tokio::time::sleep(Duration::from_millis(40)).await;
         assert_eq!(
@@ -486,7 +511,7 @@ async fn one_outdated_db_match() {
 
         // Finish setup
         let bed = bed.part2(filter, now, Some(db)).await;
-        bed.assert_empty_trees();
+        bed.assert_empty_trees().await;
     }
 }
 
@@ -545,6 +570,7 @@ async fn trigger_unmatched_pattern() {
                     .collect(),
                 now,
             )
+            .await
             .unwrap();
 
         // the action executes
@@ -552,7 +578,7 @@ async fn trigger_unmatched_pattern() {
 
         // No matches, one action registered
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert!(state.matches.is_empty());
             assert!(state.ordered_times.is_empty());
             assert_eq!(
@@ -625,6 +651,7 @@ async fn trigger_matched_pattern() {
                     .collect(),
                 now,
             )
+            .await
             .unwrap();
 
         // the action executes
@@ -632,7 +659,7 @@ async fn trigger_matched_pattern() {
 
         // No matches, one action registered
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert!(state.matches.is_empty());
             assert!(state.ordered_times.is_empty());
             assert_eq!(
@@ -707,7 +734,7 @@ async fn trigger_deduplication_on_start() {
 
         // No matches, one or two action·s registered
         {
-            let state = bed.manager.state.lock().unwrap();
+            let state = bed.manager.state.lock().await;
             assert!(state.matches.is_empty());
             assert!(state.ordered_times.is_empty());
             assert_eq!(
@@ -773,12 +800,12 @@ async fn multiple_triggers() {
         let bed = bed.part2(filter, Local::now(), None).await;
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             React::Match,
             "Duplicate: {dup:?}"
         );
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             React::Trigger,
             "Duplicate: {dup:?}"
         );
@@ -795,7 +822,7 @@ async fn multiple_triggers() {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Match,
@@ -804,7 +831,7 @@ async fn multiple_triggers() {
         );
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Trigger,
@@ -938,7 +965,7 @@ async fn extend_trigger_multiple_after_actions() {
         let bed = bed.part2(filter, Local::now(), None).await;
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             React::Trigger,
         );
 
@@ -952,7 +979,7 @@ async fn extend_trigger_multiple_after_actions() {
         );
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()),
+            bed.manager.handle_line("test one", Local::now()).await,
             React::Trigger,
         );
 
@@ -1019,7 +1046,7 @@ async fn ip_specific() {
     let bed = bed.part2(filter, Local::now(), None).await;
 
     assert_eq!(
-        bed.manager.handle_line("test 1.2.3.4", Local::now()),
+        bed.manager.handle_line("test 1.2.3.4", Local::now()).await,
         React::Trigger,
     );
 
@@ -1035,7 +1062,8 @@ async fn ip_specific() {
 
     assert_eq!(
         bed.manager
-            .handle_line("test 1:2:3:4:5:6:7:8", Local::now()),
+            .handle_line("test 1:2:3:4:5:6:7:8", Local::now())
+            .await,
         React::Trigger,
     );
 
