@@ -257,7 +257,9 @@ impl FilterManager {
             .filter(|action| !startup || !action.oneshot)
             // skip any actions
             .skip(match actions_left {
-                Some(actions_left) => self.filter.actions.len() - actions_left as usize,
+                Some(actions_left) => {
+                    self.filter.filtered_actions_from_match(&m).len() - actions_left as usize
+                }
                 None => 0,
             });
 
