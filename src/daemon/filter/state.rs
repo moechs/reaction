@@ -64,32 +64,40 @@ impl State {
         db: &mut Database,
         now: Time,
     ) -> Result<Self, String> {
-        let ordered_times = db.open_tree(
-            filter_ordered_times_db_name(filter),
-            filter.retry_duration.unwrap_or_default(),
-            |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
-        )?;
-        let mut triggers = db.open_tree(
-            filter_triggers_db_name(filter),
-            filter.longuest_action_duration,
-            |(key, value)| Ok((to_match(&key)?, to_timemap(&value)?)),
-        )?;
-        if triggers.is_empty() {
-            let old_triggers = db.open_tree(
-                filter_triggers_old_db_name(filter),
+        let ordered_times = db
+            .open_tree(
+                filter_ordered_times_db_name(filter),
+                filter.retry_duration.unwrap_or_default(),
+                |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
+            )
+            .await?;
+        let mut triggers = db
+            .open_tree(
+                filter_triggers_db_name(filter),
                 filter.longuest_action_duration,
-                |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
-            )?;
+                |(key, value)| Ok((to_match(&key)?, to_timemap(&value)?)),
+            )
+            .await?;
+        if triggers.is_empty() {
+            let old_triggers = db
+                .open_tree(
+                    filter_triggers_old_db_name(filter),
+                    filter.longuest_action_duration,
+                    |(key, value)| Ok((to_matchtime(&key)?, to_u64(&value)?)),
+                )
+                .await?;
             for (mt, n) in old_triggers.iter() {
-                triggers.fetch_update(mt.m.clone(), |map| {
-                    Some(match map {
-                        None => [(mt.t, *n)].into(),
-                        Some(mut map) => {
-                            map.insert(mt.t, *n);
-                            map
-                        }
+                triggers
+                    .fetch_update(mt.m.clone(), |map| {
+                        Some(match map {
+                            None => [(mt.t, *n)].into(),
+                            Some(mut map) => {
+                                map.insert(mt.t, *n);
+                                map
+                            }
+                        })
                     })
-                }).await;
+                    .await;
             }
         }
         let mut this = Self {
@@ -116,15 +124,17 @@ impl State {
             // Add the (Match, Time) to the triggers map
             let n = action_count
                 .unwrap_or_else(|| self.filter.filtered_actions_from_match(&m).len() as u64);
-            self.triggers.fetch_update(m, |map| {
-                Some(match map {
-                    None => [(t, n)].into(),
-                    Some(mut value) => {
-                        value.insert(t, n);
-                        value
-                    }
+            self.triggers
+                .fetch_update(m, |map| {
+                    Some(match map {
+                        None => [(t, n)].into(),
+                        Some(mut value) => {
+                            value.insert(t, n);
+                            value
+                        }
+                    })
                 })
-            }).await;
+                .await;
         }
     }
 
@@ -158,16 +168,18 @@ impl State {
                 exec_needed = true;
                 if count <= 1 {
                     if !exiting {
-                        self.triggers.fetch_update(mt.m, |map| {
-                            map.and_then(|mut map| {
-                                map.remove(&mt.t);
-                                if map.is_empty() {
-                                    None
-                                } else {
-                                    Some(map)
-                                }
+                        self.triggers
+                            .fetch_update(mt.m, |map| {
+                                map.and_then(|mut map| {
+                                    map.remove(&mt.t);
+                                    if map.is_empty() {
+                                        None
+                                    } else {
+                                        Some(map)
+                                    }
+                                })
                             })
-                        }).await;
+                            .await;
                     }
                     // else don't do anything
                     // Because that will remove the entry in the DB, and make
@@ -176,12 +188,14 @@ impl State {
                     // - The current for action counting, not persisted
                     // - Another like ordered_times, Tree<Time, Match>, persisted
                 } else {
-                    self.triggers.fetch_update(mt.m, |map| {
-                        map.map(|mut map| {
-                            map.insert(mt.t, count - 1);
-                            map
+                    self.triggers
+                        .fetch_update(mt.m, |map| {
+                            map.map(|mut map| {
+                                map.insert(mt.t, count - 1);
+                                map
+                            })
                         })
-                    }).await;
+                        .await;
                 }
             }
             exec_needed
@@ -328,8 +342,7 @@ mod tests {
         ];
 
         for trigger_db in triggers {
-            let mut db = TempDatabase::default().await;
-            db.set_loaded_db(HashMap::from([
+            let mut db = TempDatabase::from_loaded_db(HashMap::from([
                 (
                     "filter_ordered_times_s1.f1".into(),
                     HashMap::from([
@@ -344,7 +357,8 @@ mod tests {
                     ]),
                 ),
                 trigger_db,
-            ]));
+            ]))
+            .await;
 
             let state = State::new(filter, &mut db, now).await.unwrap();
 

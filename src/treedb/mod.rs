@@ -39,16 +39,29 @@ use raw::{ReadDB, WriteDB};
 
 mod raw;
 
+/// Any order the Database can receive
+enum Order {
+    Log(Entry),
+    OpenTree(OpenTree),
+}
+
 /// Entry sent from [`Tree`] to [`Database`]
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Entry {
+struct Entry {
     pub tree: String,
     pub key: Value,
     pub value: Option<Value>,
     pub expiry: Time,
 }
 
-pub type LoadedDB = HashMap<String, HashMap<Value, Value>>;
+/// Order to receive a tree from previous Database
+pub struct OpenTree {
+    name: String,
+    resp: oneshot::Sender<Option<LoadedTree>>,
+}
+
+type LoadedTree = HashMap<Value, Value>;
+pub type LoadedDB = HashMap<String, LoadedTree>;
 
 const DB_NAME: &str = "reaction.db";
 const DB_NEW_NAME: &str = "reaction.new.db";
@@ -63,12 +76,43 @@ impl Config {
     }
 }
 
+/// Public-facing API for a treedb Database
+pub struct Database {
+    entry_tx: Option<mpsc::Sender<Order>>,
+    error_rx: oneshot::Receiver<Result<(), String>>,
+}
+
+impl Database {
+    /// Open a new Database, whom task will start in the background.
+    /// You'll have to:
+    /// - drop all [`Tree`]s,
+    /// - call [`Self::quit`],
+    /// to have the Database properly quit.
+    ///
+    /// You can wait for [`Self::quit`] returned channel to know how it went.
+    pub async fn open(config: &Config, shutdown: ShutdownToken) -> Result<Database, IoError> {
+        let (manager, entry_tx) = DatabaseManager::open(config).await?;
+        let error_rx = manager.manager(shutdown);
+        Ok(Self {
+            entry_tx: Some(entry_tx),
+            error_rx,
+        })
+    }
+
+    /// Permit to close DB's channel.
+    /// Without this function manually called, the DB can't close.
+    pub fn quit(self) -> oneshot::Receiver<Result<(), String>> {
+        self.error_rx
+    }
+}
+
 // TODO rotate_db at a regular interval instead of every N bytes?
 // This would make more sense, as actual garbage collection is time-based
 
 /// A [`Database`] logs all write operations on [`Tree`]s in a single file.
-/// Logs are written asynchronously, so the write operations in RAM will never block.
-pub struct Database {
+/// Logs are written asynchronously, so the write operations in RAM will block only when the
+/// underlying channel is full.
+struct DatabaseManager {
     /// Inner database
     write_db: WriteDB,
     /// [`Tree`]s loaded from disk
@@ -79,10 +123,7 @@ pub struct Database {
     /// New database atomically replaces the old one when its writing is done.
     new_path: PathBuf,
     /// The receiver on [`Tree`] write operations
-    entry_rx: mpsc::Receiver<Entry>,
-    /// The sender on [`Tree`] write operations.
-    /// Only used to clone new senders for new Trees.
-    entry_tx: Option<mpsc::Sender<Entry>>,
+    entry_rx: mpsc::Receiver<Order>,
     /// The interval at which the database must be flushed to kernel
     flush_every: Duration,
     /// The maximum bytes that must be written until the database is rotated
@@ -91,8 +132,8 @@ pub struct Database {
     bytes_written: usize,
 }
 
-impl Database {
-    pub async fn open(config: &Config) -> Result<Database, IoError> {
+impl DatabaseManager {
+    pub async fn open(config: &Config) -> Result<(DatabaseManager, mpsc::Sender<Order>), IoError> {
         let path = config.path_of(DB_NAME);
         let new_path = config.path_of(DB_NEW_NAME);
 
@@ -100,17 +141,19 @@ impl Database {
 
         let (entry_tx, entry_rx) = mpsc::channel(1000);
 
-        Ok(Database {
-            write_db,
-            loaded_db,
-            path,
-            new_path,
-            entry_rx,
-            entry_tx: Some(entry_tx),
-            flush_every: Duration::from_secs(2),
-            max_bytes: 20 * 1024 * 1024, // 20 MiB
-            bytes_written: 0,
-        })
+        Ok((
+            DatabaseManager {
+                write_db,
+                loaded_db,
+                path,
+                new_path,
+                entry_rx,
+                flush_every: Duration::from_secs(2),
+                max_bytes: 20 * 1024 * 1024, // 20 MiB
+                bytes_written: 0,
+            },
+            entry_tx,
+        ))
     }
 
     pub fn manager(mut self, shutdown: ShutdownToken) -> oneshot::Receiver<Result<(), String>> {
@@ -123,8 +166,8 @@ impl Database {
             interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
             let mut status = loop {
                 tokio::select! {
-                    entry = self.entry_rx.recv() => {
-                        if let Err(err) = self.handle_entry(entry).await {
+                    order = self.entry_rx.recv() => {
+                        if let Err(err) = self.handle_order(order).await {
                             shutdown.ask_shutdown();
                             break err;
                         }
@@ -141,10 +184,9 @@ impl Database {
 
             // Finish consuming received entries when shutdown asked
             if status.is_none() {
-                self.entry_tx = None;
                 loop {
-                    let entry = self.entry_rx.recv().await;
-                    if let Err(err) = self.handle_entry(entry).await {
+                    let order = self.entry_rx.recv().await;
+                    if let Err(err) = self.handle_order(order).await {
                         status = err;
                         break;
                     }
@@ -168,30 +210,39 @@ impl Database {
         error_rx
     }
 
-    /// Write a received entry. Return:
+    /// Executes an order. Returns:
     /// - Err(Some) if there was an error,
     /// - Err(None) is channel is closed,
     /// - Ok(()) in general case.
-    async fn handle_entry(&mut self, entry: Option<Entry>) -> Result<(), Option<String>> {
-        match entry {
-            Some(entry) => match self.write_db.write_entry(&entry).await {
-                Ok(bytes_written) => {
-                    self.bytes_written += bytes_written;
-                    if self.bytes_written > self.max_bytes {
-                        match self.rotate_db().await {
-                            Ok(_) => {
-                                self.bytes_written = 0;
-                                Ok(())
-                            }
-                            Err(err) => Err(Some(format!("while rotating database: {err}"))),
-                        }
-                    } else {
-                        Ok(())
-                    }
-                }
-                Err(err) => Err(Some(format!("while writing entry to database: {err}"))),
-            },
+    async fn handle_order(&mut self, order: Option<Order>) -> Result<(), Option<String>> {
+        match order {
+            Some(Order::Log(entry)) => self.handle_entry(entry).await.map_err(Option::Some),
+            Some(Order::OpenTree(open_tree)) => {
+                self.handle_open_tree(open_tree);
+                Ok(())
+            }
             None => Err(None),
+        }
+    }
+
+    /// Write a received entry.
+    async fn handle_entry(&mut self, entry: Entry) -> Result<(), String> {
+        match self.write_db.write_entry(&entry).await {
+            Ok(bytes_written) => {
+                self.bytes_written += bytes_written;
+                if self.bytes_written > self.max_bytes {
+                    match self.rotate_db().await {
+                        Ok(_) => {
+                            self.bytes_written = 0;
+                            Ok(())
+                        }
+                        Err(err) => Err(format!("while rotating database: {err}")),
+                    }
+                } else {
+                    Ok(())
+                }
+            }
+            Err(err) => Err(format!("while writing entry to database: {err}")),
         }
     }
 
@@ -272,7 +323,7 @@ pub struct Tree<K: KeyType, V: ValueType> {
     /// The inner BTreeMap
     tree: BTreeMap<K, V>,
     /// The sender that permits to asynchronously send write operations to database
-    tx: mpsc::Sender<Entry>,
+    tx: mpsc::Sender<Order>,
 }
 
 impl Database {
@@ -280,7 +331,7 @@ impl Database {
     /// Takes a closure (or regular function) that converts (Value, Value) JSON entries
     /// into (K, V) typed entries.
     /// Helpers for this closure can be found in the [`helpers`] module.
-    pub fn open_tree<K: KeyType, V: ValueType, F>(
+    pub async fn open_tree<K: KeyType, V: ValueType, F>(
         &mut self,
         name: String,
         entry_timeout: TimeDelta,
@@ -289,13 +340,24 @@ impl Database {
     where
         F: Fn((Value, Value)) -> Result<(K, V), String>,
     {
-        // Get a clone of the channel sender
-        let tx = self
-            .entry_tx
-            .clone()
-            .ok_or("Database is closing".to_string())?;
+        // Request the tree
+        let (tx, rx) = oneshot::channel();
+        let entry_tx = match self.entry_tx.clone() {
+            None => return Err("Database is closing".to_string()),
+            Some(entry_tx) => {
+                entry_tx
+                    .send(Order::OpenTree(OpenTree {
+                        name: name.clone(),
+                        resp: tx,
+                    }))
+                    .await
+                    .map_err(|_| "Database did not answer")?;
+                // Get a clone of the channel sender
+                entry_tx.clone()
+            }
+        };
         // Load the tree from its JSON
-        let tree = if let Some(json_tree) = self.loaded_db.remove(&name) {
+        let tree = if let Some(json_tree) = rx.await.map_err(|_| "Database did not respond")? {
             json_tree
                 .into_iter()
                 .map(map_f)
@@ -307,15 +369,25 @@ impl Database {
             id: name,
             entry_timeout,
             tree,
-            tx,
+            tx: entry_tx,
         })
+    }
+}
+
+impl DatabaseManager {
+    /// Creates a new Tree with the given name and entry timeout.
+    /// Takes a closure (or regular function) that converts (Value, Value) JSON entries
+    /// into (K, V) typed entries.
+    /// Helpers for this closure can be found in the [`helpers`] module.
+    pub fn handle_open_tree(&mut self, open_tree: OpenTree) {
+        let _ = open_tree.resp.send(self.loaded_db.remove(&open_tree.name));
     }
 
     // TODO keep only tree names, and use it for next db rotation to remove associated entries
-    /// Drops Trees that have not been loaded already
-    pub fn drop_trees(&mut self) {
-        self.loaded_db = HashMap::default();
-    }
+    // Drops Trees that have not been loaded already
+    // pub fn drop_trees(&mut self) {
+    //     self.loaded_db = HashMap::default();
+    // }
 }
 
 // Gives access to all read-only functions
@@ -339,7 +411,7 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
         };
         let tx = self.tx.clone();
         // FIXME what if send fails?
-        let _ = tx.send(e).await;
+        let _ = tx.send(Order::Log(e)).await;
     }
 
     /// Asynchronously persisted version of [`BTreeMap::insert`]
@@ -410,15 +482,24 @@ mod tests {
     use tempfile::{NamedTempFile, TempDir};
     use tokio::fs::{write, File};
 
-    use crate::concepts::Config;
+    use crate::{concepts::Config, daemon::ShutdownController};
 
     use super::{
-        helpers::*, raw::WriteDB, rotate_db, Database, Entry, KeyType, LoadedDB, Tree, ValueType,
-        DB_NAME,
+        helpers::*, raw::WriteDB, rotate_db, Database, DatabaseManager, Entry, KeyType, LoadedDB,
+        Tree, ValueType, DB_NAME,
     };
 
+    impl DatabaseManager {
+        pub fn set_loaded_db(&mut self, loaded_db: LoadedDB) {
+            self.loaded_db = loaded_db;
+        }
+    }
+
     impl Database {
-        pub async fn from_dir(dir_path: &Path) -> Result<Self, IoError> {
+        pub async fn from_dir(
+            dir_path: &Path,
+            loaded_db: Option<LoadedDB>,
+        ) -> Result<Self, IoError> {
             let config_path = dir_path.join("reaction.jsonnet");
             write(
                 &config_path,
@@ -443,11 +524,12 @@ mod tests {
             .await?;
 
             let config = Config::from_path(&config_path).unwrap();
-            Database::open(&config).await
-        }
-
-        pub fn set_loaded_db(&mut self, loaded_db: LoadedDB) {
-            self.loaded_db = loaded_db;
+            let (mut manager, entry_tx) = DatabaseManager::open(&config).await?;
+            if let Some(loaded_db) = loaded_db {
+                manager.set_loaded_db(loaded_db)
+            }
+            let error_rx = manager.manager(ShutdownController::new().token());
+            Ok(Self { entry_tx: Some(entry_tx), error_rx })
         }
     }
 
@@ -629,7 +711,7 @@ mod tests {
         write_db.close().await.unwrap();
         drop(write_db);
 
-        let mut database = Database::from_dir(dir_path).await.unwrap();
+        let mut database = Database::from_dir(dir_path, None).await.unwrap();
 
         let time_match = database
             .open_tree(
@@ -637,6 +719,7 @@ mod tests {
                 TimeDelta::seconds(2),
                 |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
             )
+            .await
             .unwrap();
         assert_eq!(
             time_match.tree,
@@ -653,6 +736,7 @@ mod tests {
                 TimeDelta::hours(2),
                 |(key, value)| Ok((to_match(&key)?, to_timeset(&value)?)),
             )
+            .await
             .unwrap();
         assert_eq!(
             match_timeset.tree,
@@ -668,6 +752,7 @@ mod tests {
                 TimeDelta::hours(2),
                 |(key, value)| Ok((to_match(&key)?, to_timeset(&value)?)),
             )
+            .await
             .unwrap();
         assert_eq!(unknown_tree.tree, BTreeMap::default());
     }

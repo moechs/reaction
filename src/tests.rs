@@ -9,7 +9,7 @@ use std::{
 
 use tempfile::TempDir;
 
-use crate::treedb::Database;
+use crate::treedb::{Database, LoadedDB};
 
 pub struct Fixture {
     path: PathBuf,
@@ -65,7 +65,15 @@ pub struct TempDatabase {
 impl TempDatabase {
     pub async fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
-        let db = Database::from_dir(_tempdir.path()).await.unwrap();
+        let db = Database::from_dir(_tempdir.path(), None).await.unwrap();
+        TempDatabase { _tempdir, db }
+    }
+
+    pub async fn from_loaded_db(loaded_db: LoadedDB) -> Self {
+        let _tempdir = TempDir::new().unwrap();
+        let db = Database::from_dir(_tempdir.path(), Some(loaded_db))
+            .await
+            .unwrap();
         TempDatabase { _tempdir, db }
     }
 }

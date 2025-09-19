@@ -109,7 +109,7 @@ impl FilterManager {
                     .remove_trigger(&m)
                     .await
                     // Only one entry in the map because Duplicate::Extend
-                    .and_then(|map| map.first_key_value().map(|(_, n)| n.clone()))
+                    .and_then(|map| map.first_key_value().map(|(_, n)| *n))
             } else {
                 None
             };
@@ -240,12 +240,12 @@ impl FilterManager {
     /// Schedule execution for a given Match.
     /// We check first if the trigger is still here
     /// because pending actions can be flushed.
-    async fn schedule_exec<'a>(
+    async fn schedule_exec(
         &self,
         m: Match,
         t: Time,
         now: Time,
-        state: &'a mut MutexGuard<'_, State>,
+        state: &mut MutexGuard<'_, State>,
         startup: bool,
         actions_left: Option<u64>,
     ) {

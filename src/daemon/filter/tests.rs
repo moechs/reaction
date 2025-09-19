@@ -427,17 +427,15 @@ async fn one_db_match_one_runtime_match_one_action() {
             &bed.az_patterns,
         );
 
-        let mut db = TempDatabase::default().await;
-
         // Pre-add match
         let now = Local::now();
         let one = vec!["one".to_string()];
         let now1s = now - TimeDelta::seconds(1);
 
-        db.set_loaded_db(HashMap::from([(
+        let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )]));
+        )])).await;
 
         // Finish setup
         let bed = bed.part2(filter, now, Some(db)).await;
@@ -497,17 +495,15 @@ async fn one_outdated_db_match() {
             &bed.az_patterns,
         );
 
-        let mut db = TempDatabase::default().await;
-
         // Pre-add match
         let now = Local::now();
         let one = vec!["one".to_string()];
         let now1s = now - TimeDelta::milliseconds(1001);
 
-        db.set_loaded_db(HashMap::from([(
+        let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )]));
+        )])).await;
 
         // Finish setup
         let bed = bed.part2(filter, now, Some(db)).await;
@@ -634,11 +630,10 @@ async fn trigger_matched_pattern() {
         let now1s = now - TimeDelta::milliseconds(10);
         let one = vec!["one".to_string()];
 
-        let mut db = TempDatabase::default().await;
-        db.set_loaded_db(HashMap::from([(
+        let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )]));
+        )])).await;
         let bed = bed.part2(filter, now, Some(db)).await;
 
         bed.manager
@@ -716,8 +711,7 @@ async fn trigger_deduplication_on_start() {
         let now2s = now - TimeDelta::milliseconds(1030);
         let one = vec!["one".to_string()];
 
-        let mut db = TempDatabase::default().await;
-        db.set_loaded_db(HashMap::from([(
+        let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_triggers_db_name(filter),
             HashMap::from([(
                 one.clone().into(),
@@ -726,7 +720,7 @@ async fn trigger_deduplication_on_start() {
                     now2s.to_rfc3339(): 1,
                 }),
             )]),
-        )]));
+        )])).await;
         let bed = bed.part2(filter, now, Some(db)).await;
 
         // the action executes

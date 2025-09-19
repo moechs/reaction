@@ -41,7 +41,7 @@ pub async fn daemon(
     let shutdown = ShutdownController::new();
 
     // Open Database
-    let mut db = Database::open(config).await?;
+    let mut db = Database::open(config, shutdown.token()).await?;
 
     // Open Socket
     let socket = Socket::open(socket).await?;
@@ -80,9 +80,6 @@ pub async fn daemon(
         (state, stream_managers)
     };
 
-    // Run database task
-    let mut db_status_rx = db.manager(shutdown.token());
-
     // Run socket task
     socket.manager(config, state, shutdown.token());
 
@@ -101,17 +98,18 @@ pub async fn daemon(
         let _ = task_handle.await;
     }
 
+    // Release last db's sender
+    let mut db_status = db.quit();
+
     debug!("Asking for all tasks to quit...");
     shutdown.ask_shutdown();
 
     debug!("Waiting for all tasks to quit...");
     shutdown.wait_shutdown().await;
 
-    let db_status = db_status_rx.try_recv();
-
     let stop_ok = config.stop();
 
-    if let Ok(Err(err)) = db_status {
+    if let Ok(Err(err)) = db_status.try_recv() {
         Err(format!("database error: {}", err).into())
     } else if !signal_received.load(Ordering::SeqCst) {
         Err("quitting because all streams finished".into())
