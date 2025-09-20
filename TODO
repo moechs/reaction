@@ -1,9 +1,3 @@
 Test what happens when a Filter's pattern Set changes (I think it's shitty)
-
 stream: test regex ending with $
-
-should an ipv6-mapped ipv4 match a pattern of type ipv6?
-should it be normalized as ipv4 then?
-
-fix order of db writes subject to race condition (make writes async?)
 DB: add tests on stress testing (lines should always be in order)
