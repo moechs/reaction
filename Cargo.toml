@@ -32,20 +32,27 @@ assets = [
 ]
 
 [dependencies]
+# Time types
 chrono = { version = "0.4.38", features = ["std", "clock", "serde"] }
+# CLI parsing
 clap = { version = "4.5.4", features = ["derive"] }
-jrsonnet-evaluator = "0.4.2"
+# Unix interfaces
 nix = { version = "0.29.0", features = ["signal"] }
 num_cpus = "1.16.0"
+# Regex matching
 regex = "1.10.4"
+# Configuration languages, ser/deserialisation
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.34"
+jrsonnet-evaluator = "0.4.2"
+# Error macro
 thiserror = "1.0.63"
-timer = "0.2.0"
+# Async runtime & helpers
 futures = "0.3.30"
 tokio = { version = "1.40.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["codec"] }
+# Async logging
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 
