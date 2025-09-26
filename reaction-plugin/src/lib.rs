@@ -7,6 +7,14 @@
 /// To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 /// the entrypoint for a plugin.
 /// It permits to define 0 to n (stream, filter, action) custom types.
+///
+/// It must also export a function that returns an impl of the trait:
+/// ```rust
+/// #[stabby::export(checked)]
+/// extern "C" fn reaction_plugin() -> BoxedPluginInfo {
+///     ...
+/// }
+/// ```
 use stabby::{
     boxed::Box, future::DynFuture, option::Option, result::Result, string::String, vec::Vec,
 };
@@ -26,7 +34,7 @@ pub trait PluginInfo {
         stream_name: String,
         stream_type: String,
         config: Value,
-    ) -> Result<BoxedStreamImpl, PluginError>;
+    ) -> Result<BoxedStreamImpl, String>;
 
     /// Return all filter types that should be made available to reaction users
     extern "C" fn filter_impls(&self) -> Vec<String>;
@@ -37,7 +45,7 @@ pub trait PluginInfo {
         filter_name: String,
         filter_type: String,
         config: Value,
-    ) -> Result<BoxedFilterImpl, PluginError>;
+    ) -> Result<BoxedFilterImpl, String>;
 
     /// Return all action types that should be made available to reaction users
     extern "C" fn action_impls(&self) -> Vec<String>;
@@ -49,21 +57,17 @@ pub trait PluginInfo {
         action_name: String,
         action_type: String,
         config: Value,
-    ) -> Result<BoxedActionImpl, PluginError>;
+    ) -> Result<BoxedActionImpl, String>;
 
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error
     /// (For example if a stream wants a companion action but it hasn't been initialized)
     extern "C" fn finish_setup(&mut self) -> Result<(), String>;
 }
 
-pub enum PluginError {
-    InexistantType,
-    InitialisationError(String),
-}
-
-type BoxedStreamImpl = stabby::dynptr!(Box<dyn StreamImpl>);
-type BoxedFilterImpl = stabby::dynptr!(Box<dyn FilterImpl>);
-type BoxedActionImpl = stabby::dynptr!(Box<dyn ActionImpl>);
+pub type BoxedPluginInfo = stabby::dynptr!(Box<dyn PluginInfo>);
+pub type BoxedStreamImpl = stabby::dynptr!(Box<dyn StreamImpl>);
+pub type BoxedFilterImpl = stabby::dynptr!(Box<dyn FilterImpl>);
+pub type BoxedActionImpl = stabby::dynptr!(Box<dyn ActionImpl>);
 
 #[stabby::stabby(checked)]
 pub trait StreamImpl {
@@ -73,8 +77,8 @@ pub trait StreamImpl {
 
 #[stabby::stabby(checked)]
 pub trait FilterImpl {
-    extern "C" fn matches(&mut self, line: String) -> bool;
-    extern "C" fn close(&mut self) -> Result<(), String>;
+    extern "C" fn matches<'a>(&'a mut self, line: String) -> DynFuture<'a, bool>;
+    extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
 }
 
 #[stabby::stabby(checked)]
