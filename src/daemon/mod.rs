@@ -35,6 +35,13 @@ pub async fn daemon(
     config_path: PathBuf,
     socket: PathBuf,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Je dois
+    // 1. Fusionner toute la config
+    // 2. Charger tous les plugins
+    // 3. Setup la config, avec les plugins
+    // 4. Supprimer la struct des plugins
+    // → En fait nan, les plugins c'est pas du static, c'est live, faut que ça vivent dans le
+    // daemon! Au même endroit que les Command sont lancées en fait !
     let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
 
     // Cancellation Token
@@ -66,7 +73,8 @@ pub async fn daemon(
             let mut filter_managers = HashMap::new();
             for filter in stream.filters.values() {
                 let manager =
-                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now).await?;
+                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)
+                        .await?;
                 filter_managers.insert(filter, manager);
             }
             state.insert(stream, filter_managers.clone());

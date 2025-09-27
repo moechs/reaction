@@ -3,10 +3,12 @@ use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 use chrono::TimeDelta;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::process::Command;
 
-use super::{parse_duration::*, PatternType};
-use super::{Match, Pattern};
+use crate::plugin::Plugins;
+
+use super::{null_value, parse_duration::*, Match, Pattern, PatternType};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +43,12 @@ pub struct Action {
     pub filter_name: String,
     #[serde(skip)]
     pub stream_name: String,
+
+    // Plugin-specific
+    #[serde(default, rename = "type")]
+    pub action_type: Option<String>,
+    #[serde(default = "null_value")]
+    pub options: Value,
 }
 
 fn set_false() -> bool {
@@ -82,11 +90,21 @@ impl Action {
             return Err("character '.' is not allowed in filter name".into());
         }
 
-        if self.cmd.is_empty() {
-            return Err("cmd is empty".into());
-        }
-        if self.cmd[0].is_empty() {
-            return Err("cmd's first item is empty".into());
+        if self
+            .action_type
+            .as_ref()
+            .is_none_or(|stream_type| stream_type == "cmd")
+        {
+            if self.cmd.is_empty() {
+                return Err("cmd is empty".into());
+            }
+            if self.cmd[0].is_empty() {
+                return Err("cmd's first item is empty".into());
+            }
+        } else {
+            if !self.cmd.is_empty() {
+                return Err("can't define cmd and a plugin type".into());
+            }
         }
 
         if let Some(after) = &self.after {
@@ -115,6 +133,11 @@ impl Action {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
+        // TODO self setup
         Ok(())
     }
 

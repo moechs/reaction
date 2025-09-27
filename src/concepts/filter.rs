@@ -10,8 +10,9 @@ use chrono::TimeDelta;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::{parse_duration, PatternType};
-use super::{Action, Match, Pattern, Patterns};
+use crate::plugin::Plugins;
+
+use super::{parse_duration, Action, Match, Pattern, PatternType, Patterns};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Duplicate {
@@ -58,6 +59,11 @@ pub struct Filter {
     pub name: String,
     #[serde(skip)]
     pub stream_name: String,
+    // // Plugin-specific
+    // #[serde(default, rename = "type")]
+    // pub filter_type: Option<String>,
+    // #[serde(default = "null_value")]
+    // pub options: Value,
 }
 
 impl Filter {
@@ -187,6 +193,13 @@ impl Filter {
                     .map_or(acc, |v| if v > acc { v } else { acc })
             });
 
+        Ok(())
+    }
+
+    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
+        for (_, action) in &mut self.actions {
+            action.plugin_setup(plugins)?;
+        }
         Ok(())
     }
 

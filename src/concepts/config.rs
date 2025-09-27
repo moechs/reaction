@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use super::{Pattern, Stream};
+use super::{merge_attrs, Pattern, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -23,6 +23,9 @@ pub struct Config {
     pub concurrency: usize,
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_directories: Vec<String>,
 
     #[serde(default)]
     pub patterns: Patterns,
@@ -73,25 +76,26 @@ impl Config {
         self.start.append(&mut other.start);
         self.stop.append(&mut other.stop);
 
-        if !(self.state_directory == dot()
-            || other.state_directory == dot()
-            || self.state_directory == other.state_directory)
-        {
-            return Err("state_directory have conflicting definitions".into());
-        }
-        if self.state_directory == dot() {
-            self.state_directory = other.state_directory;
-        }
+        self.state_directory = merge_attrs(
+            self.state_directory.clone(),
+            other.state_directory,
+            ".".into(),
+            "state_directory",
+        )?;
 
-        if !(self.concurrency == num_cpus::get()
-            || other.concurrency == num_cpus::get()
-            || self.concurrency == other.concurrency)
-        {
-            return Err("concurrency have conflicting definitions".into());
-        }
-        if self.concurrency == num_cpus::get() {
-            self.concurrency = other.concurrency;
-        }
+        self.plugin_directories = merge_attrs(
+            self.plugin_directories.clone(),
+            other.plugin_directories,
+            Vec::default(),
+            "plugin_directories",
+        )?;
+
+        self.concurrency = merge_attrs(
+            self.concurrency,
+            other.concurrency,
+            num_cpus::get(),
+            "concurrency",
+        )?;
 
         Ok(())
     }
@@ -103,6 +107,15 @@ impl Config {
 
         // Nullify this useless field
         self._definitions = serde_json::Value::Null;
+
+        for dir in &self.plugin_directories {
+            if dir.is_empty() {
+                return Err("can't specify empty plugin directory".into());
+            }
+            if !dir.starts_with("/") {
+                return Err(format!("plugin directory paths must be absolute: {dir}"));
+            }
+        }
 
         if self.patterns.is_empty() {
             return Err("no patterns configured".into());

@@ -36,16 +36,16 @@ pub trait PluginInfo {
         config: Value,
     ) -> Result<BoxedStreamImpl, String>;
 
-    /// Return all filter types that should be made available to reaction users
-    extern "C" fn filter_impls(&self) -> Vec<String>;
-    /// Return one instance of a given type.
-    extern "C" fn filter_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        filter_type: String,
-        config: Value,
-    ) -> Result<BoxedFilterImpl, String>;
+    // /// Return all filter types that should be made available to reaction users
+    // extern "C" fn filter_impls(&self) -> Vec<String>;
+    // /// Return one instance of a given type.
+    // extern "C" fn filter_impl(
+    //     &mut self,
+    //     stream_name: String,
+    //     filter_name: String,
+    //     filter_type: String,
+    //     config: Value,
+    // ) -> Result<BoxedFilterImpl, String>;
 
     /// Return all action types that should be made available to reaction users
     extern "C" fn action_impls(&self) -> Vec<String>;
@@ -66,7 +66,7 @@ pub trait PluginInfo {
 
 pub type BoxedPluginInfo = stabby::dynptr!(Box<dyn PluginInfo>);
 pub type BoxedStreamImpl = stabby::dynptr!(Box<dyn StreamImpl>);
-pub type BoxedFilterImpl = stabby::dynptr!(Box<dyn FilterImpl>);
+// pub type BoxedFilterImpl = stabby::dynptr!(Box<dyn FilterImpl>);
 pub type BoxedActionImpl = stabby::dynptr!(Box<dyn ActionImpl>);
 
 #[stabby::stabby(checked)]
@@ -75,11 +75,11 @@ pub trait StreamImpl {
     extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
 }
 
-#[stabby::stabby(checked)]
-pub trait FilterImpl {
-    extern "C" fn matches<'a>(&'a mut self, line: String) -> DynFuture<'a, bool>;
-    extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
-}
+// #[stabby::stabby(checked)]
+// pub trait FilterImpl {
+//     extern "C" fn matches<'a>(&'a mut self, line: String) -> DynFuture<'a, bool>;
+//     extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
+// }
 
 #[stabby::stabby(checked)]
 pub trait ActionImpl {

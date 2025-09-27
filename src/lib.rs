@@ -13,6 +13,7 @@ pub mod cli;
 pub mod client;
 pub mod concepts;
 pub mod daemon;
+pub mod plugin;
 pub mod protocol;
 pub mod tests;
 pub mod treedb;

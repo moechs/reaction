@@ -1,8 +1,12 @@
 use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 
+use reaction_plugin::BoxedStreamImpl;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::{Filter, Patterns};
+use crate::plugin::Plugins;
+
+use super::{merge_attrs, null_value, Filter, Patterns};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -10,11 +14,18 @@ use super::{Filter, Patterns};
 pub struct Stream {
     #[serde(default)]
     pub cmd: Vec<String>,
+
     #[serde(default)]
     pub filters: BTreeMap<String, Filter>,
 
     #[serde(skip)]
     pub name: String,
+
+    // Plugin-specific
+    #[serde(default, rename = "type")]
+    pub stream_type: Option<String>,
+    #[serde(default = "null_value")]
+    pub options: Value,
 }
 
 impl Stream {
@@ -23,13 +34,8 @@ impl Stream {
     }
 
     pub fn merge(&mut self, other: Stream) -> Result<(), String> {
-        if !(self.cmd.is_empty() || other.cmd.is_empty() || self.cmd == other.cmd) {
-            return Err("cmd has conflicting definitions".into());
-        }
-
-        if self.cmd.is_empty() {
-            self.cmd = other.cmd;
-        }
+        self.cmd = merge_attrs(self.cmd.clone(), other.cmd, Vec::default(), "cmd")?;
+        self.stream_type = merge_attrs(self.stream_type.clone(), other.stream_type, None, "type")?;
 
         for (key, filter) in other.filters.into_iter() {
             if self.filters.insert(key.clone(), filter).is_some() {
@@ -38,6 +44,12 @@ impl Stream {
         }
 
         Ok(())
+    }
+
+    fn is_plugin(&self) -> bool {
+        self.stream_type
+            .as_ref()
+            .is_some_and(|stream_type| stream_type != "cmd")
     }
 
     pub fn setup(&mut self, name: &str, patterns: &Patterns) -> Result<(), String> {
@@ -55,11 +67,17 @@ impl Stream {
             return Err("character '.' is not allowed in stream name".into());
         }
 
-        if self.cmd.is_empty() {
-            return Err("cmd is empty".into());
-        }
-        if self.cmd[0].is_empty() {
-            return Err("cmd's first item is empty".into());
+        if !self.is_plugin() {
+            if self.cmd.is_empty() {
+                return Err("cmd is empty".into());
+            }
+            if self.cmd[0].is_empty() {
+                return Err("cmd's first item is empty".into());
+            }
+        } else {
+            if !self.cmd.is_empty() {
+                return Err("can't define cmd and a plugin type".into());
+            }
         }
 
         if self.filters.is_empty() {
@@ -70,6 +88,19 @@ impl Stream {
             filter.setup(name, key, patterns)?;
         }
 
+        Ok(())
+    }
+
+    // FIXME Nan faut pas que je fasse ça là en fait, ça doit se passer côté StreamManager en fait
+    // j'pense
+    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
+        if self.is_plugin() {
+            plugins.init_stream_impl(self.name, self.stream_type, self.options);
+        }
+
+        for (_, filter) in &mut self.filters {
+            filter.plugin_setup(plugins)?;
+        }
         Ok(())
     }
 }
@@ -102,16 +133,8 @@ mod tests {
     use super::*;
     use crate::concepts::filter::tests::ok_filter;
 
-    fn default_stream() -> Stream {
-        Stream {
-            cmd: Vec::new(),
-            name: "".into(),
-            filters: BTreeMap::new(),
-        }
-    }
-
     fn ok_stream() -> Stream {
-        let mut stream = default_stream();
+        let mut stream = Stream::default();
         stream.cmd = vec!["command".into()];
         stream.filters.insert("name".into(), ok_filter());
         stream
