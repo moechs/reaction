@@ -19,7 +19,7 @@ pub struct Plugins {
 }
 
 impl Plugins {
-    pub async fn import(&mut self, plugin_directories: Vec<String>) -> Result<(), String> {
+    pub async fn import(&mut self, plugin_directories: &Vec<String>) -> Result<(), String> {
         for plugin_directory in plugin_directories {
             let mut dir_entries = read_dir(&plugin_directory).await.map_err(|err| {
                 format!("Error reading plugin directory {plugin_directory}: {err}")

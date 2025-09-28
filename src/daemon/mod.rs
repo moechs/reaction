@@ -16,7 +16,7 @@ use tokio::{
 };
 use tracing::{debug, info};
 
-use crate::{concepts::Config, treedb::Database};
+use crate::{concepts::Config, plugin::Plugins, treedb::Database};
 use filter::FilterManager;
 pub use filter::React;
 pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
@@ -35,14 +35,10 @@ pub async fn daemon(
     config_path: PathBuf,
     socket: PathBuf,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // Je dois
-    // 1. Fusionner toute la config
-    // 2. Charger tous les plugins
-    // 3. Setup la config, avec les plugins
-    // 4. Supprimer la struct des plugins
-    // → En fait nan, les plugins c'est pas du static, c'est live, faut que ça vivent dans le
-    // daemon! Au même endroit que les Command sont lancées en fait !
     let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
+
+    let mut plugins = Plugins::default();
+    plugins.import(&config.plugin_directories).await?;
 
     // Cancellation Token
     let shutdown = ShutdownController::new();
@@ -83,6 +79,7 @@ pub async fn daemon(
                 stream,
                 filter_managers,
                 shutdown.token(),
+                &mut plugins,
             )?);
         }
         (state, stream_managers)

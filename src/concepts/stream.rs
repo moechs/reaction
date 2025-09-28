@@ -1,10 +1,7 @@
 use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 
-use reaction_plugin::BoxedStreamImpl;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::plugin::Plugins;
 
 use super::{merge_attrs, null_value, Filter, Patterns};
 
@@ -46,7 +43,7 @@ impl Stream {
         Ok(())
     }
 
-    fn is_plugin(&self) -> bool {
+    pub fn is_plugin(&self) -> bool {
         self.stream_type
             .as_ref()
             .is_some_and(|stream_type| stream_type != "cmd")
@@ -88,19 +85,6 @@ impl Stream {
             filter.setup(name, key, patterns)?;
         }
 
-        Ok(())
-    }
-
-    // FIXME Nan faut pas que je fasse ça là en fait, ça doit se passer côté StreamManager en fait
-    // j'pense
-    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
-        if self.is_plugin() {
-            plugins.init_stream_impl(self.name, self.stream_type, self.options);
-        }
-
-        for (_, filter) in &mut self.filters {
-            filter.plugin_setup(plugins)?;
-        }
         Ok(())
     }
 }

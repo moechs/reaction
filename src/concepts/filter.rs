@@ -10,8 +10,6 @@ use chrono::TimeDelta;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::plugin::Plugins;
-
 use super::{parse_duration, Action, Match, Pattern, PatternType, Patterns};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -193,13 +191,6 @@ impl Filter {
                     .map_or(acc, |v| if v > acc { v } else { acc })
             });
 
-        Ok(())
-    }
-
-    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
-        for (_, action) in &mut self.actions {
-            action.plugin_setup(plugins)?;
-        }
         Ok(())
     }
 

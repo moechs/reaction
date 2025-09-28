@@ -65,13 +65,14 @@ pub trait PluginInfo {
 }
 
 pub type BoxedPluginInfo = stabby::dynptr!(Box<dyn PluginInfo>);
-pub type BoxedStreamImpl = stabby::dynptr!(Box<dyn StreamImpl>);
+pub type BoxedStreamImpl = stabby::dynptr!(Box<dyn StreamImpl + Sync + Send>);
 // pub type BoxedFilterImpl = stabby::dynptr!(Box<dyn FilterImpl>);
-pub type BoxedActionImpl = stabby::dynptr!(Box<dyn ActionImpl>);
+pub type BoxedActionImpl = stabby::dynptr!(Box<dyn ActionImpl + Sync + Send>);
 
 #[stabby::stabby(checked)]
 pub trait StreamImpl {
-    extern "C" fn next<'a>(&'a mut self) -> DynFuture<'a, Result<Option<Vec<u8>>, String>>;
+    extern "C" fn start<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
+    extern "C" fn next<'a>(&'a mut self) -> DynFuture<'a, Result<Option<String>, String>>;
     extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
 }
 
@@ -83,6 +84,9 @@ pub trait StreamImpl {
 
 #[stabby::stabby(checked)]
 pub trait ActionImpl {
-    extern "C" fn next<'a>(&'a mut self) -> DynFuture<'a, Result<Option<Vec<u8>>, String>>;
+    extern "C" fn exec<'a>(
+        &'a mut self,
+        match_: Vec<String>,
+    ) -> DynFuture<'a, Result<Option<Vec<u8>>, String>>;
     extern "C" fn close<'a>(&'a mut self) -> DynFuture<'a, Result<(), String>>;
 }

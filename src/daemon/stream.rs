@@ -6,6 +6,7 @@ use std::{
 
 use chrono::Local;
 use futures::{FutureExt, Stream as AsyncStream, StreamExt};
+use reaction_plugin::{BoxedStreamImpl, StreamImplDynMut};
 use regex::RegexSet;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -17,6 +18,7 @@ use tracing::{error, info, warn};
 use crate::{
     concepts::{Filter, Stream},
     daemon::filter::FilterManager,
+    plugin::Plugins,
 };
 
 use super::shutdown::ShutdownToken;
@@ -52,6 +54,7 @@ pub struct StreamManager {
     compiled_regex_set: RegexSet,
     regex_index_to_filter_manager: Vec<FilterManager>,
     stream: &'static Stream,
+    stream_plugin: Option<&'static mut BoxedStreamImpl>,
     shutdown: ShutdownToken,
 }
 
@@ -60,7 +63,8 @@ impl StreamManager {
         stream: &'static Stream,
         filter_managers: HashMap<&'static Filter, FilterManager>,
         shutdown: ShutdownToken,
-    ) -> Result<Self, regex::Error> {
+        plugins: &mut Plugins,
+    ) -> Result<Self, String> {
         let all_regexes: BTreeMap<_, _> = filter_managers
             .iter()
             .flat_map(|(filter, filter_manager)| {
@@ -71,16 +75,71 @@ impl StreamManager {
             })
             .collect();
 
+        let stream_plugin = if stream.is_plugin() {
+            Some(Box::leak(Box::new(plugins.init_stream_impl(
+                stream.name.clone(),
+                stream.stream_type.clone().unwrap(),
+                stream.options.clone(),
+            )?)))
+        } else {
+            None
+        };
+
         Ok(StreamManager {
-            compiled_regex_set: RegexSet::new(all_regexes.keys())?,
+            compiled_regex_set: RegexSet::new(all_regexes.keys()).map_err(|err| err.to_string())?,
             regex_index_to_filter_manager: all_regexes.into_values().collect(),
             stream,
+            stream_plugin,
             shutdown,
         })
     }
 
     pub async fn start(self) {
         info!("{}: start {:?}", self.stream.name, self.stream.cmd);
+
+        if self.stream_plugin.is_some() {
+            self.start_plugin().await
+        } else {
+            self.start_cmd().await
+        }
+    }
+
+    async fn start_plugin(self) {
+        let plugin = self.stream_plugin.unwrap();
+
+        {
+            let result = plugin.start().await;
+            if result.is_err() {
+                error!(
+                    "could not execute stream {}: {}",
+                    self.stream.name,
+                    result.unwrap_err()
+                );
+                return;
+            }
+        }
+
+        loop {
+            let result = plugin.next().await;
+            let result = if result.is_ok() {
+                let option = result.unwrap();
+                if option.is_some() {
+                    self.handle_line(option.unwrap().to_string()).await;
+                } else {
+                    return;
+                }
+            } else {
+                error!(
+                    "impossible to read output from stream {}: {}",
+                    self.stream.name,
+                    result.unwrap_err()
+                );
+                return;
+            };
+        }
+    }
+
+    async fn start_cmd(self) {
         let mut child = match Command::new(&self.stream.cmd[0])
             .args(&self.stream.cmd[1..])
             .stdin(Stdio::null())
@@ -171,10 +230,7 @@ impl StreamManager {
         loop {
             match lines.next().await {
                 Some(Ok(line)) => {
-                    let now = Local::now();
-                    for manager in self.matching_filters(&line) {
-                        manager.handle_line(&line, now).await;
-                    }
+                    self.handle_line(line).await;
                 }
                 Some(Err(err)) => {
                     error!(
@@ -187,6 +243,13 @@ impl StreamManager {
                     return;
                 }
             }
+        }
+    }
+
+    async fn handle_line(&self, line: String) {
+        let now = Local::now();
+        for manager in self.matching_filters(&line) {
+            manager.handle_line(&line, now).await;
         }
     }
 

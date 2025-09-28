@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
-use crate::plugin::Plugins;
-
 use super::{null_value, parse_duration::*, Match, Pattern, PatternType};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -60,6 +58,12 @@ fn is_false(b: &bool) -> bool {
 }
 
 impl Action {
+    fn is_plugin(&self) -> bool {
+        self.action_type
+            .as_ref()
+            .is_some_and(|action_type| action_type != "cmd")
+    }
+
     pub fn setup(
         &mut self,
         stream_name: &str,
@@ -90,11 +94,7 @@ impl Action {
             return Err("character '.' is not allowed in filter name".into());
         }
 
-        if self
-            .action_type
-            .as_ref()
-            .is_none_or(|stream_type| stream_type == "cmd")
-        {
+        if !self.is_plugin() {
             if self.cmd.is_empty() {
                 return Err("cmd is empty".into());
             }
@@ -103,7 +103,7 @@ impl Action {
             }
         } else {
             if !self.cmd.is_empty() {
-                return Err("can't define cmd and a plugin type".into());
+                return Err("can't define a cmd and a plugin type".into());
             }
         }
 
@@ -133,11 +133,6 @@ impl Action {
             }
         }
 
-        Ok(())
-    }
-
-    pub fn plugin_setup(&mut self, plugins: &mut Plugins) -> Result<(), String> {
-        // TODO self setup
         Ok(())
     }
 
