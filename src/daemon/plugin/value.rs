@@ -1,6 +1,7 @@
+use std::collections::BTreeMap;
+
 use reaction_plugin::Value as RValue;
 use serde_json::Value as JValue;
-use stabby::{tuple::Tuple2, vec::Vec};
 
 pub fn to_stable_value(val: JValue) -> RValue {
     match val {
@@ -24,9 +25,9 @@ pub fn to_stable_value(val: JValue) -> RValue {
             vec
         }),
         JValue::Object(m) => RValue::Object({
-            let mut map = Vec::with_capacity(m.len());
+            let mut map = BTreeMap::new();
             for (key, val) in m {
-                map.push(Tuple2(key.into(), to_stable_value(val)));
+                map.insert(key.into(), to_stable_value(val));
             }
             map
         }),

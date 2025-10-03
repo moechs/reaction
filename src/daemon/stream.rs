@@ -6,7 +6,7 @@ use std::{
 
 use chrono::Local;
 use futures::{FutureExt, Stream as AsyncStream, StreamExt};
-use reaction_plugin::{BoxedStreamImpl, StreamImplDynMut};
+use reaction_plugin::StreamImpl;
 use regex::RegexSet;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -17,8 +17,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     concepts::{Filter, Stream},
-    daemon::filter::FilterManager,
-    plugin::Plugins,
+    daemon::{filter::FilterManager, plugin::Plugins},
 };
 
 use super::shutdown::ShutdownToken;
@@ -54,7 +53,7 @@ pub struct StreamManager {
     compiled_regex_set: RegexSet,
     regex_index_to_filter_manager: Vec<FilterManager>,
     stream: &'static Stream,
-    stream_plugin: Option<&'static mut BoxedStreamImpl>,
+    stream_plugin: Option<StreamImpl>,
     shutdown: ShutdownToken,
 }
 
@@ -76,11 +75,11 @@ impl StreamManager {
             .collect();
 
         let stream_plugin = if stream.is_plugin() {
-            Some(Box::leak(Box::new(plugins.init_stream_impl(
+            Some(plugins.init_stream_impl(
                 stream.name.clone(),
                 stream.stream_type.clone().unwrap(),
                 stream.options.clone(),
-            )?)))
+            )?)
         } else {
             None
         };

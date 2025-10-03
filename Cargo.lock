@@ -1051,6 +1051,7 @@ dependencies = [
  "reaction-plugin",
  "regex",
  "remoc",
+ "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",

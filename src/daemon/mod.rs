@@ -16,9 +16,10 @@ use tokio::{
 };
 use tracing::{debug, info};
 
-use crate::{concepts::Config, plugin::Plugins, treedb::Database};
+use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
 pub use filter::React;
+use plugin::Plugins;
 pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use socket::Socket;
 use stream::StreamManager;
@@ -27,6 +28,7 @@ use stream::StreamManager;
 pub use filter::tests;
 
 mod filter;
+mod plugin;
 mod shutdown;
 mod socket;
 mod stream;
@@ -37,8 +39,7 @@ pub async fn daemon(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
 
-    let mut plugins = Plugins::default();
-    plugins.import(&config.plugin_directories).await?;
+    let mut plugins = Plugins::new(&config.plugins).await?;
 
     // Cancellation Token
     let shutdown = ShutdownController::new();

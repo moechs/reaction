@@ -42,6 +42,7 @@ num_cpus = "1.16.0"
 # Regex matching
 regex = "1.10.4"
 # Configuration languages, ser/deserialisation
+serde.workspace = true
 serde_json = "1.0.117"
 serde_yaml = "0.9.34"
 jrsonnet-evaluator = "0.4.2"

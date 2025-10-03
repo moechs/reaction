@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 /// This crate defines the API between reaction's core and plugins.
 ///
 /// It's based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
@@ -63,7 +65,7 @@ pub enum Value {
     Float(f64),
     String(String),
     Array(Vec<Value>),
-    Object(Vec<(String, Value)>),
+    Object(BTreeMap<String, Value>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,3 +94,5 @@ pub struct Exec {
     pub match_: Vec<String>,
     pub result: rch::oneshot::Sender<String>,
 }
+
+// TODO write main function here?

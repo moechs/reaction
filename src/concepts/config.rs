@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use super::{merge_attrs, Pattern, Stream};
+use super::{merge_attrs, Pattern, Plugin, Stream};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -25,7 +25,7 @@ pub struct Config {
     pub state_directory: String,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub plugin_directories: Vec<String>,
+    pub plugins: Vec<Plugin>,
 
     #[serde(default)]
     pub patterns: Patterns,
@@ -83,13 +83,6 @@ impl Config {
             "state_directory",
         )?;
 
-        self.plugin_directories = merge_attrs(
-            self.plugin_directories.clone(),
-            other.plugin_directories,
-            Vec::default(),
-            "plugin_directories",
-        )?;
-
         self.concurrency = merge_attrs(
             self.concurrency,
             other.concurrency,
@@ -108,13 +101,8 @@ impl Config {
         // Nullify this useless field
         self._definitions = serde_json::Value::Null;
 
-        for dir in &self.plugin_directories {
-            if dir.is_empty() {
-                return Err("can't specify empty plugin directory".into());
-            }
-            if !dir.starts_with("/") {
-                return Err(format!("plugin directory paths must be absolute: {dir}"));
-            }
+        for plugin in &mut self.plugins {
+            plugin.setup()?;
         }
 
         if self.patterns.is_empty() {
