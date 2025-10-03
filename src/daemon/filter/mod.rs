@@ -73,6 +73,11 @@ impl FilterManager {
                         action.name.clone(),
                         action.action_type.clone().unwrap(),
                         action.options.clone(),
+                        action
+                            .patterns
+                            .iter()
+                            .map(|pattern| pattern.name.clone())
+                            .collect(),
                     )
                     .await?,
             );
@@ -400,7 +405,7 @@ fn exec_now(
                 // Sending action
                 let (response_tx, response_rx) = remoc::rch::oneshot::channel();
                 if let Err(err) = action_impl
-                    .sender
+                    .tx
                     .send(reaction_plugin::Exec {
                         match_: m,
                         result: response_tx,

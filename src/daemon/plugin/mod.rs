@@ -193,6 +193,7 @@ impl Plugins {
         action_name: String,
         action_type: String,
         config: Value,
+        patterns: Vec<String>,
     ) -> Result<ActionImpl, String> {
         let plugin_name = self
             .actions

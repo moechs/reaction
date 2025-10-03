@@ -8,8 +8,12 @@ use std::collections::BTreeMap;
 /// To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 /// the entrypoint for a plugin.
 /// It permits to define 0 to n (stream, filter, action) custom types.
-use remoc::{rch, rtc};
+use remoc::{
+    Connect, rch,
+    rtc::{self, Server},
+};
 use serde::{Deserialize, Serialize};
+use tokio::io::{stdin, stdout};
 
 /// This is the only trait that **must** be implemented by a plugin.
 /// It provides lists of stream, filter and action types implemented by a dynamic plugin.
@@ -46,6 +50,7 @@ pub trait PluginInfo {
         action_name: String,
         action_type: String,
         config: Value,
+        patterns: Vec<String>,
     ) -> RemoteResult<Result<ActionImpl, String>>;
 
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error
@@ -72,8 +77,10 @@ pub enum Value {
 
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
-    pub stream: rch::mpsc::Receiver<Result<String, String>>,
+    pub stream: rch::mpsc::Receiver<Line>,
 }
+
+pub type Line = Result<String, String>;
 
 // #[derive(Serialize, Deserialize)]
 // pub struct FilterImpl {
@@ -88,7 +95,7 @@ pub struct StreamImpl {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ActionImpl {
-    pub sender: rch::mpsc::Sender<Exec>,
+    pub tx: rch::mpsc::Sender<Exec>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,3 +105,16 @@ pub struct Exec {
 }
 
 // TODO write main function here?
+pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
+    let (conn, mut tx, _rx): (
+        _,
+        remoc::rch::base::Sender<PluginInfoClient>,
+        remoc::rch::base::Receiver<()>,
+    ) = Connect::io_buffered(remoc::Cfg::default(), stdin(), stdout(), 2048)
+        .await
+        .unwrap();
+
+    let (server, client) = PluginInfoServer::new(plugin_info, 1);
+
+    let _ = tokio::join!(tx.send(client), server.serve(), tokio::spawn(conn));
+}

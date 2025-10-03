@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 remoc.workspace = true
 serde.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
