@@ -43,9 +43,9 @@ pub struct Action {
     pub stream_name: String,
 
     // Plugin-specific
-    #[serde(default, rename = "type")]
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub action_type: Option<String>,
-    #[serde(default = "null_value")]
+    #[serde(default = "null_value", skip_serializing_if = "Value::is_null")]
     pub options: Value,
 }
 

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time},
-    daemon::shutdown::ShutdownController,
+    daemon::{plugin::Plugins, shutdown::ShutdownController},
     tests::TempDatabase,
 };
 
@@ -89,7 +89,7 @@ impl TestBed {
         };
         let controller = ShutdownController::new();
         let semaphore = Arc::new(Semaphore::new(1));
-        TestBed2 {
+        let test_bed2 = TestBed2 {
             _out_path: self._out_path,
             out_file: self.out_file,
             az_patterns: self.az_patterns,
@@ -100,12 +100,15 @@ impl TestBed {
                 Some(semaphore.clone()),
                 controller.token(),
                 &mut db,
+                &mut Plugins::default(),
                 now,
             )
             .await
             .unwrap(),
             semaphore,
-        }
+        };
+        test_bed2.manager.start(now).await;
+        test_bed2
     }
 }
 
@@ -435,7 +438,8 @@ async fn one_db_match_one_runtime_match_one_action() {
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )])).await;
+        )]))
+        .await;
 
         // Finish setup
         let bed = bed.part2(filter, now, Some(db)).await;
@@ -503,7 +507,8 @@ async fn one_outdated_db_match() {
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )])).await;
+        )]))
+        .await;
 
         // Finish setup
         let bed = bed.part2(filter, now, Some(db)).await;
@@ -633,7 +638,8 @@ async fn trigger_matched_pattern() {
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
             HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
-        )])).await;
+        )]))
+        .await;
         let bed = bed.part2(filter, now, Some(db)).await;
 
         bed.manager
@@ -720,7 +726,8 @@ async fn trigger_deduplication_on_start() {
                     now2s.to_rfc3339(): 1,
                 }),
             )]),
-        )])).await;
+        )]))
+        .await;
         let bed = bed.part2(filter, now, Some(db)).await;
 
         // the action executes
