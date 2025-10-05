@@ -9,6 +9,7 @@ use std::{
 };
 
 use chrono::Local;
+use futures::future::join_all;
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
@@ -32,6 +33,7 @@ mod plugin;
 mod shutdown;
 mod socket;
 mod stream;
+mod utils;
 
 pub async fn daemon(
     config_path: PathBuf,
@@ -39,10 +41,10 @@ pub async fn daemon(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
 
-    let mut plugins = Plugins::new(&config.plugins).await?;
-
     // Cancellation Token
     let shutdown = ShutdownController::new();
+
+    let mut plugins = Plugins::new(&config.plugins, shutdown.token()).await?;
 
     // Open Database
     let mut db = Database::open(config, shutdown.token()).await?;
@@ -69,40 +71,44 @@ pub async fn daemon(
         for stream in config.streams.values() {
             let mut filter_managers = HashMap::new();
             for filter in stream.filters.values() {
-                let manager =
-                    FilterManager::new(filter, exec_limit.clone(), shutdown.token(), &mut db, now)
-                        .await?;
+                let manager = FilterManager::new(
+                    filter,
+                    exec_limit.clone(),
+                    shutdown.token(),
+                    &mut db,
+                    &mut plugins,
+                    now,
+                )
+                .await?;
                 filter_managers.insert(filter, manager);
             }
             state.insert(stream, filter_managers.clone());
 
-            stream_managers.push(StreamManager::new(
-                stream,
-                filter_managers,
-                shutdown.token(),
-                &mut plugins,
-            )?);
+            stream_managers.push(
+                StreamManager::new(stream, filter_managers, shutdown.token(), &mut plugins).await?,
+            );
         }
         (state, stream_managers)
     };
+
+    // Finish plugin setup
+    plugins.finish_setup().await?;
+    plugins.manager();
 
     // Run socket task
     socket.manager(config, state, shutdown.token());
 
     // Start Stream managers
-    let mut stream_task_handles = Vec::new();
-    for stream_manager in stream_managers {
-        stream_task_handles.push(tokio::spawn(async move { stream_manager.start().await }));
-    }
+    let stream_task_handles = stream_managers
+        .into_iter()
+        .map(|stream_manager| tokio::spawn(async move { stream_manager.start().await }));
 
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
     handle_signals(shutdown.delegate(), signal_received.clone())?;
 
     // Wait for all streams to quit
-    for task_handle in stream_task_handles {
-        let _ = task_handle.await;
-    }
+    join_all(stream_task_handles).await;
 
     // Release last db's sender
     let mut db_status = db.quit();

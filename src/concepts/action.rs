@@ -58,7 +58,7 @@ fn is_false(b: &bool) -> bool {
 }
 
 impl Action {
-    fn is_plugin(&self) -> bool {
+    pub fn is_plugin(&self) -> bool {
         self.action_type
             .as_ref()
             .is_some_and(|action_type| action_type != "cmd")

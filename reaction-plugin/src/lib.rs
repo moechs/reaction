@@ -51,6 +51,8 @@ pub trait PluginInfo {
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error
     /// (For example if a stream wants a companion action but it hasn't been initialized)
     async fn finish_setup(&mut self) -> RemoteResult<Result<(), String>>;
+
+    async fn close(mut self) -> RemoteResult<()>;
 }
 
 pub type RemoteResult<T> = Result<T, rtc::CallError>;
@@ -70,7 +72,7 @@ pub enum Value {
 
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
-    pub stream: rch::lr::Receiver<Result<String, String>>,
+    pub stream: rch::mpsc::Receiver<Result<String, String>>,
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -84,15 +86,15 @@ pub struct StreamImpl {
 //     pub result: rch::oneshot::Sender<bool>,
 // }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ActionImpl {
-    pub stream: rch::lr::Sender<Exec>,
+    pub sender: rch::mpsc::Sender<Exec>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Exec {
     pub match_: Vec<String>,
-    pub result: rch::oneshot::Sender<String>,
+    pub result: rch::oneshot::Sender<Result<(), String>>,
 }
 
 // TODO write main function here?

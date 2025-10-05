@@ -1,14 +1,20 @@
 use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
+    time::Duration,
 };
 
+use futures::{future::join_all, FutureExt};
 use reaction_plugin::{ActionImpl, PluginInfo, PluginInfoClient, StreamImpl};
 use remoc::Connect;
 use serde_json::Value;
-use tokio::process::Child;
+use tokio::{process::Child, time::sleep};
+use tracing::error;
 
-use crate::concepts::Plugin;
+use crate::{
+    concepts::Plugin,
+    daemon::{utils::kill_child, ShutdownToken},
+};
 
 mod value;
 
@@ -16,6 +22,7 @@ use value::to_stable_value;
 
 pub struct PluginManager {
     child: Child,
+    shutdown: ShutdownToken,
     plugin: &'static Plugin,
     plugin_info: PluginInfoClient,
 }
@@ -34,7 +41,7 @@ impl DerefMut for PluginManager {
 }
 
 impl PluginManager {
-    async fn new(plugin: &'static Plugin) -> Result<Self, String> {
+    async fn new(plugin: &'static Plugin, shutdown: ShutdownToken) -> Result<Self, String> {
         let mut child = plugin
             .launch()
             .map_err(|err| format!("could not launch plugin: {err}"))?;
@@ -48,7 +55,12 @@ impl PluginManager {
             remoc::rch::base::Receiver<PluginInfoClient>,
         ) = Connect::io_buffered(remoc::Cfg::default(), stdout, stdin, 2048)
             .await
-            .map_err(|err| format!("could not init communication with plugin: {err}"))?;
+            .map_err(|err| {
+                format!(
+                    "could not init communication with plugin {}: {err}",
+                    plugin.path
+                )
+            })?;
 
         tokio::spawn(conn);
 
@@ -60,9 +72,34 @@ impl PluginManager {
 
         Ok(Self {
             child,
+            shutdown,
             plugin,
             plugin_info,
         })
+    }
+
+    async fn handle_child(mut self) {
+        const PLUGIN_STOP_GRACE_TIME: u64 = 15;
+
+        // wait either for the child process to exit on its own or for the shutdown signal
+        futures::select! {
+            _ = self.child.wait().fuse() => {
+                error!("plugin {} exited: its command returned.", self.plugin.path);
+                return;
+            }
+            _ = self.shutdown.wait().fuse() => {}
+        }
+
+        futures::select! {
+        _ = self.plugin_info.close().fuse() => {
+                return;
+            },
+            _ = sleep(Duration::from_secs(PLUGIN_STOP_GRACE_TIME)).fuse() => {
+                error!("plugin {} did not respond to close request in time, killing", self.plugin.path)
+            },
+        }
+
+        kill_child(self.child, format!("plugin {}", self.plugin.path), 5).await;
     }
 }
 
@@ -74,12 +111,15 @@ pub struct Plugins {
 }
 
 impl Plugins {
-    pub async fn new(plugins: &'static Vec<Plugin>) -> Result<Self, String> {
+    pub async fn new(
+        plugins: &'static Vec<Plugin>,
+        shutdown: ShutdownToken,
+    ) -> Result<Self, String> {
         let mut this = Self::default();
 
         for plugin in plugins {
             let path = plugin.path.clone();
-            this.load_plugin(&plugin)
+            this.load_plugin(&plugin, shutdown.clone())
                 .await
                 .map_err(|err| format!("plugin {path}: {err}]"))?;
         }
@@ -87,9 +127,13 @@ impl Plugins {
         Ok(this)
     }
 
-    async fn load_plugin(&mut self, plugin: &'static Plugin) -> Result<(), String> {
+    async fn load_plugin(
+        &mut self,
+        plugin: &'static Plugin,
+        shutdown: ShutdownToken,
+    ) -> Result<(), String> {
         let path = plugin.path.clone();
-        let manager = PluginManager::new(plugin).await?;
+        let manager = PluginManager::new(plugin, shutdown).await?;
 
         for stream in manager
             .stream_impls()
@@ -116,17 +160,6 @@ impl Plugins {
         }
 
         self.plugins.insert(path, manager);
-        Ok(())
-    }
-
-    pub async fn finish_plugin_setup(self) -> Result<(), String> {
-        for mut plugin in self.plugins.into_values() {
-            plugin
-                .finish_setup()
-                .await
-                .map_err(|err| format!("plugin error: {err}"))?
-                .map_err(|err| format!("invalid config for plugin: {err}"))?;
-        }
         Ok(())
     }
 
@@ -178,5 +211,38 @@ impl Plugins {
             )
             .await
             .map_err(|err| format!("plugin error: {err}"))?
+    }
+
+    pub async fn finish_setup(&mut self) -> Result<(), String> {
+        // Finish setup of all plugins
+        join_all(
+            self.plugins
+                .values_mut()
+                .map(|plugin_manager| plugin_manager.finish_setup()),
+        )
+        .await
+        // Convert Vec<Result<Result>> into Result
+        .into_iter()
+        .zip(self.plugins.values())
+        .map(|(result, plugin_manager)| {
+            result
+                .map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.path))
+                .map_err(|err| {
+                    format!(
+                        "invalid config for plugin {}: {err}",
+                        plugin_manager.plugin.path
+                    )
+                })
+                .flatten()
+        })
+        .collect::<Result<(), String>>()
+    }
+
+    pub fn manager(self) {
+        for plugin in self.plugins.into_values() {
+            tokio::spawn(async move {
+                plugin.handle_child().await;
+            });
+        }
     }
 }

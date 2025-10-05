@@ -5,12 +5,14 @@ mod state;
 
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
+use reaction_plugin::ActionImpl;
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
 use tracing::{error, info};
 
 use crate::{
     concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
+    daemon::plugin::Plugins,
     protocol::{Order, PatternStatus},
     treedb::Database,
 };
@@ -30,6 +32,8 @@ pub struct FilterManager {
     exec_limit: Option<Arc<Semaphore>>,
     /// Permits to run pending actions on shutdown
     shutdown: ShutdownToken,
+    /// Action Plugins
+    action_plugins: BTreeMap<&'static String, ActionImpl>,
     /// Inner state.
     /// Protected by a [`Mutex`], permitting FilterManager to be cloned
     /// and concurrently owned by its stream manager, the socket manager,
@@ -55,16 +59,31 @@ impl FilterManager {
         exec_limit: Option<Arc<Semaphore>>,
         shutdown: ShutdownToken,
         db: &mut Database,
+        plugins: &mut Plugins,
         now: Time,
     ) -> Result<Self, String> {
+        let mut action_plugins = BTreeMap::default();
+        for (action_name, action) in filter.actions.iter().filter(|action| action.1.is_plugin()) {
+            action_plugins.insert(
+                action_name,
+                plugins
+                    .init_action_impl(
+                        action.stream_name.clone(),
+                        action.filter_name.clone(),
+                        action.name.clone(),
+                        action.action_type.clone().unwrap(),
+                        action.options.clone(),
+                    )
+                    .await?,
+            );
+        }
         let this = Self {
             filter,
             exec_limit,
             shutdown,
+            action_plugins,
             state: Arc::new(Mutex::new(State::new(filter, db, now).await?)),
         };
-        this.clear_past_triggers_and_schedule_future_actions(now)
-            .await;
         Ok(this)
     }
 
@@ -221,12 +240,7 @@ impl FilterManager {
 
                             // Execute the action early
                             if let Order::Flush = order {
-                                exec_now(
-                                    &self.exec_limit,
-                                    self.shutdown.clone(),
-                                    action,
-                                    m.clone(),
-                                ).await;
+                                self.exec_now(action, m.clone());
                             }
                         }
                     }
@@ -270,10 +284,11 @@ impl FilterManager {
 
             if exec_time <= now {
                 if state.decrement_trigger(&m, t, false).await {
-                    exec_now(&self.exec_limit, self.shutdown.clone(), action, m).await;
+                    self.exec_now(action, m);
                 }
             } else {
                 let this = self.clone();
+                let action_impl = self.action_plugins.get(&action.name).cloned();
                 tokio::spawn(async move {
                     let dur = (exec_time - now)
                         .to_std()
@@ -291,7 +306,7 @@ impl FilterManager {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().await;
                         if state.decrement_trigger(&m, t, exiting).await {
-                            exec_now(&this.exec_limit, this.shutdown, action, m).await;
+                            exec_now(&this.exec_limit, this.shutdown, action, action_impl, m);
                         }
                     }
                 });
@@ -299,7 +314,8 @@ impl FilterManager {
         }
     }
 
-    async fn clear_past_triggers_and_schedule_future_actions(&self, now: Time) {
+    /// Clear past triggers and schedule future actions
+    pub async fn start(&self, now: Time) {
         let longuest_action_duration = self.filter.longuest_action_duration;
         let number_of_actions = self
             .filter
@@ -349,37 +365,84 @@ impl FilterManager {
             }
         }
     }
+
+    fn exec_now(&self, action: &'static Action, m: Match) {
+        let action_impl = self.action_plugins.get(&action.name).cloned();
+        exec_now(
+            &self.exec_limit,
+            self.shutdown.clone(),
+            action,
+            action_impl,
+            m,
+        )
+    }
 }
 
-async fn exec_now(
+fn exec_now(
     exec_limit: &Option<Arc<Semaphore>>,
     shutdown: ShutdownToken,
     action: &'static Action,
+    action_impl: Option<ActionImpl>,
     m: Match,
 ) {
     let exec_limit = exec_limit.clone();
     tokio::spawn(async move {
         // Move ShutdownToken in task
         let _shutdown = shutdown;
-        // Wait for semaphore's permission, if it is Some
-        let _permit = match exec_limit {
-            #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
-            Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
-            None => None,
-        };
 
-        // Construct command
-        let mut command = action.exec(&m);
+        match action_impl {
+            Some(action_impl) => {
+                info!(
+                    "{action}: run {}",
+                    action.action_type.clone().unwrap_or_default(),
+                );
 
-        info!("{}: run [{:?}]", &action, command.as_std());
-        if let Err(err) = command
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .stdout(Stdio::piped())
-            .status()
-            .await
-        {
-            error!("{}: run [{:?}], code {}", &action, command.as_std(), err);
+                // Sending action
+                let (response_tx, response_rx) = remoc::rch::oneshot::channel();
+                if let Err(err) = action_impl
+                    .sender
+                    .send(reaction_plugin::Exec {
+                        match_: m,
+                        result: response_tx,
+                    })
+                    .await
+                {
+                    error!("{action}: communication with plugin failed: {err}");
+                    return;
+                }
+
+                // Receiving response
+                match response_rx.await {
+                    Ok(Ok(())) => (),
+                    Ok(Err(err)) => error!(
+                        "{action}: run {}: {err}",
+                        action.action_type.clone().unwrap_or_default(),
+                    ),
+                    Err(err) => error!("{action}: communication with plugin failed: {err}"),
+                }
+            }
+            None => {
+                // Wait for semaphore's permission, if it is Some
+                let _permit = match exec_limit {
+                    #[allow(clippy::unwrap_used)] // We know the semaphore is not closed
+                    Some(semaphore) => Some(semaphore.acquire_owned().await.unwrap()),
+                    None => None,
+                };
+
+                // Construct command
+                let mut command = action.exec(&m);
+
+                info!("{action}: run [{:?}]", command.as_std());
+                if let Err(err) = command
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .status()
+                    .await
+                {
+                    error!("{action}: run [{:?}], code {err}", command.as_std());
+                }
+            }
         }
     });
 }

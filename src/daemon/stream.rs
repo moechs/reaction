@@ -1,23 +1,21 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     process::Stdio,
-    time::Duration,
 };
 
 use chrono::Local;
-use futures::{FutureExt, Stream as AsyncStream, StreamExt};
+use futures::{future::join_all, FutureExt, Stream as AsyncStream, StreamExt};
 use reaction_plugin::StreamImpl;
 use regex::RegexSet;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStderr, ChildStdout, Command},
-    time::sleep,
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     concepts::{Filter, Stream},
-    daemon::{filter::FilterManager, plugin::Plugins},
+    daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
 
 use super::shutdown::ShutdownToken;
@@ -58,7 +56,7 @@ pub struct StreamManager {
 }
 
 impl StreamManager {
-    pub fn new(
+    pub async fn new(
         stream: &'static Stream,
         filter_managers: HashMap<&'static Filter, FilterManager>,
         shutdown: ShutdownToken,
@@ -75,11 +73,15 @@ impl StreamManager {
             .collect();
 
         let stream_plugin = if stream.is_plugin() {
-            Some(plugins.init_stream_impl(
-                stream.name.clone(),
-                stream.stream_type.clone().unwrap(),
-                stream.options.clone(),
-            )?)
+            Some(
+                plugins
+                    .init_stream_impl(
+                        stream.name.clone(),
+                        stream.stream_type.clone().unwrap(),
+                        stream.options.clone(),
+                    )
+                    .await?,
+            )
         } else {
             None
         };
@@ -94,6 +96,16 @@ impl StreamManager {
     }
 
     pub async fn start(self) {
+        // First start FilterManagers persisted actions
+        let now = Local::now();
+        join_all(
+            self.regex_index_to_filter_manager
+                .iter()
+                .map(|filter_manager| filter_manager.start(now)),
+        )
+        .await;
+
+        // Then start stream
         info!("{}: start {:?}", self.stream.name, self.stream.cmd);
 
         if self.stream_plugin.is_some() {
@@ -103,38 +115,29 @@ impl StreamManager {
         }
     }
 
-    async fn start_plugin(self) {
-        let plugin = self.stream_plugin.unwrap();
-
-        {
-            let result = plugin.start().await;
-            if result.is_err() {
-                error!(
-                    "could not execute stream {}: {}",
-                    self.stream.name,
-                    result.unwrap_err()
-                );
-                return;
-            }
-        }
+    async fn start_plugin(mut self) {
+        let mut plugin = self.stream_plugin.take().unwrap();
 
         loop {
-            let result = plugin.next().await;
-            let result = if result.is_ok() {
-                let option = result.unwrap();
-                if option.is_some() {
-                    self.handle_line(option.unwrap().to_string()).await;
-                } else {
+            match plugin.stream.recv().await {
+                Ok(Some(Ok(line))) => {
+                    self.handle_line(line).await;
+                }
+                Ok(Some(Err(err))) => {
+                    error!("stream {} exit with error: {}", self.stream.name, err);
                     return;
                 }
-            } else {
-                error!(
-                    "impossible to read output from stream {}: {}",
-                    self.stream.name,
-                    result.unwrap_err()
-                );
-                return;
-            };
+                Err(err) => {
+                    error!(
+                        "impossible to read output from stream {}: {}",
+                        self.stream.name, err
+                    );
+                    return;
+                }
+                Ok(None) => {
+                    return;
+                }
+            }
         }
     }
 
@@ -168,9 +171,6 @@ impl StreamManager {
     }
 
     async fn handle_child(&self, mut child: Child) {
-        const STREAM_PROCESS_GRACE_TIME_SEC: u64 = 15;
-        const STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC: u64 = 5;
-
         // wait either for the child process to exit on its own or for the shutdown signal
         futures::select! {
             _ = child.wait().fuse() => {
@@ -180,43 +180,7 @@ impl StreamManager {
             _ = self.shutdown.wait().fuse() => {}
         }
 
-        // first, try to ask nicely the child process to exit
-        if let Some(pid) = child.id() {
-            let pid = nix::unistd::Pid::from_raw(pid as i32);
-
-            // the most likely error is that the process does not exist anymore
-            // but we still need to reclaim it with Child::wait
-            let _ = nix::sys::signal::kill(pid, nix::sys::signal::SIGTERM);
-
-            futures::select! {
-                _ = child.wait().fuse() => {
-                    return;
-                },
-                _ = sleep(Duration::from_secs(STREAM_PROCESS_GRACE_TIME_SEC)).fuse() => {},
-            }
-        } else {
-            warn!(
-                "could not get PID of child process for stream {}",
-                self.stream.name
-            );
-            // still try to use tokio API to kill and reclaim the child process
-        }
-
-        // if that fails, or we cannot get the underlying PID, terminate the process.
-        // NOTE: processes killed with SIGKILL are not guaranteed to exit. They can be locked up in a
-        // syscall to a resource no-longer available (a notorious example is a read on a disconnected
-        // NFS share)
-
-        // as before, the only expected error is that the child process already terminated
-        // but we still need to reclaim it if that's the case.
-        let _ = child.start_kill();
-
-        futures::select! {
-            _ = child.wait().fuse() => {}
-            _ = sleep(Duration::from_secs(STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC)).fuse() => {
-                error!("child process of stream {} did not terminate", self.stream.name);
-            }
-        }
+        kill_child(child, format!("stream {}", self.stream.name), 15).await;
     }
 
     async fn handle_io(&self, child_stdout: ChildStdout, child_stderr: ChildStderr) {
