@@ -67,8 +67,8 @@ streams:
         regex:
           - 'authentication failure;.*rhost=<ip>'
           - 'Failed password for .* from <ip>'
-          - 'Invalid user .* from <ip>',
-          - 'banner exchange: Connection from <ip> port [0-9]*: invalid format',
+          - 'Invalid user .* from <ip>'
+          - 'banner exchange: Connection from <ip> port [0-9]*: invalid format'
         retry: 3
         retryperiod: '6h'
         actions:
