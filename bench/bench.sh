@@ -14,7 +14,7 @@ then
 fi
 
 rm -f reaction.db 
-cargo build --release 
+cargo build --release --bins
 sudo systemd-run --wait \
 	-p User="$(id -nu)" \
 	-p MemoryAccounting=yes \

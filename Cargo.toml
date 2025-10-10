@@ -80,3 +80,7 @@ members = ["plugins/reaction-plugin", "plugins/reaction-plugin-virtual"]
 remoc = { version = "0.18.3" }
 serde = { version = "1.0.203", features = ["derive"] }
 tokio = { version = "1.40.0" }
+
+[[bin]]
+name = "reaction-plugin-virtual"
+path = "plugins/reaction-plugin-virtual/src/main.rs"

@@ -1,0 +1,86 @@
+---
+# This configuration permits to test reaction's performance
+# under a very high load
+#
+# It keeps regexes super simple, to avoid benchmarking the `regex` crate,
+# and benchmark reaction's internals instead.
+concurrency: 32
+
+plugins:
+  - path: "/home/ppom/prg/reaction/target/release/reaction-plugin-virtual"
+
+patterns:
+  num:
+    regex: '[0-9]{3}'
+  ip:
+    regex: '(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3})|(?:[0-9a-fA-F:]{2,90})'
+    ignore:
+      - 1.0.0.1
+
+streams:
+  virtual:
+    type: virtual
+    filters:
+      find0:
+        regex:
+          - '^<num>$'
+        actions:
+          damn:
+            cmd: [ 'sleep', '0.0<num>' ]
+          undamn:
+            cmd: [ 'sleep', '0.0<num>' ]
+            after: 1m
+            onexit: false
+  tailDown1:
+    cmd: [ 'sh', '-c', 'sleep 2; seq 1001 | while read i; do echo found $i; done' ]
+    filters:
+      find1:
+        regex:
+          - '^found <num>'
+        retry: 9
+        retryperiod: 6m
+        actions:
+          virtual:
+            type: virtual
+            options:
+              send: '<num>'
+              to: virtual
+  tailDown2:
+    cmd: [ 'sh', '-c', 'sleep 2; seq 100100 | while read i; do echo found $i; echo trouvé $i; done' ]
+    filters:
+      find2:
+        regex:
+          - '^found <num>'
+        retry: 480
+        retryperiod: 6m
+        actions:
+          virtual:
+            type: virtual
+            options:
+              send: '<num>'
+              to: virtual
+  tailDown3:
+    cmd: [ 'sh', '-c', 'sleep 2; seq 100100 | while read i; do echo found $i; echo trouvé $i; done' ]
+    filters:
+      find3:
+        regex:
+          - '^found <num>'
+        retry: 480
+        retryperiod: 6m
+        actions:
+          virtual:
+            type: virtual
+            options:
+              send: '<num>'
+              to: virtual
+      find4:
+        regex:
+          - '^trouvé <num>'
+        retry: 480
+        retryperiod: 6m
+        actions:
+          virtual:
+            type: virtual
+            options:
+              send: '<num>'
+              to: virtual
