@@ -398,8 +398,9 @@ fn exec_now(
         match action_impl {
             Some(action_impl) => {
                 info!(
-                    "{action}: run {}",
+                    "{action}: run {} [{:?}]",
                     action.action_type.clone().unwrap_or_default(),
+                    &m,
                 );
 
                 // Sending action

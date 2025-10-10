@@ -99,9 +99,16 @@ pub async fn daemon(
     socket.manager(config, state, shutdown.token());
 
     // Start Stream managers
-    let stream_task_handles = stream_managers
-        .into_iter()
-        .map(|stream_manager| tokio::spawn(async move { stream_manager.start().await }));
+    let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {
+        let standalone = stream_manager.is_standalone();
+        let handle = tokio::spawn(async move { stream_manager.start().await });
+        // Only wait for standalone streams
+        if standalone {
+            Some(handle)
+        } else {
+            None
+        }
+    });
 
     // Close streams when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));

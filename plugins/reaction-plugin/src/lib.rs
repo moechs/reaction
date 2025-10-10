@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, error::Error, fmt::Display};
 
 /// This crate defines the API between reaction's core and plugins.
 ///
@@ -20,14 +20,24 @@ use tokio::io::{stdin, stdout};
 #[rtc::remote]
 pub trait PluginInfo {
     /// Return all stream types that should be made available to reaction users
-    async fn stream_impls(&self) -> RemoteResult<Vec<String>>;
+    /// ```jsonnet
+    /// {
+    ///   streams: {
+    ///     my_stream: {
+    ///       type: "..."
+    ///       # ↑ all those exposed types
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    async fn stream_impls(&self) -> Result<Vec<String>, rtc::CallError>;
     /// Return one stream of a given type if it exists
     async fn stream_impl(
         &mut self,
         stream_name: String,
         stream_type: String,
         config: Value,
-    ) -> RemoteResult<Result<StreamImpl, String>>;
+    ) -> RemoteResult<StreamImpl>;
 
     // /// Return all filter types that should be made available to reaction users
     // async fn filter_impls(&self) -> RemoteResult<Vec<String>>;
@@ -41,7 +51,7 @@ pub trait PluginInfo {
     // ) -> RemoteResult<Result<FilterImpl, String>>;
 
     /// Return all action types that should be made available to reaction users
-    async fn action_impls(&self) -> RemoteResult<Vec<String>>;
+    async fn action_impls(&self) -> Result<Vec<String>, rtc::CallError>;
     /// Return one instance of a given type.
     async fn action_impl(
         &mut self,
@@ -51,16 +61,14 @@ pub trait PluginInfo {
         action_type: String,
         config: Value,
         patterns: Vec<String>,
-    ) -> RemoteResult<Result<ActionImpl, String>>;
+    ) -> RemoteResult<ActionImpl>;
 
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error
     /// (For example if a stream wants a companion action but it hasn't been initialized)
-    async fn finish_setup(&mut self) -> RemoteResult<Result<(), String>>;
+    async fn finish_setup(&mut self) -> RemoteResult<()>;
 
     async fn close(mut self) -> RemoteResult<()>;
 }
-
-pub type RemoteResult<T> = Result<T, rtc::CallError>;
 
 /// Represents a configuration value.
 /// This is not meant as an efficient type, but as a very flexible one.
@@ -78,6 +86,15 @@ pub enum Value {
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
     pub stream: rch::mpsc::Receiver<Line>,
+    /// Whether this stream works standalone, or if it needs other streams to be fed.
+    /// Defaults to true.
+    /// When false, reaction will exit if it's the last one standing.
+    #[serde(default = "_true")]
+    pub standalone: bool,
+}
+
+fn _true() -> bool {
+    true
 }
 
 pub type Line = Result<String, String>;
@@ -110,11 +127,52 @@ pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
         _,
         remoc::rch::base::Sender<PluginInfoClient>,
         remoc::rch::base::Receiver<()>,
-    ) = Connect::io_buffered(remoc::Cfg::default(), stdin(), stdout(), 2048)
+    ) = Connect::io(remoc::Cfg::default(), stdin(), stdout())
         .await
         .unwrap();
 
     let (server, client) = PluginInfoServer::new(plugin_info, 1);
 
     let _ = tokio::join!(tx.send(client), server.serve(), tokio::spawn(conn));
+}
+
+// Errors
+
+pub type RemoteResult<T> = Result<T, RemoteError>;
+
+/// A Plugin Error
+/// It's either a connection error or a free String for plugin-specific errors
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RemoteError {
+    Remoc(rtc::CallError),
+    Plugin(String),
+}
+
+impl Display for RemoteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RemoteError::Remoc(call_error) => write!(f, "communication error: {call_error}"),
+            RemoteError::Plugin(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl Error for RemoteError {}
+
+impl From<String> for RemoteError {
+    fn from(value: String) -> Self {
+        Self::Plugin(value)
+    }
+}
+
+impl From<&str> for RemoteError {
+    fn from(value: &str) -> Self {
+        Self::Plugin(value.into())
+    }
+}
+
+impl From<rtc::CallError> for RemoteError {
+    fn from(value: rtc::CallError) -> Self {
+        Self::Remoc(value)
+    }
 }

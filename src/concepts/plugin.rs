@@ -40,6 +40,7 @@ impl Plugin {
         Command::new(&self.path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .env("RUST_BACKTRACE", "1")
             .spawn()
     }
 }

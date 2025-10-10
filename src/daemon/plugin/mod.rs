@@ -25,6 +25,8 @@ pub struct PluginManager {
     shutdown: ShutdownToken,
     plugin: &'static Plugin,
     plugin_info: PluginInfoClient,
+    stream_impls: Vec<String>,
+    action_impls: Vec<String>,
 }
 
 impl Deref for PluginManager {
@@ -53,7 +55,7 @@ impl PluginManager {
             _,
             remoc::rch::base::Sender<()>,
             remoc::rch::base::Receiver<PluginInfoClient>,
-        ) = Connect::io_buffered(remoc::Cfg::default(), stdout, stdin, 2048)
+        ) = Connect::io(remoc::Cfg::default(), stdout, stdin)
             .await
             .map_err(|err| {
                 format!(
@@ -70,11 +72,23 @@ impl PluginManager {
             .map_err(|err| format!("could not retrieve initial information from plugin: {err}"))?
             .ok_or("could not retrieve initial information from plugin: no data")?;
 
+        let stream_impls = plugin_info
+            .stream_impls()
+            .await
+            .map_err(|err| format!("plugin error while retrieving stream types: {err}"))?;
+
+        let action_impls = plugin_info
+            .action_impls()
+            .await
+            .map_err(|err| format!("plugin error while retrieving action types: {err}"))?;
+
         Ok(Self {
             child,
             shutdown,
             plugin,
             plugin_info,
+            stream_impls,
+            action_impls,
         })
     }
 
@@ -135,26 +149,18 @@ impl Plugins {
         let path = plugin.path.clone();
         let manager = PluginManager::new(plugin, shutdown).await?;
 
-        for stream in manager
-            .stream_impls()
-            .await
-            .map_err(|err| format!("plugin error: {err}"))?
-        {
+        for stream in &manager.stream_impls {
             if let Some(path) = self.streams.insert(stream.clone().into(), path.clone()) {
                 return Err(format!(
-                    "plugin {path} already exposed a stream with type name '{stream}'"
+                    "plugin {path} already exposed a stream with type name '{stream}'",
                 ));
             }
         }
 
-        for action in manager
-            .action_impls()
-            .await
-            .map_err(|err| format!("plugin error: {err}"))?
-        {
+        for action in &manager.action_impls {
             if let Some(path) = self.actions.insert(action.clone().into(), path.clone()) {
                 return Err(format!(
-                    "plugin {path} already exposed a action with type name '{action}'"
+                    "plugin {path} already exposed a action with type name '{action}'",
                 ));
             }
         }
@@ -183,7 +189,7 @@ impl Plugins {
                 to_stable_value(config),
             )
             .await
-            .map_err(|err| format!("plugin error: {err}"))?
+            .map_err(|err| format!("plugin error while initializing stream: {err}"))
     }
 
     pub async fn init_action_impl(
@@ -209,9 +215,10 @@ impl Plugins {
                 action_name.into(),
                 action_type.into(),
                 to_stable_value(config),
+                patterns,
             )
             .await
-            .map_err(|err| format!("plugin error: {err}"))?
+            .map_err(|err| format!("plugin error while initializing action: {err}"))
     }
 
     pub async fn finish_setup(&mut self) -> Result<(), String> {
@@ -226,15 +233,7 @@ impl Plugins {
         .into_iter()
         .zip(self.plugins.values())
         .map(|(result, plugin_manager)| {
-            result
-                .map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.path))
-                .map_err(|err| {
-                    format!(
-                        "invalid config for plugin {}: {err}",
-                        plugin_manager.plugin.path
-                    )
-                })
-                .flatten()
+            result.map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.path))
         })
         .collect::<Result<(), String>>()
     }

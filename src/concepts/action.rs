@@ -11,6 +11,7 @@ use super::{null_value, parse_duration::*, Match, Pattern, PatternType};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
+    #[serde(default)]
     pub cmd: Vec<String>,
 
     // TODO one shot time deserialization

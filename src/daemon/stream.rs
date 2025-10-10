@@ -95,7 +95,14 @@ impl StreamManager {
         })
     }
 
-    pub async fn start(self) {
+    pub fn is_standalone(&self) -> bool {
+        match &self.stream_plugin {
+            Some(plugin) => plugin.standalone,
+            None => true,
+        }
+    }
+
+    pub async fn start(mut self) {
         // First start FilterManagers persisted actions
         let now = Local::now();
         join_all(
@@ -115,7 +122,7 @@ impl StreamManager {
         }
     }
 
-    async fn start_plugin(mut self) {
+    async fn start_plugin(&mut self) {
         let mut plugin = self.stream_plugin.take().unwrap();
 
         loop {
@@ -128,11 +135,18 @@ impl StreamManager {
                     return;
                 }
                 Err(err) => {
-                    error!(
-                        "impossible to read output from stream {}: {}",
-                        self.stream.name, err
-                    );
-                    return;
+                    if err.is_final() {
+                        error!(
+                            "error reading from plugin stream {}: {}",
+                            self.stream.name, err
+                        );
+                        return;
+                    } else {
+                        error!(
+                            "temporary error reading from plugin stream {}: {}",
+                            self.stream.name, err
+                        );
+                    }
                 }
                 Ok(None) => {
                     return;
@@ -141,7 +155,7 @@ impl StreamManager {
         }
     }
 
-    async fn start_cmd(self) {
+    async fn start_cmd(&self) {
         let mut child = match Command::new(&self.stream.cmd[0])
             .args(&self.stream.cmd[1..])
             .stdin(Stdio::null())

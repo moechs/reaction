@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use reaction_plugin::{ActionImpl, Exec, Line, PluginInfo, RemoteResult, StreamImpl, Value};
-use remoc::rch::mpsc;
+use remoc::{rch::mpsc, rtc};
 
 #[tokio::main]
 async fn main() {
@@ -16,11 +16,11 @@ struct Plugin {
 }
 
 impl PluginInfo for Plugin {
-    async fn stream_impls(&self) -> RemoteResult<Vec<String>> {
+    async fn stream_impls(&self) -> Result<Vec<String>, rtc::CallError> {
         Ok(vec!["virtual".into()])
     }
 
-    async fn action_impls(&self) -> RemoteResult<Vec<String>> {
+    async fn action_impls(&self) -> Result<Vec<String>, rtc::CallError> {
         Ok(vec!["virtual".into()])
     }
 
@@ -29,25 +29,21 @@ impl PluginInfo for Plugin {
         stream_name: String,
         stream_type: String,
         config: Value,
-    ) -> RemoteResult<Result<StreamImpl, String>> {
+    ) -> RemoteResult<StreamImpl> {
         if stream_type != "virtual" {
-            return Ok(Err(
-                "This plugin can't handle other stream types than virtual".into(),
-            ));
+            return Err("This plugin can't handle other stream types than virtual".into());
         }
 
-        let (virtual_stream, receiver) = match VirtualStream::new(config) {
-            Ok(v) => v,
-            Err(err) => return Ok(Err(err)),
-        };
+        let (virtual_stream, receiver) = VirtualStream::new(config)?;
 
         if let Some(_) = self.streams.insert(stream_name, virtual_stream) {
-            return Ok(Err(
-                "this virtual stream has already been initialized".into()
-            ));
+            return Err("this virtual stream has already been initialized".into());
         }
 
-        Ok(Ok(StreamImpl { stream: receiver }))
+        Ok(StreamImpl {
+            stream: receiver,
+            standalone: false,
+        })
     }
 
     async fn action_impl(
@@ -58,24 +54,19 @@ impl PluginInfo for Plugin {
         action_type: String,
         config: Value,
         patterns: Vec<String>,
-    ) -> RemoteResult<Result<ActionImpl, String>> {
+    ) -> RemoteResult<ActionImpl> {
         if &action_type != "virtual" {
-            return Ok(Err(
-                "This plugin can't handle other stream types than virtual".into(),
-            ));
+            return Err("This plugin can't handle other stream types than virtual".into());
         }
 
         let (virtual_action_init, tx) =
-            match VirtualActionInit::new(stream_name, filter_name, action_name, config, patterns) {
-                Ok(v) => v,
-                Err(err) => return Ok(Err(err)),
-            };
+            VirtualActionInit::new(stream_name, filter_name, action_name, config, patterns)?;
 
         self.actions_init.push(virtual_action_init);
-        Ok(Ok(ActionImpl { tx }))
+        Ok(ActionImpl { tx })
     }
 
-    async fn finish_setup(&mut self) -> RemoteResult<Result<(), String>> {
+    async fn finish_setup(&mut self) -> RemoteResult<()> {
         while let Some(action_init) = self.actions_init.pop() {
             match self.streams.get(&action_init.to) {
                 Some(virtual_stream) => {
@@ -87,20 +78,21 @@ impl PluginInfo for Plugin {
                     });
                 }
                 None => {
-                    return Ok(Err(format!(
+                    return Err(format!(
                         "action {}.{}.{}: send \"{}\" matches no stream name",
                         action_init.stream_name,
                         action_init.filter_name,
                         action_init.action_name,
                         action_init.to
-                    )));
+                    )
+                    .into());
                 }
             }
         }
         self.streams = BTreeMap::new();
         self.actions_init = Vec::new();
 
-        Ok(Ok(()))
+        Ok(())
     }
 
     async fn close(self) -> RemoteResult<()> {
@@ -126,7 +118,7 @@ impl VirtualStream {
             _ => return Err(CONFIG_ERROR.into()),
         }
 
-        let (tx, rx) = mpsc::channel(0);
+        let (tx, rx) = mpsc::channel(2);
         Ok((Self { tx }, rx))
     }
 }
@@ -179,7 +171,7 @@ impl VirtualActionInit {
             .map(|pattern| format!("<{pattern}>"))
             .collect();
 
-        let (tx, rx) = mpsc::channel(0);
+        let (tx, rx) = mpsc::channel(1);
         Ok((
             Self {
                 stream_name,

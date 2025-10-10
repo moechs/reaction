@@ -1,0 +1,58 @@
+{
+  patterns: {
+    num: {
+      regex: @"[0-9]+",
+    },
+    all: {
+      regex: @".*"
+    }
+  },
+
+  plugins: [
+    {
+      path: "/home/ppom/prg/reaction/target/debug/reaction-plugin-virtual",
+    }
+  ],
+
+  streams: {
+    s0: {
+      cmd: ["bash", "-c", "for i in $(seq 4); do echo $i; sleep 0.1; done; sleep 1.2"],
+      filters: {
+        f0: {
+          regex: ["^<num>$"],
+          actions: {
+            a0: {
+              type: "virtual",
+              options: {
+                send: "a0 <num>",
+                to: "s1",
+              }
+            },
+            b0: {
+              type: "virtual",
+              options: {
+                send: "b0 <num>",
+                to: "s1",
+              },
+              after: "600ms",
+            },
+          },
+        },
+      },
+    },
+    s1: {
+      type: "virtual",
+      options: {},
+      filters: {
+        f1: {
+          regex: ["^<all>$"],
+          actions: {
+            a1: {
+              cmd: ['sh', '-c', 'echo <all> >>./log'],
+            },
+          },
+        },
+      },
+    },
+  },
+}
