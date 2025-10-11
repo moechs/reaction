@@ -1,21 +1,35 @@
-use std::{collections::BTreeMap, process::Stdio};
+use std::{
+    collections::BTreeMap,
+    io::{Error, ErrorKind},
+    os::linux::fs::MetadataExt,
+    process::Stdio,
+};
 
 use serde::{Deserialize, Serialize};
-use tokio::process::{Child, Command};
+use tokio::{
+    process::{Child, Command},
+    runtime::Handle,
+};
+use tracing::warn;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Plugin {
     pub path: String,
-    /// If empty, defaults to root
-    pub file_owner: Option<String>,
-    /// If empty, defaults to root
-    pub exec_user: Option<String>,
-    /// If empty, hash is not performed
-    pub sha256: Option<String>,
-    /// Option for `run0`. Do not provide User.
-    pub systemd_options: Option<BTreeMap<String, Vec<String>>>,
+    /// Check that plugin file owner is root
+    #[serde(default = "_true")]
+    pub check_root: bool,
+    /// Enable systemd containerization
+    #[serde(default = "_true")]
+    pub systemd: bool,
+    /// Options for `run0`
+    #[serde(default)]
+    pub systemd_options: BTreeMap<String, Vec<String>>,
+}
+
+fn _true() -> bool {
+    true
 }
 
 // NOTE
@@ -27,20 +41,121 @@ impl Plugin {
         if self.path.is_empty() {
             return Err("can't specify empty plugin path".into());
         }
+
+        #[cfg(not(debug_assertions))]
         if !self.path.starts_with("/") {
             return Err(format!("plugin paths must be absolute: {}", self.path));
+        }
+
+        if self.systemd {
+            self.systemd_setup();
         }
         Ok(())
     }
 
-    pub fn launch(&self) -> Result<Child, std::io::Error> {
-        // TODO owner check
-        // TODO hash check
-        // TODO run0 options
-        Command::new(&self.path)
+    /// Override default options with user-defined options, when defined.
+    pub fn systemd_setup(&mut self) {
+        let mut new_options = systemd_default_options();
+        while let Some((option, value)) = self.systemd_options.pop_first() {
+            new_options.insert(option, value);
+        }
+        self.systemd_options = new_options;
+    }
+
+    pub async fn launch(&self) -> Result<Child, std::io::Error> {
+        // owner check
+        if self.check_root {
+            let path = self.path.clone();
+            let stat = Handle::current()
+                .spawn_blocking(|| std::fs::metadata(path))
+                .await
+                .unwrap()?;
+
+            if stat.st_uid() != 0 {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "plugin file is not owned by root",
+                ));
+            }
+        }
+
+        let self_uid = if self.systemd {
+            // Well well we want to check if we're root
+            #[allow(unsafe_code)]
+            unsafe {
+                nix::libc::geteuid()
+            }
+        } else {
+            0
+        };
+
+        let mut command = if self.systemd && self_uid == 0 {
+            let mut command = Command::new("run0");
+            // --pipe gives direct, non-emulated stdio access, for better performance.
+            command.arg("--pipe");
+            // run0 options
+            for (option, values) in self.systemd_options.iter() {
+                for value in values.iter() {
+                    command.arg("--property").arg(format!("{option}={value}"));
+                }
+            }
+            command.arg(&self.path);
+            command
+        } else {
+            if self.systemd {
+                warn!("Disabling systemd because reaction does not run as root");
+            }
+            Command::new(&self.path)
+        };
+        dbg!(&command);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .env("RUST_BACKTRACE", "1")
             .spawn()
     }
+}
+
+// TODO commented options block execution of program,
+// while developping in my home directory.
+// Some options may still be useful in production environments.
+fn systemd_default_options() -> BTreeMap<String, Vec<String>> {
+    BTreeMap::from(
+        [
+            // No file access
+            ("ReadWritePaths", vec![]),
+            ("ReadOnlyPaths", vec![]),
+            // ("NoExecPaths", vec!["/"]),
+            ("InaccessiblePaths", vec!["/boot", "/etc"]),
+            // Protect special filesystems
+            ("PrivateDevices", vec!["true"]),
+            ("PrivateMounts", vec!["true"]),
+            ("PrivateTmp", vec!["true"]),
+            // ("PrivateUsers", vec!["true"]),
+            ("ProcSubset", vec!["pid"]),
+            ("ProtectClock", vec!["true"]),
+            ("ProtectControlGroups", vec!["true"]),
+            // ("ProtectHome", vec!["true"]),
+            ("ProtectHostname", vec!["true"]),
+            ("ProtectKernelLogs", vec!["true"]),
+            ("ProtectKernelModules", vec!["true"]),
+            ("ProtectKernelTunables", vec!["true"]),
+            ("ProtectProc", vec!["invisible"]),
+            ("ProtectSystem", vec!["strict"]),
+            // Dynamic User
+            ("DynamicUser", vec!["true"]),
+            // Various Protections
+            ("CapabilityBoundingSet", vec![""]),
+            ("LockPersonality", vec!["true"]),
+            ("NoNewPrivileges", vec!["true"]),
+            // Isolate File
+            ("RemoveIPC", vec!["true"]),
+            ("RestrictAddressFamilies", vec![""]),
+            ("RestrictNamespaces", vec!["true"]),
+            ("RestrictSUIDSGID", vec!["true"]),
+            ("SystemCallArchitectures", vec!["native"]),
+            ("SystemCallFilter", vec!["@system-service", "~@privileged"]),
+        ]
+        .map(|(k, v)| (k.into(), v.into_iter().map(|v| v.into()).collect())),
+    )
 }

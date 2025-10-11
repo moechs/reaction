@@ -35,7 +35,6 @@ impl Deref for PluginManager {
         &self.plugin_info
     }
 }
-
 impl DerefMut for PluginManager {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.plugin_info
@@ -46,6 +45,7 @@ impl PluginManager {
     async fn new(plugin: &'static Plugin, shutdown: ShutdownToken) -> Result<Self, String> {
         let mut child = plugin
             .launch()
+            .await
             .map_err(|err| format!("could not launch plugin: {err}"))?;
 
         let stdin = child.stdin.take().unwrap();

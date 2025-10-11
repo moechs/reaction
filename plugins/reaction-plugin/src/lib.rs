@@ -8,6 +8,25 @@ use std::{collections::BTreeMap, error::Error, fmt::Display};
 /// To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 /// the entrypoint for a plugin.
 /// It permits to define 0 to n (stream, filter, action) custom types.
+///
+/// Minimal example:
+/// ```rust
+/// use reaction_plugin::PluginInfo;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let plugin = MyPlugin::default();
+///     reaction_plugin::main_loop(plugin).await;
+/// }
+///
+/// #[derive(Default)]
+/// struct MyPlugin {}
+///
+/// impl PluginInfo for Plugin {
+///   // ...
+/// }
+/// ```
+///
 use remoc::{
     Connect, rch,
     rtc::{self, Server},
@@ -65,8 +84,12 @@ pub trait PluginInfo {
 
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error
     /// (For example if a stream wants a companion action but it hasn't been initialized)
+    /// All initialization (opening remote connections, starting streams, etc) should happen here.
     async fn finish_setup(&mut self) -> RemoteResult<()>;
 
+    /// Notify the plugin that reaction is quitting and that the plugin should quit too.
+    /// A few seconds later, the plugin will receive SIGTERM.
+    /// A few seconds later, the plugin will receive SIGKILL.
     async fn close(mut self) -> RemoteResult<()>;
 }
 

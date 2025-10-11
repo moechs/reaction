@@ -118,7 +118,7 @@ impl VirtualStream {
             _ => return Err(CONFIG_ERROR.into()),
         }
 
-        let (tx, rx) = mpsc::channel(2);
+        let (tx, rx) = mpsc::channel(1);
         Ok((Self { tx }, rx))
     }
 }

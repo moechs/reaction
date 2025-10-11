@@ -10,7 +10,11 @@
 
   plugins: [
     {
-      path: "/home/ppom/prg/reaction/target/debug/reaction-plugin-virtual",
+      path: "./target/debug/reaction-plugin-virtual",
+      check_root: false,
+      systemd_options: {
+        DynamicUser: ["false"],
+      }
     }
   ],
 
