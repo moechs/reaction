@@ -10,6 +10,7 @@ homepage = "https://reaction.ppom.me"
 repository = "https://framagit.org/ppom/reaction"
 keywords = ["security", "sysadmin", "fail2ban", "logs", "monitoring"]
 build = "build.rs"
+default-run = "reaction"
 
 [package.metadata.deb]
 section = "net"
