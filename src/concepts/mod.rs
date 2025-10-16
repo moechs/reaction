@@ -13,7 +13,7 @@ pub use config::{Config, Patterns};
 pub use filter::{Duplicate, Filter};
 use parse_duration::parse_duration;
 pub use pattern::{Pattern, PatternType};
-pub use plugin::{Plugin};
+pub use plugin::Plugin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use stream::Stream;

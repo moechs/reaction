@@ -529,7 +529,10 @@ mod tests {
                 manager.set_loaded_db(loaded_db)
             }
             let error_rx = manager.manager(ShutdownController::new().token());
-            Ok(Self { entry_tx: Some(entry_tx), error_rx })
+            Ok(Self {
+                entry_tx: Some(entry_tx),
+                error_rx,
+            })
         }
     }
 
