@@ -35,7 +35,8 @@ use std::{
 };
 
 use remoc::{
-    Connect, rch,
+    Connect,
+    rch::{self, mpsc},
     rtc::{self, Server},
 };
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,7 @@ use tokio::io::{stdin, stdout};
 #[rtc::remote]
 pub trait PluginInfo {
     /// Return the manifest of the plugin.
-    async fn manifest(&self) -> Result<Manifest, rtc::CallError>;
+    async fn manifest(&mut self, data: PersistData) -> Result<Manifest, rtc::CallError>;
 
     /// Return one stream of a given type if it exists
     async fn stream_impl(
@@ -156,6 +157,16 @@ pub enum Value {
     String(String),
     Array(Vec<Value>),
     Object(BTreeMap<String, Value>),
+}
+
+/// Data persisted by reaction for the plugin.
+/// This is persisted as a single JSON file by reaction, so it is not suitable for big sizes of data.
+#[derive(Serialize, Deserialize)]
+pub struct PersistData {
+    /// Data persisted by the plugin in a previous run
+    pub persisted_data: Value,
+    /// Sender of data to be persisted by the plugin for a previous run
+    pub persist_data: mpsc::Sender<Value>,
 }
 
 #[derive(Serialize, Deserialize)]

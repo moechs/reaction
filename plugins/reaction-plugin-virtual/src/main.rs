@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+    ActionImpl, Exec, Hello, Line, Manifest, PersistData, PluginInfo, RemoteResult, StreamImpl,
+    Value,
 };
 use remoc::{rch::mpsc, rtc};
 
@@ -18,7 +19,7 @@ struct Plugin {
 }
 
 impl PluginInfo for Plugin {
-    async fn manifest(&self) -> Result<Manifest, rtc::CallError> {
+    async fn manifest(&mut self, _data: PersistData) -> Result<Manifest, rtc::CallError> {
         Ok(Manifest {
             hello: Hello::hello(),
             streams: BTreeSet::from(["virtual".into()]),

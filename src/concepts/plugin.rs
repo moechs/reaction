@@ -112,6 +112,7 @@ impl Plugin {
             }
             Command::new(&self.path)
         };
+        command.arg("serve");
         debug!(
             "plugin {}: running command: {:?}",
             self.name,
