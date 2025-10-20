@@ -1072,6 +1072,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reaction-plugin-cluster"
+version = "0.1.0"
+dependencies = [
+ "reaction-plugin",
+ "remoc",
+ "tokio",
+]
+
+[[package]]
 name = "reaction-plugin-virtual"
 version = "0.1.0"
 dependencies = [

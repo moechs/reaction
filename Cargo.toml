@@ -75,7 +75,7 @@ assert_cmd = "2.0.17"
 predicates = "3.1.3"
 
 [workspace]
-members = ["plugins/reaction-plugin", "plugins/reaction-plugin-virtual"]
+members = ["plugins/reaction-plugin", "plugins/reaction-plugin-cluster", "plugins/reaction-plugin-virtual"]
 
 [workspace.dependencies]
 remoc = { version = "0.18.3" }

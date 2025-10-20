@@ -2,3 +2,15 @@ Test what happens when a Filter's pattern Set changes (I think it's shitty)
 DB: add tests on stress testing (lines should always be in order)
 plugins: pipe stderr too and wrap errors in logs
 plugins: provide tree storage? omg
+
+questionnements:
+- quelle cli pour les plugins ?
+	- Directement en appelant le plugin ? reaction-plugin-cluster gen-id ? 🟢
+		→ Demande de savoir où stocker tout ça
+	- Via moult IPC ? reaction plugin cluster gen-id ? 🔴
+		→ Mais du coup c'est l'oeuf ou la poule entre avoir un serveur qui fonctionne et avoir un 
+- Stockage ?
+	- uniquement dans la db reaction
+		→ Faut pas que ce soit trop gros, un peu d'overhead, risque de perdre la donnée
+	- à part dans le configuration directory
+		→ Pas mal en vrai
