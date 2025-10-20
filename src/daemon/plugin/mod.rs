@@ -1,11 +1,11 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
     time::Duration,
 };
 
 use futures::{future::join_all, FutureExt};
-use reaction_plugin::{ActionImpl, PluginInfo, PluginInfoClient, StreamImpl};
+use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
 use remoc::Connect;
 use serde_json::Value;
 use tokio::{process::Child, time::sleep};
@@ -25,8 +25,8 @@ pub struct PluginManager {
     shutdown: ShutdownToken,
     plugin: &'static Plugin,
     plugin_info: PluginInfoClient,
-    stream_impls: Vec<String>,
-    action_impls: Vec<String>,
+    streams: BTreeSet<String>,
+    actions: BTreeSet<String>,
 }
 
 impl Deref for PluginManager {
@@ -72,23 +72,30 @@ impl PluginManager {
             .map_err(|err| format!("could not retrieve initial information from plugin: {err}"))?
             .ok_or("could not retrieve initial information from plugin: no data")?;
 
-        let stream_impls = plugin_info
-            .stream_impls()
+        let manifest = plugin_info
+            .manifest()
             .await
-            .map_err(|err| format!("plugin error while retrieving stream types: {err}"))?;
+            .map_err(|err| format!("plugin error while retrieving its manifest: {err}"))?;
 
-        let action_impls = plugin_info
-            .action_impls()
-            .await
-            .map_err(|err| format!("plugin error while retrieving action types: {err}"))?;
+        let my_hello = Hello::hello();
+
+        if let Err(hint) = Hello::is_compatible(&my_hello, &manifest.hello) {
+            return Err(format!(
+                "reaction can't handle plugin {} with incompatible version {}.{}: current version: {}.{}. {}",
+                plugin.name,
+                manifest.hello.version_major, manifest.hello.version_minor,
+                my_hello.version_major, my_hello.version_minor,
+                hint
+            ));
+        }
 
         Ok(Self {
             child,
             shutdown,
             plugin,
             plugin_info,
-            stream_impls,
-            action_impls,
+            streams: manifest.streams,
+            actions: manifest.actions,
         })
     }
 
@@ -149,7 +156,7 @@ impl Plugins {
         let name = plugin.name.clone();
         let manager = PluginManager::new(plugin, shutdown).await?;
 
-        for stream in &manager.stream_impls {
+        for stream in &manager.streams {
             if let Some(name) = self.streams.insert(stream.clone().into(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a stream with type name '{stream}'",
@@ -157,7 +164,7 @@ impl Plugins {
             }
         }
 
-        for action in &manager.action_impls {
+        for action in &manager.actions {
             if let Some(name) = self.actions.insert(action.clone().into(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a action with type name '{action}'",

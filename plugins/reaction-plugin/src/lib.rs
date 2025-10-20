@@ -1,32 +1,39 @@
-use std::{collections::BTreeMap, error::Error, fmt::Display};
+//! This crate defines the API between reaction's core and plugins.
+//!
+//! It's based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
+//! calls over a single transport channel.
+//!
+//! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`
+//!
+//! To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
+//! the entrypoint for a plugin.
+//! It permits to define 0 to n (stream, filter, action) custom types.
+//!
+//! Minimal example:
+//! `src/main.rs`
+//! ```rust
+//! use reaction_plugin::PluginInfo;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let plugin = MyPlugin::default();
+//!     reaction_plugin::main_loop(plugin).await;
+//! }
+//!
+//! #[derive(Default)]
+//! struct MyPlugin {}
+//!
+//! impl PluginInfo for Plugin {
+//!   // ...
+//! }
+//! ```
 
-/// This crate defines the API between reaction's core and plugins.
-///
-/// It's based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
-/// calls over a single transport channel.
-///
-/// To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
-/// the entrypoint for a plugin.
-/// It permits to define 0 to n (stream, filter, action) custom types.
-///
-/// Minimal example:
-/// ```rust
-/// use reaction_plugin::PluginInfo;
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let plugin = MyPlugin::default();
-///     reaction_plugin::main_loop(plugin).await;
-/// }
-///
-/// #[derive(Default)]
-/// struct MyPlugin {}
-///
-/// impl PluginInfo for Plugin {
-///   // ...
-/// }
-/// ```
-///
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::Display,
+};
+
 use remoc::{
     Connect, rch,
     rtc::{self, Server},
@@ -38,18 +45,9 @@ use tokio::io::{stdin, stdout};
 /// It provides lists of stream, filter and action types implemented by a dynamic plugin.
 #[rtc::remote]
 pub trait PluginInfo {
-    /// Return all stream types that should be made available to reaction users
-    /// ```jsonnet
-    /// {
-    ///   streams: {
-    ///     my_stream: {
-    ///       type: "..."
-    ///       # ↑ all those exposed types
-    ///     }
-    ///   }
-    /// }
-    /// ```
-    async fn stream_impls(&self) -> Result<Vec<String>, rtc::CallError>;
+    /// Return the manifest of the plugin.
+    async fn manifest(&self) -> Result<Manifest, rtc::CallError>;
+
     /// Return one stream of a given type if it exists
     async fn stream_impl(
         &mut self,
@@ -58,19 +56,6 @@ pub trait PluginInfo {
         config: Value,
     ) -> RemoteResult<StreamImpl>;
 
-    // /// Return all filter types that should be made available to reaction users
-    // async fn filter_impls(&self) -> RemoteResult<Vec<String>>;
-    // /// Return one stream of a given type if it exists
-    // async fn filter_impl(
-    //     &mut self,
-    //     stream_name: String,
-    //     filter_name: String,
-    //     stream_type: String,
-    //     config: Value,
-    // ) -> RemoteResult<Result<FilterImpl, String>>;
-
-    /// Return all action types that should be made available to reaction users
-    async fn action_impls(&self) -> Result<Vec<String>, rtc::CallError>;
     /// Return one instance of a given type.
     async fn action_impl(
         &mut self,
@@ -91,6 +76,73 @@ pub trait PluginInfo {
     /// A few seconds later, the plugin will receive SIGTERM.
     /// A few seconds later, the plugin will receive SIGKILL.
     async fn close(mut self) -> RemoteResult<()>;
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Manifest {
+    // Protocol version. available as the [`hello!`] macro.
+    pub hello: Hello,
+    /// stream types that should be made available to reaction users
+    /// ```jsonnet
+    /// {
+    ///   streams: {
+    ///     my_stream: {
+    ///       type: "..."
+    ///       # ↑ all those exposed types
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    pub streams: BTreeSet<String>,
+    /// All action types that should be made available to reaction users
+    pub actions: BTreeSet<String>,
+}
+
+#[derive(Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Hello {
+    /// Major version of the protocol
+    /// Increment means breaking change
+    pub version_major: u32,
+    /// Minor version of the protocol
+    /// Increment means reaction core can handle older version plugins
+    pub version_minor: u32,
+}
+
+impl Hello {
+    pub fn hello() -> Hello {
+        Hello {
+            version_major: env!("CARGO_PKG_VERSION")
+                .split(".")
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap(),
+            version_minor: env!("CARGO_PKG_VERSION")
+                .split(".")
+                .skip(1)
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap(),
+        }
+    }
+
+    pub fn is_compatible(server: &Hello, plugin: &Hello) -> std::result::Result<(), String> {
+        if server.version_major == plugin.version_major
+            && server.version_minor >= plugin.version_minor
+        {
+            Ok(())
+        } else {
+            if plugin.version_major > server.version_major
+                || (plugin.version_major == server.version_major
+                    && plugin.version_minor > server.version_minor)
+            {
+                Err("consider upgrading reaction".into())
+            } else {
+                Err("consider upgrading the plugin".into())
+            }
+        }
+    }
 }
 
 /// Represents a configuration value.

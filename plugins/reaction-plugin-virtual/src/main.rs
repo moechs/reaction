@@ -1,6 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use reaction_plugin::{ActionImpl, Exec, Line, PluginInfo, RemoteResult, StreamImpl, Value};
+use reaction_plugin::{
+    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+};
 use remoc::{rch::mpsc, rtc};
 
 #[tokio::main]
@@ -16,12 +18,12 @@ struct Plugin {
 }
 
 impl PluginInfo for Plugin {
-    async fn stream_impls(&self) -> Result<Vec<String>, rtc::CallError> {
-        Ok(vec!["virtual".into()])
-    }
-
-    async fn action_impls(&self) -> Result<Vec<String>, rtc::CallError> {
-        Ok(vec!["virtual".into()])
+    async fn manifest(&self) -> Result<Manifest, rtc::CallError> {
+        Ok(Manifest {
+            hello: Hello::hello(),
+            streams: BTreeSet::from(["virtual".into()]),
+            actions: BTreeSet::from(["virtual".into()]),
+        })
     }
 
     async fn stream_impl(
@@ -205,29 +207,21 @@ impl VirtualAction {
     }
 
     async fn serve(&mut self) {
-        loop {
-            match self.rx.recv().await {
-                Ok(Some(m)) => {
-                    let line = if m.match_.is_empty() {
-                        self.send.clone()
-                    } else {
-                        (0..(m.match_.len()))
-                            .zip(&self.patterns)
-                            .fold(self.send.clone(), |acc, (i, pattern)| {
-                                acc.replace(pattern, &m.match_[i])
-                            })
-                    };
-                    let result = match self.to.tx.send(Line::Ok(line)).await {
-                        Ok(_) => Ok(()),
-                        Err(err) => Err(format!("{err}")),
-                    };
-                    m.result.send(result).unwrap();
-                }
-                Ok(None) => {
-                    return;
-                }
-                Err(_) => panic!(),
-            }
+        while let Ok(Some(m)) = self.rx.recv().await {
+            let line = if m.match_.is_empty() {
+                self.send.clone()
+            } else {
+                (0..(m.match_.len()))
+                    .zip(&self.patterns)
+                    .fold(self.send.clone(), |acc, (i, pattern)| {
+                        acc.replace(pattern, &m.match_[i])
+                    })
+            };
+            let result = match self.to.tx.send(Line::Ok(line)).await {
+                Ok(_) => Ok(()),
+                Err(err) => Err(format!("{err}")),
+            };
+            m.result.send(result).unwrap();
         }
     }
 }

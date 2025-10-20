@@ -10,7 +10,7 @@ use tokio::{
     process::{Child, Command},
     runtime::Handle,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -112,7 +112,11 @@ impl Plugin {
             }
             Command::new(&self.path)
         };
-        dbg!(&command);
+        debug!(
+            "plugin {}: running command: {:?}",
+            self.name,
+            command.as_std()
+        );
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
