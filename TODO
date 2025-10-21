@@ -1,3 +1,4 @@
 Test what happens when a Filter's pattern Set changes (I think it's shitty)
 DB: add tests on stress testing (lines should always be in order)
 plugins: pipe stderr too and wrap errors in logs
+plugins: provide tree storage? omg

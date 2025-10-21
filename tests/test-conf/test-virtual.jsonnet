@@ -8,15 +8,15 @@
     }
   },
 
-  plugins: [
-    {
+  plugins: {
+    virtual: {
       path: "./target/debug/reaction-plugin-virtual",
       check_root: false,
       systemd_options: {
         DynamicUser: ["false"],
       }
     }
-  ],
+  },
 
   streams: {
     s0: {

@@ -16,6 +16,9 @@ use tracing::warn;
 #[cfg_attr(test, derive(Default))]
 #[serde(deny_unknown_fields)]
 pub struct Plugin {
+    #[serde(skip)]
+    pub name: String,
+
     pub path: String,
     /// Check that plugin file owner is root
     #[serde(default = "_true")]
@@ -37,7 +40,9 @@ fn _true() -> bool {
 // with the --pipe option, raw stdio fd are transmitted to the underlying command, so there is no overhead.
 
 impl Plugin {
-    pub fn setup(&mut self) -> Result<(), String> {
+    pub fn setup(&mut self, name: &str) -> Result<(), String> {
+        self.name = name.to_string();
+
         if self.path.is_empty() {
             return Err("can't specify empty plugin path".into());
         }

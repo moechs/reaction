@@ -60,7 +60,7 @@ impl PluginManager {
             .map_err(|err| {
                 format!(
                     "could not init communication with plugin {}: {err}",
-                    plugin.path
+                    plugin.name
                 )
             })?;
 
@@ -98,7 +98,7 @@ impl PluginManager {
         // wait either for the child process to exit on its own or for the shutdown signal
         futures::select! {
             _ = self.child.wait().fuse() => {
-                error!("plugin {} exited: its command returned.", self.plugin.path);
+                error!("plugin {} exited: its command returned.", self.plugin.name);
                 return;
             }
             _ = self.shutdown.wait().fuse() => {}
@@ -109,11 +109,11 @@ impl PluginManager {
                 return;
             },
             _ = sleep(Duration::from_secs(PLUGIN_STOP_GRACE_TIME)).fuse() => {
-                error!("plugin {} did not respond to close request in time, killing", self.plugin.path)
+                error!("plugin {} did not respond to close request in time, killing", self.plugin.name)
             },
         }
 
-        kill_child(self.child, format!("plugin {}", self.plugin.path), 5).await;
+        kill_child(self.child, format!("plugin {}", self.plugin.name), 5).await;
     }
 }
 
@@ -126,16 +126,16 @@ pub struct Plugins {
 
 impl Plugins {
     pub async fn new(
-        plugins: &'static Vec<Plugin>,
+        plugins: &'static BTreeMap<String, Plugin>,
         shutdown: ShutdownToken,
     ) -> Result<Self, String> {
         let mut this = Self::default();
 
-        for plugin in plugins {
-            let path = plugin.path.clone();
+        for plugin in plugins.values() {
+            let name = plugin.name.clone();
             this.load_plugin(&plugin, shutdown.clone())
                 .await
-                .map_err(|err| format!("plugin {path}: {err}]"))?;
+                .map_err(|err| format!("plugin {name}: {err}]"))?;
         }
 
         Ok(this)
@@ -146,26 +146,26 @@ impl Plugins {
         plugin: &'static Plugin,
         shutdown: ShutdownToken,
     ) -> Result<(), String> {
-        let path = plugin.path.clone();
+        let name = plugin.name.clone();
         let manager = PluginManager::new(plugin, shutdown).await?;
 
         for stream in &manager.stream_impls {
-            if let Some(path) = self.streams.insert(stream.clone().into(), path.clone()) {
+            if let Some(name) = self.streams.insert(stream.clone().into(), name.clone()) {
                 return Err(format!(
-                    "plugin {path} already exposed a stream with type name '{stream}'",
+                    "plugin {name} already exposed a stream with type name '{stream}'",
                 ));
             }
         }
 
         for action in &manager.action_impls {
-            if let Some(path) = self.actions.insert(action.clone().into(), path.clone()) {
+            if let Some(name) = self.actions.insert(action.clone().into(), name.clone()) {
                 return Err(format!(
-                    "plugin {path} already exposed a action with type name '{action}'",
+                    "plugin {name} already exposed a action with type name '{action}'",
                 ));
             }
         }
 
-        self.plugins.insert(path, manager);
+        self.plugins.insert(name, manager);
         Ok(())
     }
 
@@ -233,7 +233,7 @@ impl Plugins {
         .into_iter()
         .zip(self.plugins.values())
         .map(|(result, plugin_manager)| {
-            result.map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.path))
+            result.map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.name))
         })
         .collect::<Result<(), String>>()
     }

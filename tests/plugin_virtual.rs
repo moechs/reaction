@@ -12,6 +12,12 @@ fn plugin_virtual() {
         .write_file(Path::new("tests/test-conf/test-virtual.jsonnet"))
         .unwrap();
 
+    // Copy virtual plugin
+    tmp_dir
+        .child("./target/debug/reaction-plugin-virtual")
+        .write_file(Path::new("./target/debug/reaction-plugin-virtual"))
+        .unwrap();
+
     Command::cargo_bin("reaction")
         .unwrap()
         .args(["start", "--socket", "./s", "--config", "./config.jsonnet"])

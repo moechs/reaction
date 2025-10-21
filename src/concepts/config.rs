@@ -24,8 +24,8 @@ pub struct Config {
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
 
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub plugins: Vec<Plugin>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub plugins: BTreeMap<String, Plugin>,
 
     #[serde(default)]
     pub patterns: Patterns,
@@ -101,8 +101,8 @@ impl Config {
         // Nullify this useless field
         self._definitions = serde_json::Value::Null;
 
-        for plugin in &mut self.plugins {
-            plugin.setup()?;
+        for (key, value) in &mut self.plugins {
+            value.setup(key)?;
         }
 
         if self.patterns.is_empty() {
