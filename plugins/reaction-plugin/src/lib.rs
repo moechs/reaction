@@ -3,8 +3,6 @@
 //! It's based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
 //! calls over a single transport channel.
 //!
-//! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`
-//!
 //! To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 //! the entrypoint for a plugin.
 //! It permits to define 0 to n (stream, filter, action) custom types.
@@ -27,6 +25,21 @@
 //!   // ...
 //! }
 //! ```
+//!
+//! ## Naming & calling conventions
+//!
+//! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`.
+//! It will be invoked with one positional argument "serve".
+//! ```
+//! reaction-plugin-$NAME serve
+//! ```
+//! This can be useful if you want to provide CLI functionnality to your users.
+//!
+//! ## Examples
+//!
+//! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>
+//! The "virtual" plugin is the simplest and can serve as a template.
+//! You'll have to adjust dependencies versions in `Cargo.toml`.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -148,7 +161,7 @@ impl Hello {
 
 /// Represents a configuration value.
 /// This is not meant as an efficient type, but as a very flexible one.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Value {
     Null,
     Bool(bool),

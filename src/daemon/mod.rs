@@ -44,7 +44,7 @@ pub async fn daemon(
     // Cancellation Token
     let shutdown = ShutdownController::new();
 
-    let mut plugins = Plugins::new(&config.plugins, shutdown.token()).await?;
+    let mut plugins = Plugins::new(config, shutdown.token()).await?;
 
     // Open Database
     let mut db = Database::open(config, shutdown.token()).await?;

@@ -5,14 +5,14 @@ use std::{
 };
 
 use futures::{future::join_all, FutureExt};
-use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
-use remoc::Connect;
+use reaction_plugin::{ActionImpl, Hello, PersistData, PluginInfo, PluginInfoClient, StreamImpl};
+use remoc::{rch::mpsc, Connect};
 use serde_json::Value;
-use tokio::{process::Child, time::sleep};
+use tokio::{fs, process::Child, time::sleep};
 use tracing::error;
 
 use crate::{
-    concepts::Plugin,
+    concepts::{Config, Plugin},
     daemon::{utils::kill_child, ShutdownToken},
 };
 
@@ -42,7 +42,11 @@ impl DerefMut for PluginManager {
 }
 
 impl PluginManager {
-    async fn new(plugin: &'static Plugin, shutdown: ShutdownToken) -> Result<Self, String> {
+    async fn new(
+        plugin: &'static Plugin,
+        state_directory: &str,
+        shutdown: ShutdownToken,
+    ) -> Result<Self, String> {
         let mut child = plugin
             .launch()
             .await
@@ -66,16 +70,20 @@ impl PluginManager {
 
         tokio::spawn(conn);
 
-        let plugin_info = rx
+        let mut plugin_info = rx
             .recv()
             .await
             .map_err(|err| format!("could not retrieve initial information from plugin: {err}"))?
             .ok_or("could not retrieve initial information from plugin: no data")?;
 
-        let manifest = plugin_info
-            .manifest()
+        let persist_data = data_persistence(&plugin.name, state_directory, shutdown.clone())
             .await
-            .map_err(|err| format!("plugin error while retrieving its manifest: {err}"))?;
+            .map_err(|err| format!("error while reading plugin {} data: {err}", plugin.name))?;
+
+        let manifest = plugin_info
+            .manifest(persist_data)
+            .await
+            .map_err(|err| format!("error while getting plugin {} manifest: {err}", plugin.name))?;
 
         let my_hello = Hello::hello();
 
@@ -132,15 +140,12 @@ pub struct Plugins {
 }
 
 impl Plugins {
-    pub async fn new(
-        plugins: &'static BTreeMap<String, Plugin>,
-        shutdown: ShutdownToken,
-    ) -> Result<Self, String> {
+    pub async fn new(config: &'static Config, shutdown: ShutdownToken) -> Result<Self, String> {
         let mut this = Self::default();
 
-        for plugin in plugins.values() {
+        for plugin in config.plugins.values() {
             let name = plugin.name.clone();
-            this.load_plugin(&plugin, shutdown.clone())
+            this.load_plugin(&plugin, &config.state_directory, shutdown.clone())
                 .await
                 .map_err(|err| format!("plugin {name}: {err}]"))?;
         }
@@ -151,10 +156,11 @@ impl Plugins {
     async fn load_plugin(
         &mut self,
         plugin: &'static Plugin,
+        state_directory: &str,
         shutdown: ShutdownToken,
     ) -> Result<(), String> {
         let name = plugin.name.clone();
-        let manager = PluginManager::new(plugin, shutdown).await?;
+        let manager = PluginManager::new(plugin, state_directory, shutdown).await?;
 
         for stream in &manager.streams {
             if let Some(name) = self.streams.insert(stream.clone().into(), name.clone()) {
@@ -252,4 +258,49 @@ impl Plugins {
             });
         }
     }
+}
+
+async fn data_persistence(
+    plugin_name: &str,
+    state_directory: &str,
+    shutdown: ShutdownToken,
+) -> Result<PersistData, std::io::Error> {
+    let dir_path = format!("{state_directory}/plugin_data/");
+    fs::create_dir_all(&dir_path).await?;
+
+    let file_path = format!("{dir_path}/{plugin_name}.json");
+
+    let data = if fs::try_exists(&file_path).await? {
+        let txt = fs::read_to_string(&file_path).await?;
+        serde_json::from_str::<Value>(&txt)?
+    } else {
+        Value::Null
+    };
+
+    let (tx, mut rx) = mpsc::channel(1);
+
+    tokio::spawn(async move {
+        loop {
+            let value = tokio::select! {
+                _ = shutdown.wait() => break,
+                value = rx.recv() => value,
+            };
+            if let Ok(Some(value)) = value {
+                // unwrap: serializing a [`serde_json::Value`] does not fail
+                let json = serde_json::to_string_pretty(&value).unwrap();
+
+                if let Err(err) = fs::write(&file_path, json).await {
+                    error!("could not store plugin data at {file_path}: {err}");
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
+
+    Ok(PersistData {
+        persisted_data: to_stable_value(data),
+        persist_data: tx,
+    })
 }
