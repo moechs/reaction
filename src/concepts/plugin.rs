@@ -7,6 +7,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tokio::{
+    fs,
     process::{Child, Command},
     runtime::Handle,
 };
@@ -51,23 +52,19 @@ impl Plugin {
         if !self.path.starts_with("/") {
             return Err(format!("plugin paths must be absolute: {}", self.path));
         }
-
-        if self.systemd {
-            self.systemd_setup();
-        }
         Ok(())
     }
 
     /// Override default options with user-defined options, when defined.
-    pub fn systemd_setup(&mut self) {
-        let mut new_options = systemd_default_options();
-        while let Some((option, value)) = self.systemd_options.pop_first() {
-            new_options.insert(option, value);
+    pub fn systemd_setup(&self, working_directory: &str) -> BTreeMap<String, Vec<String>> {
+        let mut new_options = systemd_default_options(working_directory);
+        for (option, value) in self.systemd_options.iter() {
+            new_options.insert(option.clone(), value.clone());
         }
-        self.systemd_options = new_options;
+        new_options
     }
 
-    pub async fn launch(&self) -> Result<Child, std::io::Error> {
+    pub async fn launch(&self, state_directory: &str) -> Result<Child, std::io::Error> {
         // owner check
         if self.check_root {
             let path = self.path.clone();
@@ -85,19 +82,26 @@ impl Plugin {
         }
 
         let self_uid = if self.systemd {
-            // Well well we want to check if we're root
-            #[allow(unsafe_code)]
-            unsafe {
-                nix::libc::geteuid()
-            }
+            Some(
+                // Well well we want to check if we're root
+                #[allow(unsafe_code)]
+                unsafe {
+                    nix::libc::geteuid()
+                },
+            )
         } else {
-            0
+            None
         };
 
-        let mut command = if self.systemd && self_uid == 0 {
+        // Create plugin working directory (also state directory)
+        let plugin_working_directory = plugin_working_directory(&self.name, state_directory)?;
+        fs::create_dir(&plugin_working_directory).await?;
+
+        let mut command = if self_uid.is_some_and(|self_uid| self_uid == 0) {
             let mut command = Command::new("run0");
             // --pipe gives direct, non-emulated stdio access, for better performance.
             command.arg("--pipe");
+            self.systemd_setup(&plugin_working_directory);
             // run0 options
             for (option, values) in self.systemd_options.iter() {
                 for value in values.iter() {
@@ -110,7 +114,9 @@ impl Plugin {
             if self.systemd {
                 warn!("Disabling systemd because reaction does not run as root");
             }
-            Command::new(&self.path)
+            let mut command = Command::new(&self.path);
+            command.current_dir(plugin_working_directory);
+            command
         };
         command.arg("serve");
         debug!(
@@ -126,14 +132,31 @@ impl Plugin {
     }
 }
 
+fn plugin_working_directory(plugin_name: &str, state_directory: &str) -> Result<String, Error> {
+    std::fs::canonicalize(format!("{state_directory}/plugin_data/{plugin_name}")).and_then(|path| {
+        path.to_str()
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::Other,
+                    "state_directory is not UTF-8. please run reaction at an UTF-8 named path",
+                )
+            })
+            .map(str::to_owned)
+    })
+}
+
 // TODO commented options block execution of program,
 // while developping in my home directory.
 // Some options may still be useful in production environments.
-fn systemd_default_options() -> BTreeMap<String, Vec<String>> {
+fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<String>> {
     BTreeMap::from(
         [
-            // No file access
-            ("ReadWritePaths", vec![]),
+            // reaction slice (does nothing if inexistent)
+            ("Slice", vec!["reaction.slice"]),
+            // Started in its own directory
+            ("WorkingDirectory", vec![working_directory]),
+            // No file access except own directory
+            ("ReadWritePaths", vec![working_directory]),
             ("ReadOnlyPaths", vec![]),
             // ("NoExecPaths", vec!["/"]),
             ("InaccessiblePaths", vec!["/boot", "/etc"]),

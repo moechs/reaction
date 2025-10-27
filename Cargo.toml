@@ -44,7 +44,7 @@ num_cpus = "1.16.0"
 regex = "1.10.4"
 # Configuration languages, ser/deserialisation
 serde.workspace = true
-serde_json = "1.0.117"
+serde_json.workspace = true
 serde_yaml = "0.9.34"
 jrsonnet-evaluator = "0.4.2"
 # Error macro
@@ -80,6 +80,7 @@ members = ["plugins/reaction-plugin", "plugins/reaction-plugin-cluster", "plugin
 [workspace.dependencies]
 remoc = { version = "0.18.3" }
 serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
 tokio = { version = "1.40.0" }
 
 [[bin]]

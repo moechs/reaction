@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Line, Manifest, PersistData, PluginInfo, RemoteResult, StreamImpl,
-    Value,
+    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
 };
 use remoc::{rch::mpsc, rtc};
+use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() {
@@ -19,7 +19,7 @@ struct Plugin {
 }
 
 impl PluginInfo for Plugin {
-    async fn manifest(&mut self, _data: PersistData) -> Result<Manifest, rtc::CallError> {
+    async fn manifest(&mut self) -> Result<Manifest, rtc::CallError> {
         Ok(Manifest {
             hello: Hello::hello(),
             streams: BTreeSet::from(["virtual".into()]),
@@ -59,7 +59,7 @@ impl PluginInfo for Plugin {
         patterns: Vec<String>,
     ) -> RemoteResult<ActionImpl> {
         if &action_type != "virtual" {
-            return Err("This plugin can't handle other stream types than virtual".into());
+            return Err("This plugin can't handle other action types than virtual".into());
         }
 
         let (virtual_action_init, tx) =
@@ -126,6 +126,14 @@ impl VirtualStream {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct ActionOptions {
+    /// The line to send to the corresponding virtual stream, example: "ban \<ip\>"
+    send: String,
+    /// The name of the corresponding virtual stream, example: "my_stream"
+    to: String,
+}
+
 struct VirtualActionInit {
     stream_name: String,
     filter_name: String,
@@ -144,30 +152,9 @@ impl VirtualActionInit {
         config: Value,
         patterns: Vec<String>,
     ) -> Result<(Self, mpsc::Sender<Exec>), String> {
-        let send;
-        let to;
-        match config {
-            Value::Object(mut map) => {
-                send = match map.remove("send") {
-                    Some(Value::String(value)) => value,
-                    _ =>  return Err("`send` must be a string to send to the corresponding virtual stream, example: \"ban <ip>\"".into()),
-                };
-
-                to = match map.remove("to") {
-                    Some(Value::String(value)) => value,
-                    _ =>  return Err("`to` must be the name of the corresponding virtual stream, example: \"my_stream\"".into()),
-                };
-
-                if map.len() != 0 {
-                    return Err(
-                        "actions of type virtual accept only `send` and `to` options".into(),
-                    );
-                }
-            }
-            _ => {
-                return Err("actions of type virtual require `send` and `to` options".into());
-            }
-        }
+        let options: ActionOptions = serde_json::from_value(config).map_err(|err| {
+            format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
+        })?;
 
         let patterns = patterns
             .into_iter()
@@ -182,8 +169,8 @@ impl VirtualActionInit {
                 action_name,
                 rx,
                 patterns,
-                send,
-                to,
+                send: options.send,
+                to: options.to,
             },
             tx,
         ))

@@ -7,3 +7,4 @@ edition = "2024"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 remoc.workspace = true
 reaction-plugin.path = "../reaction-plugin"
+serde_json.workspace = true

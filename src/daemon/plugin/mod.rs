@@ -5,20 +5,16 @@ use std::{
 };
 
 use futures::{future::join_all, FutureExt};
-use reaction_plugin::{ActionImpl, Hello, PersistData, PluginInfo, PluginInfoClient, StreamImpl};
-use remoc::{rch::mpsc, Connect};
+use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
+use remoc::Connect;
 use serde_json::Value;
-use tokio::{fs, process::Child, time::sleep};
+use tokio::{process::Child, time::sleep};
 use tracing::error;
 
 use crate::{
     concepts::{Config, Plugin},
     daemon::{utils::kill_child, ShutdownToken},
 };
-
-mod value;
-
-use value::to_stable_value;
 
 pub struct PluginManager {
     child: Child,
@@ -48,7 +44,7 @@ impl PluginManager {
         shutdown: ShutdownToken,
     ) -> Result<Self, String> {
         let mut child = plugin
-            .launch()
+            .launch(state_directory)
             .await
             .map_err(|err| format!("could not launch plugin: {err}"))?;
 
@@ -76,12 +72,8 @@ impl PluginManager {
             .map_err(|err| format!("could not retrieve initial information from plugin: {err}"))?
             .ok_or("could not retrieve initial information from plugin: no data")?;
 
-        let persist_data = data_persistence(&plugin.name, state_directory, shutdown.clone())
-            .await
-            .map_err(|err| format!("error while reading plugin {} data: {err}", plugin.name))?;
-
         let manifest = plugin_info
-            .manifest(persist_data)
+            .manifest()
             .await
             .map_err(|err| format!("error while getting plugin {} manifest: {err}", plugin.name))?;
 
@@ -188,21 +180,16 @@ impl Plugins {
         stream_type: String,
         config: Value,
     ) -> Result<StreamImpl, String> {
-        let plugin_name = self
-            .streams
-            .get(&stream_type)
-            .ok_or(format!("No plugin provided a stream type '{stream_type}'"))?;
+        let plugin_name = self.streams.get(&stream_type).ok_or(format!(
+            "No plugin provided the stream type '{stream_type}'"
+        ))?;
 
         let plugin = self.plugins.get_mut(plugin_name).unwrap();
 
         plugin
-            .stream_impl(
-                stream_name.into(),
-                stream_type.into(),
-                to_stable_value(config),
-            )
+            .stream_impl(stream_name.clone(), stream_type, config)
             .await
-            .map_err(|err| format!("plugin error while initializing stream: {err}"))
+            .map_err(|err| format!("plugin error while initializing stream {stream_name}: {err}"))
     }
 
     pub async fn init_action_impl(
@@ -214,24 +201,23 @@ impl Plugins {
         config: Value,
         patterns: Vec<String>,
     ) -> Result<ActionImpl, String> {
-        let plugin_name = self
-            .actions
-            .get(&action_type)
-            .ok_or(format!("No plugin provided a action type '{action_type}'"))?;
+        let plugin_name = self.actions.get(&action_type).ok_or(format!(
+            "No plugin provided the action type '{action_type}'"
+        ))?;
 
         let plugin = self.plugins.get_mut(plugin_name).unwrap();
 
         plugin
             .action_impl(
-                stream_name.into(),
-                filter_name.into(),
-                action_name.into(),
-                action_type.into(),
-                to_stable_value(config),
+                stream_name.clone(),
+                filter_name.clone(),
+                action_name.clone(),
+                action_type,
+                config,
                 patterns,
             )
             .await
-            .map_err(|err| format!("plugin error while initializing action: {err}"))
+            .map_err(|err| format!("plugin error while initializing action {stream_name}.{filter_name}.{action_name}: {err}"))
     }
 
     pub async fn finish_setup(&mut self) -> Result<(), String> {
@@ -258,49 +244,4 @@ impl Plugins {
             });
         }
     }
-}
-
-async fn data_persistence(
-    plugin_name: &str,
-    state_directory: &str,
-    shutdown: ShutdownToken,
-) -> Result<PersistData, std::io::Error> {
-    let dir_path = format!("{state_directory}/plugin_data/");
-    fs::create_dir_all(&dir_path).await?;
-
-    let file_path = format!("{dir_path}/{plugin_name}.json");
-
-    let data = if fs::try_exists(&file_path).await? {
-        let txt = fs::read_to_string(&file_path).await?;
-        serde_json::from_str::<Value>(&txt)?
-    } else {
-        Value::Null
-    };
-
-    let (tx, mut rx) = mpsc::channel(1);
-
-    tokio::spawn(async move {
-        loop {
-            let value = tokio::select! {
-                _ = shutdown.wait() => break,
-                value = rx.recv() => value,
-            };
-            if let Ok(Some(value)) = value {
-                // unwrap: serializing a [`serde_json::Value`] does not fail
-                let json = serde_json::to_string_pretty(&value).unwrap();
-
-                if let Err(err) = fs::write(&file_path, json).await {
-                    error!("could not store plugin data at {file_path}: {err}");
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-    });
-
-    Ok(PersistData {
-        persisted_data: to_stable_value(data),
-        persist_data: tx,
-    })
 }

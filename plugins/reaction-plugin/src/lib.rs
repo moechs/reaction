@@ -35,24 +35,22 @@
 //! ```
 //! This can be useful if you want to provide CLI functionnality to your users.
 //!
+//! It will be run in its own directory, in which it should have write access.
+//!
 //! ## Examples
 //!
 //! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>
 //! The "virtual" plugin is the simplest and can serve as a template.
 //! You'll have to adjust dependencies versions in `Cargo.toml`.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    error::Error,
-    fmt::Display,
-};
+use std::{collections::BTreeSet, error::Error, fmt::Display};
 
 use remoc::{
-    Connect,
-    rch::{self, mpsc},
+    Connect, rch,
     rtc::{self, Server},
 };
 use serde::{Deserialize, Serialize};
+pub use serde_json::Value;
 use tokio::io::{stdin, stdout};
 
 /// This is the only trait that **must** be implemented by a plugin.
@@ -60,7 +58,7 @@ use tokio::io::{stdin, stdout};
 #[rtc::remote]
 pub trait PluginInfo {
     /// Return the manifest of the plugin.
-    async fn manifest(&mut self, data: PersistData) -> Result<Manifest, rtc::CallError>;
+    async fn manifest(&mut self) -> Result<Manifest, rtc::CallError>;
 
     /// Return one stream of a given type if it exists
     async fn stream_impl(
@@ -157,29 +155,6 @@ impl Hello {
             }
         }
     }
-}
-
-/// Represents a configuration value.
-/// This is not meant as an efficient type, but as a very flexible one.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum Value {
-    Null,
-    Bool(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Array(Vec<Value>),
-    Object(BTreeMap<String, Value>),
-}
-
-/// Data persisted by reaction for the plugin.
-/// This is persisted as a single JSON file by reaction, so it is not suitable for big sizes of data.
-#[derive(Serialize, Deserialize)]
-pub struct PersistData {
-    /// Data persisted by the plugin in a previous run
-    pub persisted_data: Value,
-    /// Sender of data to be persisted by the plugin for a previous run
-    pub persist_data: mpsc::Sender<Value>,
 }
 
 #[derive(Serialize, Deserialize)]
