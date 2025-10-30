@@ -18,12 +18,12 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
-    fs::{rename, File},
+    fs::{File, rename},
     sync::{mpsc, oneshot},
-    time::{interval, MissedTickBehavior},
+    time::{MissedTickBehavior, interval},
 };
 
 use crate::{
@@ -76,10 +76,12 @@ impl Config {
     }
 }
 
+pub type DatabaseErrorReceiver = oneshot::Receiver<Result<(), String>>;
+
 /// Public-facing API for a treedb Database
 pub struct Database {
     entry_tx: Option<mpsc::Sender<Order>>,
-    error_rx: oneshot::Receiver<Result<(), String>>,
+    error_rx: DatabaseErrorReceiver,
 }
 
 impl Database {
@@ -101,7 +103,7 @@ impl Database {
 
     /// Permit to close DB's channel.
     /// Without this function manually called, the DB can't close.
-    pub fn quit(self) -> oneshot::Receiver<Result<(), String>> {
+    pub fn quit(self) -> DatabaseErrorReceiver {
         self.error_rx
     }
 }
@@ -279,7 +281,7 @@ async fn rotate_db(
             // No need to rotate the database when it is new,
             // we return here
             (true, ErrorKind::NotFound) => {
-                return Ok((WriteDB::new(File::create(path).await?), HashMap::default()))
+                return Ok((WriteDB::new(File::create(path).await?), HashMap::default()));
             }
             (_, _) => return Err(err),
         },
@@ -480,13 +482,13 @@ mod tests {
     use chrono::{Local, TimeDelta};
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
-    use tokio::fs::{write, File};
+    use tokio::fs::{File, write};
 
     use crate::{concepts::Config, daemon::ShutdownController};
 
     use super::{
-        helpers::*, raw::WriteDB, rotate_db, Database, DatabaseManager, Entry, KeyType, LoadedDB,
-        Tree, ValueType, DB_NAME,
+        DB_NAME, Database, DatabaseManager, Entry, KeyType, LoadedDB, Tree, ValueType, helpers::*,
+        raw::WriteDB, rotate_db,
     };
 
     impl DatabaseManager {

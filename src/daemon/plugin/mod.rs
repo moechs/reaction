@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{future::join_all, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, future::join_all};
 use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
 use remoc::Connect;
 use serde_json::Value;
@@ -16,7 +16,7 @@ use tracing::error;
 
 use crate::{
     concepts::{Config, Plugin},
-    daemon::{stream::reader_to_stream, utils::kill_child, ShutdownToken},
+    daemon::{ShutdownToken, stream::reader_to_stream, utils::kill_child},
 };
 
 pub struct PluginManager {
@@ -92,8 +92,10 @@ impl PluginManager {
             return Err(format!(
                 "reaction can't handle plugin {} with incompatible version {}.{}: current version: {}.{}. {}",
                 plugin.name,
-                manifest.hello.version_major, manifest.hello.version_minor,
-                my_hello.version_major, my_hello.version_minor,
+                manifest.hello.version_major,
+                manifest.hello.version_minor,
+                my_hello.version_major,
+                my_hello.version_minor,
                 hint
             ));
         }
@@ -133,13 +135,17 @@ impl PluginManager {
     }
 }
 
-async fn handle_stderr(stderr: ChildStderr, plugin_name: String, _shutdown: ShutdownToken) {
+async fn handle_stderr(stderr: ChildStderr, plugin_name: String, shutdown: ShutdownToken) {
     let lines = reader_to_stream(stderr);
     tokio::pin!(lines);
     loop {
-        match lines.next().await {
+        let event = tokio::select! {
+            line = lines.next() => line,
+            _ = shutdown.wait() => None,
+        };
+        match event {
             Some(Ok(line)) => {
-                // dumb: I can't factorize this because tracing::event!
+                // sad: I can't factorize this because the tracing::event! macro
                 // requires its log level to be a constant.
                 if line.starts_with("DEBUG ") {
                     tracing::debug!("plugin {plugin_name}: {}", line.split_at(5).1)
@@ -150,7 +156,7 @@ async fn handle_stderr(stderr: ChildStderr, plugin_name: String, _shutdown: Shut
                 } else if line.starts_with("ERROR ") {
                     tracing::error!("plugin {plugin_name}: {}", line.split_at(5).1)
                 } else {
-                    // If there is no log level, we suppose it's an error (panic or something)
+                    // If there is no log level, we suppose it's an error (may be a panic or something)
                     tracing::error!("plugin {plugin_name}: {}", line)
                 }
             }

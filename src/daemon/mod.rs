@@ -2,9 +2,10 @@ use std::{
     collections::HashMap,
     error::Error,
     path::PathBuf,
+    process::exit,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -12,10 +13,10 @@ use chrono::Local;
 use futures::future::join_all;
 use tokio::{
     select,
-    signal::unix::{signal, SignalKind},
+    signal::unix::{SignalKind, signal},
     sync::Semaphore,
 };
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
@@ -35,19 +36,87 @@ mod socket;
 mod stream;
 mod utils;
 
-pub async fn daemon(
-    config_path: PathBuf,
-    socket: PathBuf,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let config: &'static Config = Box::leak(Box::new(Config::from_path(&config_path)?));
+pub async fn daemon(config_path: PathBuf, socket: PathBuf) {
+    // Load config or quit
+    let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
+        Ok(config) => config,
+        Err(err) => {
+            error!("{err}");
+            return;
+        }
+    }));
 
     // Cancellation Token
     let shutdown = ShutdownController::new();
 
-    let mut plugins = Plugins::new(config, shutdown.token()).await?;
+    // Cancel when we receive a quit signal
+    let signal_received = Arc::new(AtomicBool::new(false));
+    if let Err(err) = handle_signals(shutdown.delegate(), signal_received.clone()) {
+        error!("{err}");
+        return;
+    }
+
+    let mut db = None;
+    let mut config_started = false;
+    let mut daemon_err = false;
+
+    // Start the real daemon 👹
+    if let Err(err) = daemon_start(
+        config,
+        socket,
+        shutdown.token(),
+        &mut db,
+        &mut config_started,
+    )
+    .await
+    {
+        error!("{err}");
+        daemon_err = true;
+    }
+
+    // Release last db's sender
+    let mut db_status = None;
+    if let Some(db) = db {
+        db_status = Some(db.quit());
+    }
+
+    debug!("Asking for all tasks to quit...");
+    shutdown.ask_shutdown();
+
+    debug!("Waiting for all tasks to quit...");
+    shutdown.wait_shutdown().await;
+
+    let mut stop_ok = true;
+    if config_started {
+        stop_ok = config.stop();
+    }
+
+    if daemon_err || !stop_ok {
+        exit(1);
+    } else if let Some(mut db_status) = db_status
+        && let Ok(Err(err)) = db_status.try_recv()
+    {
+        error!("database error: {}", err);
+        exit(1);
+    } else if !signal_received.load(Ordering::SeqCst) {
+        error!("quitting because all streams finished");
+        exit(1);
+    } else {
+        exit(0);
+    }
+}
+
+async fn daemon_start(
+    config: &'static Config,
+    socket: PathBuf,
+    shutdown: ShutdownToken,
+    db: &mut Option<Database>,
+    config_started: &mut bool,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut plugins = Plugins::new(config, shutdown.clone()).await?;
 
     // Open Database
-    let mut db = Database::open(config, shutdown.token()).await?;
+    *db = Some(Database::open(config, shutdown.clone()).await?);
 
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency
@@ -66,8 +135,8 @@ pub async fn daemon(
                 let manager = FilterManager::new(
                     filter,
                     exec_limit.clone(),
-                    shutdown.token(),
-                    &mut db,
+                    shutdown.clone(),
+                    db.as_mut().unwrap(),
                     &mut plugins,
                     now,
                 )
@@ -77,7 +146,7 @@ pub async fn daemon(
             state.insert(stream, filter_managers.clone());
 
             stream_managers.push(
-                StreamManager::new(stream, filter_managers, shutdown.token(), &mut plugins).await?,
+                StreamManager::new(stream, filter_managers, shutdown.clone(), &mut plugins).await?,
             );
         }
         (state, stream_managers)
@@ -89,9 +158,10 @@ pub async fn daemon(
 
     // Open socket and run task
     let socket = Socket::open(socket).await?;
-    socket.manager(config, state, shutdown.token());
+    socket.manager(config, state, shutdown.clone());
 
     // reaction won't abort on startup anymore, we can run start commands
+    *config_started = true;
     if !config.start() {
         return Err("a start command failed, exiting.".into());
     }
@@ -101,40 +171,12 @@ pub async fn daemon(
         let standalone = stream_manager.is_standalone();
         let handle = tokio::spawn(async move { stream_manager.start().await });
         // Only wait for standalone streams
-        if standalone {
-            Some(handle)
-        } else {
-            None
-        }
+        if standalone { Some(handle) } else { None }
     });
-
-    // Close streams when we receive a quit signal
-    let signal_received = Arc::new(AtomicBool::new(false));
-    handle_signals(shutdown.delegate(), signal_received.clone())?;
 
     // Wait for all streams to quit
     join_all(stream_task_handles).await;
-
-    // Release last db's sender
-    let mut db_status = db.quit();
-
-    debug!("Asking for all tasks to quit...");
-    shutdown.ask_shutdown();
-
-    debug!("Waiting for all tasks to quit...");
-    shutdown.wait_shutdown().await;
-
-    let stop_ok = config.stop();
-
-    if let Ok(Err(err)) = db_status.try_recv() {
-        Err(format!("database error: {}", err).into())
-    } else if !signal_received.load(Ordering::SeqCst) {
-        Err("quitting because all streams finished".into())
-    } else if !stop_ok {
-        Err("while executing stop command".into())
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 fn handle_signals(
