@@ -45,11 +45,9 @@ impl Plugin {
         // Only when testing, make relative paths absolute
         #[cfg(debug_assertions)]
         if !self.path.starts_with("/") {
-            use std::env::current_dir;
-
             self.path = format!(
                 "{}/{}",
-                current_dir()
+                std::env::current_dir()
                     .map_err(|err| format!("error on working directory: {err}"))?
                     .to_string_lossy(),
                 self.path

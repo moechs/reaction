@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reaction-plugin.path = "../reaction-plugin"
+reaction-plugin.workspace = true
 
-tokio.workspace = true
-tokio.features = ["rt-multi-thread"]
 remoc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+tokio.features = ["rt-multi-thread"]
 
 data-encoding = "2.9.0"
 iroh = "0.94.0"

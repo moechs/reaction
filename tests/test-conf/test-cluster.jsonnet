@@ -14,14 +14,6 @@
       check_root: false,
       systemd_options: {
         DynamicUser: ['false'],
-        options: {
-          org1: {
-            listen_port: 9000,
-            bootstrap_nodes: {
-              public_key: ['127.0.0.1:9001'],
-            },
-          },
-        },
       },
     },
   },
@@ -54,7 +46,14 @@
     },
     s1: {
       type: 'cluster',
-      options: {},
+      options: {
+        listen_port: 9000,
+        shared_secret: '',
+        nodes: {
+          publickey: '',
+          addresses: ['127.0.0.1:9001'],
+        },
+      },
       filters: {
         f1: {
           regex: ['^<all>$'],

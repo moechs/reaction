@@ -7,20 +7,22 @@ use tokio::{
     io::AsyncWriteExt,
 };
 
-const SECRET_KEY_PATH: &str = "./secret_key.txt";
+fn secret_key_path(cluster_name: &str) -> String {
+    format!("./secret_key_{cluster_name}.txt")
+}
 
-pub async fn secret_key() -> Result<SecretKey, String> {
-    if let Some(key) = get_secret_key().await? {
+pub async fn secret_key(cluster_name: &str) -> Result<SecretKey, String> {
+    if let Some(key) = get_secret_key(cluster_name).await? {
         Ok(key)
     } else {
         let key = SecretKey::generate(&mut rand::rng());
-        set_secret_key(&key).await?;
+        set_secret_key(cluster_name, &key).await?;
         Ok(key)
     }
 }
 
-async fn get_secret_key() -> Result<Option<SecretKey>, String> {
-    let key = match fs::read_to_string(SECRET_KEY_PATH).await {
+async fn get_secret_key(cluster_name: &str) -> Result<Option<SecretKey>, String> {
+    let key = match fs::read_to_string(secret_key_path(cluster_name)).await {
         Ok(key) => Ok(key),
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => return Ok(None),
@@ -30,24 +32,26 @@ async fn get_secret_key() -> Result<Option<SecretKey>, String> {
     let bytes = match key_b64_to_bytes(&key) {
         Ok(key) => Ok(key),
         Err(err) => Err(format!(
-            "invalid secret key read from file: {err}. Please remove the `{SECRET_KEY_PATH}` file from plugin directory."
+            "invalid secret key read from file: {err}. Please remove the `{}` file from plugin directory.",
+            secret_key_path(cluster_name),
         )),
     }?;
     Ok(Some(SecretKey::from_bytes(&bytes)))
 }
 
-async fn set_secret_key(key: &SecretKey) -> Result<(), String> {
+async fn set_secret_key(cluster_name: &str, key: &SecretKey) -> Result<(), String> {
     let secret_key = key_bytes_to_b64(&key.to_bytes());
+    let secret_key_path = secret_key_path(cluster_name);
     File::options()
         .mode(0o600)
         .write(true)
         .create(true)
-        .open(SECRET_KEY_PATH)
+        .open(&secret_key_path)
         .await
-        .map_err(|err| format!("can't open `{SECRET_KEY_PATH}` in plugin directory: {err}"))?
+        .map_err(|err| format!("can't open `{secret_key_path}` in plugin directory: {err}"))?
         .write_all(secret_key.as_bytes())
         .await
-        .map_err(|err| format!("can't write to `{SECRET_KEY_PATH}` in plugin directory: {err}"))
+        .map_err(|err| format!("can't write to `{secret_key_path}` in plugin directory: {err}"))
 }
 
 pub fn key_b64_to_bytes(key: &str) -> Result<[u8; 32], DecodeError> {

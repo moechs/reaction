@@ -1,9 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    net::SocketAddr,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
-use iroh::PublicKey;
+use iroh::{Endpoint, PublicKey, SecretKey};
 use reaction_plugin::{
     ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, main_loop,
 };
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs;
 
+mod cluster;
 mod secret_key;
 use secret_key::secret_key;
 
@@ -27,11 +28,22 @@ async fn main() {
 struct Plugin {
     streams: BTreeMap<String, StreamInit>,
     actions: Vec<ActionInit>,
+    endpoints: BTreeMap<String, Endpoint>,
 }
 
 /// Stream options as defined by the user
 #[derive(Serialize, Deserialize)]
 struct StreamOptions {
+    /// The UDP port to open
+    listen_port: u16,
+    /// The IPv4 to bind to. Defaults to 0.0.0.0.
+    /// Set to `null` to use IPv6 only.
+    #[serde(default = "ipv4_unspecified")]
+    bind_ipv4: Option<Ipv4Addr>,
+    /// The IPv6 to bind to. Defaults to 0.0.0.0.
+    /// Set to `null` to use IPv6 only.
+    #[serde(default = "ipv6_unspecified")]
+    bind_ipv6: Option<Ipv6Addr>,
     /// The secret that permits to join the cluster.
     shared_secret: Option<String>,
     /// The secret that permits to join the cluster, as a file.
@@ -41,9 +53,20 @@ struct StreamOptions {
     nodes: Vec<NodeOption>,
 }
 
+fn ipv4_unspecified() -> Option<Ipv4Addr> {
+    Some(Ipv4Addr::UNSPECIFIED)
+}
+fn ipv6_unspecified() -> Option<Ipv6Addr> {
+    Some(Ipv6Addr::UNSPECIFIED)
+}
+
 /// Stream information before start
 struct StreamInit {
+    listen_port: u16,
+    bind_ipv4: Option<Ipv4Addr>,
+    bind_ipv6: Option<Ipv6Addr>,
     shared_secret: String,
+    secret_key: SecretKey,
     nodes: Vec<NodeInit>,
     tx: mpsc::Sender<String>,
 }
@@ -130,10 +153,20 @@ impl PluginInfo for Plugin {
             });
         }
 
+        let secret_key = secret_key(&stream_name).await?;
+        eprintln!(
+            "INFO public key of this node for cluster {stream_name}: {}",
+            key_bytes_to_b64(secret_key.public().as_bytes())
+        );
+
         let (tx, rx) = mpsc::channel(1);
 
         let stream = StreamInit {
+            listen_port: options.listen_port,
+            bind_ipv4: options.bind_ipv4,
+            bind_ipv6: options.bind_ipv6,
             shared_secret,
+            secret_key,
             nodes: init_nodes,
             tx,
         };
@@ -180,12 +213,7 @@ impl PluginInfo for Plugin {
     }
 
     async fn finish_setup(&mut self) -> RemoteResult<()> {
-        let secret_key = secret_key().await?;
-        eprintln!(
-            "public key of this node: {}",
-            key_bytes_to_b64(secret_key.public().as_bytes())
-        );
-        todo!()
+        self.endpoint_init().await
     }
 
     async fn close(self) -> RemoteResult<()> {
