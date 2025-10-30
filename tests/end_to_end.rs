@@ -84,7 +84,7 @@ fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
             let _ = signal::kill(pid, signal::SIGKILL);
             let _ = child.wait();
 
-            assert!(false, "Test timed out");
+            panic!("Test timed out");
         }
     }
 
@@ -173,7 +173,7 @@ fn manualy_trigger_filter() -> Result<(), Box<dyn Error>> {
         if elapsed > Duration::from_secs(1) {
             let _ = daemon.kill();
             let _ = daemon.wait();
-            assert!(false, "Daemon did not create socket");
+            panic!("Daemon did not create socket");
         }
     }
 
@@ -204,7 +204,7 @@ fn manualy_trigger_filter() -> Result<(), Box<dyn Error>> {
         if elapsed > Duration::from_secs(2) {
             let _ = daemon.kill();
             let _ = daemon.wait();
-            assert!(false, "Daemon did not exit");
+            panic!("Daemon did not exit");
         }
     }
 

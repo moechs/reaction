@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::Local;
-use futures::{future::join_all, FutureExt, Stream as AsyncStream, StreamExt};
+use futures::{FutureExt, Stream as AsyncStream, StreamExt, future::join_all};
 use reaction_plugin::StreamImpl;
 use regex::RegexSet;
 use tokio::{

@@ -10,7 +10,7 @@ use chrono::TimeDelta;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::{parse_duration, Action, Match, Pattern, PatternType, Patterns};
+use super::{Action, Match, Pattern, PatternType, Patterns, parse_duration};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Duplicate {
@@ -159,9 +159,9 @@ impl Filter {
                     }
                 } else if !first && new_patterns.contains(pattern) {
                     return Err(format!(
-                            "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
-                            &pattern.name_with_braces()
-                        ));
+                        "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
+                        &pattern.name_with_braces()
+                    ));
                 }
                 regex_buf = regex_buf.replacen(pattern.name_with_braces(), &pattern.regex, 1);
             }
@@ -202,12 +202,12 @@ impl Filter {
                     for pattern in self.patterns.as_ref() {
                         // if the pattern is in an optional part of the regex,
                         // there may be no captured group for it.
-                        if let Some(match_) = matches.name(&pattern.name) {
-                            if !pattern.is_ignore(match_.as_str()) {
-                                let mut match_ = match_.as_str().to_string();
-                                pattern.normalize(&mut match_);
-                                result.push(match_);
-                            }
+                        if let Some(match_) = matches.name(&pattern.name)
+                            && !pattern.is_ignore(match_.as_str())
+                        {
+                            let mut match_ = match_.as_str().to_string();
+                            pattern.normalize(&mut match_);
+                            result.push(match_);
                         }
                     }
                     if result.len() == self.patterns.len() {
@@ -408,10 +408,10 @@ impl Filter {
 #[cfg(test)]
 pub mod tests {
     use crate::concepts::action::tests::{ok_action, ok_action_with_after};
+    use crate::concepts::pattern::PatternIp;
     use crate::concepts::pattern::tests::{
         boubou_pattern_with_ignore, default_pattern, number_pattern, ok_pattern_with_ignore,
     };
-    use crate::concepts::pattern::PatternIp;
 
     use super::*;
 
@@ -707,24 +707,32 @@ pub mod tests {
             Ok(vec!("b".into()))
         );
         // Doesn't match
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "abc".into())]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "abc".into())]))
+                .is_err()
+        );
         // Ignored match
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "a".into())]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "a".into())]))
+                .is_err()
+        );
         // Bad pattern
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([(boubou.clone(), "bou".into())]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([(boubou.clone(), "bou".into())]))
+                .is_err()
+        );
         // Bad number of patterns
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([
-                (pattern.clone(), "b".into()),
-                (boubou.clone(), "bou".into()),
-            ]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([
+                    (pattern.clone(), "b".into()),
+                    (boubou.clone(), "bou".into()),
+                ]))
+                .is_err()
+        );
         // Bad number of patterns
         assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
 
@@ -752,34 +760,42 @@ pub mod tests {
             Ok(vec!("bou".into(), "b".into()))
         );
         // Doesn't match
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([
-                (pattern.clone(), "abc".into()),
-                (boubou.clone(), "bou".into()),
-            ]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([
+                    (pattern.clone(), "abc".into()),
+                    (boubou.clone(), "bou".into()),
+                ]))
+                .is_err()
+        );
         // Ignored match
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([
-                (pattern.clone(), "b".into()),
-                (boubou.clone(), "boubou".into()),
-            ]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([
+                    (pattern.clone(), "b".into()),
+                    (boubou.clone(), "boubou".into()),
+                ]))
+                .is_err()
+        );
         // Bad pattern
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([
-                (pattern.clone(), "b".into()),
-                (number_pattern.clone(), "1".into()),
-            ]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([
+                    (pattern.clone(), "b".into()),
+                    (number_pattern.clone(), "1".into()),
+                ]))
+                .is_err()
+        );
         // Bad number of patterns
-        assert!(filter
-            .get_match_from_patterns(BTreeMap::from([
-                (pattern.clone(), "b".into()),
-                (boubou.clone(), "bou".into()),
-                (number_pattern.clone(), "1".into()),
-            ]))
-            .is_err());
+        assert!(
+            filter
+                .get_match_from_patterns(BTreeMap::from([
+                    (pattern.clone(), "b".into()),
+                    (boubou.clone(), "bou".into()),
+                    (number_pattern.clone(), "1".into()),
+                ]))
+                .is_err()
+        );
         // Bad number of patterns
         assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
 

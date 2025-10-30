@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use assert_cmd::Command;
-use assert_fs::{prelude::*, TempDir};
+use assert_fs::{TempDir, prelude::*};
 use predicates::prelude::predicate;
 
 #[test]
@@ -23,7 +23,7 @@ fn start_stop() {
         "stop 2",
         "",
     ];
-    tmp_dir.child("log").assert(&output.join("\n"));
+    tmp_dir.child("log").assert(output.join("\n"));
     tmp_dir.child("log").write_str("").unwrap();
 
     println!(

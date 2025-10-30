@@ -3,7 +3,7 @@ use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{merge_attrs, null_value, Filter, Patterns};
+use super::{Filter, Patterns, merge_attrs, null_value};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -36,7 +36,10 @@ impl Stream {
 
         for (key, filter) in other.filters.into_iter() {
             if self.filters.insert(key.clone(), filter).is_some() {
-                return Err(format!("filter {} is already defined. filter definitions can't be spread accross multiple files.", key));
+                return Err(format!(
+                    "filter {} is already defined. filter definitions can't be spread accross multiple files.",
+                    key
+                ));
             }
         }
 
@@ -71,10 +74,8 @@ impl Stream {
             if self.cmd[0].is_empty() {
                 return Err("cmd's first item is empty".into());
             }
-        } else {
-            if !self.cmd.is_empty() {
-                return Err("can't define cmd and a plugin type".into());
-            }
+        } else if !self.cmd.is_empty() {
+            return Err("can't define cmd and a plugin type".into());
         }
 
         if self.filters.is_empty() {
@@ -118,10 +119,11 @@ mod tests {
     use crate::concepts::filter::tests::ok_filter;
 
     fn ok_stream() -> Stream {
-        let mut stream = Stream::default();
-        stream.cmd = vec!["command".into()];
-        stream.filters.insert("name".into(), ok_filter());
-        stream
+        Stream {
+            cmd: vec!["command".into()],
+            filters: BTreeMap::from([("name".into(), ok_filter())]),
+            ..Default::default()
+        }
     }
 
     #[test]

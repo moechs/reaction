@@ -1,9 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    io::{Error, ErrorKind},
-    os::linux::fs::MetadataExt,
-    process::Stdio,
-};
+use std::{collections::BTreeMap, io::Error, os::linux::fs::MetadataExt, process::Stdio};
 
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -50,10 +45,15 @@ impl Plugin {
         // Only when testing, make relative paths absolute
         #[cfg(debug_assertions)]
         if !self.path.starts_with("/") {
-            self.path = std::fs::canonicalize(&self.path)
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+            use std::env::current_dir;
+
+            self.path = format!(
+                "{}/{}",
+                current_dir()
+                    .map_err(|err| format!("error on working directory: {err}"))?
+                    .to_string_lossy(),
+                self.path
+            );
         }
 
         // Disallow relative paths
@@ -79,10 +79,7 @@ impl Plugin {
             let stat = fs::metadata(path).await?;
 
             if stat.st_uid() != 0 {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "plugin file is not owned by root",
-                ));
+                return Err(Error::other("plugin file is not owned by root"));
             }
         }
 

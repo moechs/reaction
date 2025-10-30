@@ -10,17 +10,15 @@
 
   plugins: {
     cluster: {
-      path: "./target/debug/reaction-plugin-cluster",
+      path: './target/debug/reaction-plugin-cluster',
       check_root: false,
       systemd_options: {
-        DynamicUser: ["false"],
-      },
-      options: {
-        clusters: {
+        DynamicUser: ['false'],
+        options: {
           org1: {
             listen_port: 9000,
             bootstrap_nodes: {
-              "public_key": ["127.0.0.1:9001"],
+              public_key: ['127.0.0.1:9001'],
             },
           },
         },
@@ -30,36 +28,36 @@
 
   streams: {
     s0: {
-      cmd: ["bash", "-c", "for i in $(seq 4); do echo $i; sleep 0.1; done; sleep 1.2"],
+      cmd: ['bash', '-c', 'for i in $(seq 4); do echo $i; sleep 0.1; done; sleep 1.2'],
       filters: {
         f0: {
-          regex: ["^<num>$"],
+          regex: ['^<num>$'],
           actions: {
             a0: {
-              type: "virtual",
+              type: 'virtual',
               options: {
-                send: "a0 <num>",
-                to: "s1",
-              }
+                send: 'a0 <num>',
+                to: 's1',
+              },
             },
             b0: {
-              type: "virtual",
+              type: 'virtual',
               options: {
-                send: "b0 <num>",
-                to: "s1",
+                send: 'b0 <num>',
+                to: 's1',
               },
-              after: "600ms",
+              after: '600ms',
             },
           },
         },
       },
     },
     s1: {
-      type: "cluster",
+      type: 'cluster',
       options: {},
       filters: {
         f1: {
-          regex: ["^<all>$"],
+          regex: ['^<all>$'],
           actions: {
             a1: {
               cmd: ['sh', '-c', 'echo <all> >>./log'],

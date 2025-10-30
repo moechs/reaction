@@ -89,6 +89,7 @@ impl Database {
     /// You'll have to:
     /// - drop all [`Tree`]s,
     /// - call [`Self::quit`],
+    ///
     /// to have the Database properly quit.
     ///
     /// You can wait for [`Self::quit`] returned channel to know how it went.

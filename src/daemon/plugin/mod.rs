@@ -86,7 +86,7 @@ impl PluginManager {
             .await
             .map_err(|err| format!("error while getting plugin {} manifest: {err}", plugin.name))?;
 
-        let my_hello = Hello::hello();
+        let my_hello = Hello::new();
 
         if let Err(hint) = Hello::is_compatible(&my_hello, &manifest.hello) {
             return Err(format!(
@@ -182,7 +182,7 @@ impl Plugins {
 
         for plugin in config.plugins.values() {
             let name = plugin.name.clone();
-            this.load_plugin(&plugin, &config.state_directory, shutdown.clone())
+            this.load_plugin(plugin, &config.state_directory, shutdown.clone())
                 .await
                 .map_err(|err| format!("plugin {name}: {err}]"))?;
         }
@@ -200,7 +200,7 @@ impl Plugins {
         let manager = PluginManager::new(plugin, state_directory, shutdown).await?;
 
         for stream in &manager.streams {
-            if let Some(name) = self.streams.insert(stream.clone().into(), name.clone()) {
+            if let Some(name) = self.streams.insert(stream.clone(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a stream with type name '{stream}'",
                 ));
@@ -208,7 +208,7 @@ impl Plugins {
         }
 
         for action in &manager.actions {
-            if let Some(name) = self.actions.insert(action.clone().into(), name.clone()) {
+            if let Some(name) = self.actions.insert(action.clone(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a action with type name '{action}'",
                 ));
@@ -276,10 +276,9 @@ impl Plugins {
         // Convert Vec<Result<Result>> into Result
         .into_iter()
         .zip(self.plugins.values())
-        .map(|(result, plugin_manager)| {
+        .try_for_each(|(result, plugin_manager)| {
             result.map_err(|err| format!("plugin {} error: {err}", plugin_manager.plugin.name))
         })
-        .collect::<Result<(), String>>()
     }
 
     pub fn manager(self) {

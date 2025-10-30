@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     error::Error,
     path::PathBuf,
-    process::exit,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -36,13 +35,13 @@ mod socket;
 mod stream;
 mod utils;
 
-pub async fn daemon(config_path: PathBuf, socket: PathBuf) {
+pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
     // Load config or quit
     let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
         Ok(config) => config,
         Err(err) => {
             error!("{err}");
-            return;
+            return 1;
         }
     }));
 
@@ -53,7 +52,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) {
     let signal_received = Arc::new(AtomicBool::new(false));
     if let Err(err) = handle_signals(shutdown.delegate(), signal_received.clone()) {
         error!("{err}");
-        return;
+        return 1;
     }
 
     let mut db = None;
@@ -92,17 +91,17 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) {
     }
 
     if daemon_err || !stop_ok {
-        exit(1);
+        return 1;
     } else if let Some(mut db_status) = db_status
         && let Ok(Err(err)) = db_status.try_recv()
     {
         error!("database error: {}", err);
-        exit(1);
+        return 1;
     } else if !signal_received.load(Ordering::SeqCst) {
         error!("quitting because all streams finished");
-        exit(1);
+        return 1;
     } else {
-        exit(0);
+        return 0;
     }
 }
 

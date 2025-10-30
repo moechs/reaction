@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
-use super::{null_value, parse_duration::*, Match, Pattern, PatternType};
+use super::{Match, Pattern, PatternType, null_value, parse_duration::*};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -102,10 +102,8 @@ impl Action {
             if self.cmd[0].is_empty() {
                 return Err("cmd's first item is empty".into());
             }
-        } else {
-            if !self.cmd.is_empty() {
-                return Err("can't define a cmd and a plugin type".into());
-            }
+        } else if !self.cmd.is_empty() {
+            return Err("can't define a cmd and a plugin type".into());
         }
 
         if let Some(after) = &self.after {

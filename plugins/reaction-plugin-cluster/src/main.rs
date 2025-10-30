@@ -83,7 +83,7 @@ struct ActionInit {
 impl PluginInfo for Plugin {
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError> {
         Ok(Manifest {
-            hello: Hello::hello(),
+            hello: Hello::new(),
             streams: BTreeSet::from(["cluster".into()]),
             actions: BTreeSet::from(["cluster_send".into()]),
         })

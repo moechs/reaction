@@ -143,21 +143,11 @@ pub struct Hello {
 }
 
 impl Hello {
-    pub fn hello() -> Hello {
+    pub fn new() -> Hello {
+        let mut version = env!("CARGO_PKG_VERSION").split(".");
         Hello {
-            version_major: env!("CARGO_PKG_VERSION")
-                .split(".")
-                .next()
-                .unwrap()
-                .parse()
-                .unwrap(),
-            version_minor: env!("CARGO_PKG_VERSION")
-                .split(".")
-                .skip(1)
-                .next()
-                .unwrap()
-                .parse()
-                .unwrap(),
+            version_major: version.next().unwrap().parse().unwrap(),
+            version_minor: version.next().unwrap().parse().unwrap(),
         }
     }
 
@@ -166,15 +156,13 @@ impl Hello {
             && server.version_minor >= plugin.version_minor
         {
             Ok(())
+        } else if plugin.version_major > server.version_major
+            || (plugin.version_major == server.version_major
+                && plugin.version_minor > server.version_minor)
+        {
+            Err("consider upgrading reaction".into())
         } else {
-            if plugin.version_major > server.version_major
-                || (plugin.version_major == server.version_major
-                    && plugin.version_minor > server.version_minor)
-            {
-                Err("consider upgrading reaction".into())
-            } else {
-                Err("consider upgrading the plugin".into())
-            }
+            Err("consider upgrading the plugin".into())
         }
     }
 }

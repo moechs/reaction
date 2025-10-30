@@ -129,8 +129,11 @@ async fn simple() {
 
     let (daemon_exit, flush1, flush2) = tokio::join!(handle, handle2, handle3);
     assert!(daemon_exit.is_ok());
+    assert!(daemon_exit.unwrap() == 1);
     assert!(flush1.is_ok());
+    assert!(flush1.unwrap().is_ok());
     assert!(flush2.is_ok());
+    assert!(flush2.unwrap().is_ok());
 
     assert_eq!(
         // 24 is encountered for the second time, then
@@ -160,11 +163,7 @@ async fn simple() {
     file_with_contents(oneshot_path, "");
 
     let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
-    assert!(daemon_exit.is_err());
-    assert_eq!(
-        daemon_exit.unwrap_err().to_string(),
-        "quitting because all streams finished"
-    );
+    assert!(daemon_exit == 1);
 
     // 36 trigger from DB
     // 12 trigger from DB

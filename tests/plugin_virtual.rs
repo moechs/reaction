@@ -31,6 +31,6 @@ fn plugin_virtual() {
     let output = [
         "a0 1", "a0 2", "a0 3", "a0 4", "b0 1", "b0 2", "b0 3", "b0 4", "",
     ];
-    tmp_dir.child("log").assert(&output.join("\n"));
+    tmp_dir.child("log").assert(output.join("\n"));
     tmp_dir.child("log").write_str("").unwrap();
 }

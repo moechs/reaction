@@ -43,7 +43,7 @@ fn merge_attrs<A: Default + Debug + PartialEq + Eq + Clone>(
     if this == default {
         return Ok(other);
     }
-    return Ok(this);
+    Ok(this)
 }
 
 fn null_value() -> Value {

@@ -44,7 +44,7 @@ async fn main() {
             eprintln!("ERROR could not initialize logging: {err}");
             exit(1);
         }
-        daemon(config, socket).await;
+        exit(daemon(config, socket).await);
     } else {
         let result = match cli.command {
             SubCommand::Show {
