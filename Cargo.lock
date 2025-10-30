@@ -2873,6 +2873,7 @@ version = "0.1.0"
 dependencies = [
  "reaction-plugin",
  "remoc",
+ "serde",
  "serde_json",
  "tokio",
 ]

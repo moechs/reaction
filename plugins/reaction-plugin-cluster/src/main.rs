@@ -45,7 +45,7 @@ struct StreamOptions {
 struct StreamInit {
     shared_secret: String,
     nodes: Vec<NodeInit>,
-    tx: mpsc::Sender<Result<String, String>>,
+    tx: mpsc::Sender<String>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -49,14 +49,6 @@ pub async fn daemon(
     // Open Database
     let mut db = Database::open(config, shutdown.token()).await?;
 
-    // Open Socket
-    let socket = Socket::open(socket).await?;
-
-    // reaction won't abort on startup anymore, we can run start commands
-    if !config.start() {
-        return Err("a start command failed, exiting.".into());
-    }
-
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency
         let exec_limit = match config.concurrency {
@@ -95,8 +87,14 @@ pub async fn daemon(
     plugins.finish_setup().await?;
     plugins.manager();
 
-    // Run socket task
+    // Open socket and run task
+    let socket = Socket::open(socket).await?;
     socket.manager(config, state, shutdown.token());
+
+    // reaction won't abort on startup anymore, we can run start commands
+    if !config.start() {
+        return Err("a start command failed, exiting.".into());
+    }
 
     // Start Stream managers
     let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {

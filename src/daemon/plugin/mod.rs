@@ -4,16 +4,19 @@ use std::{
     time::Duration,
 };
 
-use futures::{future::join_all, FutureExt};
+use futures::{future::join_all, FutureExt, StreamExt};
 use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
 use remoc::Connect;
 use serde_json::Value;
-use tokio::{process::Child, time::sleep};
+use tokio::{
+    process::{Child, ChildStderr},
+    time::sleep,
+};
 use tracing::error;
 
 use crate::{
     concepts::{Config, Plugin},
-    daemon::{utils::kill_child, ShutdownToken},
+    daemon::{stream::reader_to_stream, utils::kill_child, ShutdownToken},
 };
 
 pub struct PluginManager {
@@ -47,6 +50,12 @@ impl PluginManager {
             .launch(state_directory)
             .await
             .map_err(|err| format!("could not launch plugin: {err}"))?;
+
+        {
+            let stderr = child.stderr.take().unwrap();
+            let shutdown = shutdown.clone();
+            tokio::spawn(async move { handle_stderr(stderr, plugin.name.clone(), shutdown).await });
+        }
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -121,6 +130,36 @@ impl PluginManager {
         }
 
         kill_child(self.child, format!("plugin {}", self.plugin.name), 5).await;
+    }
+}
+
+async fn handle_stderr(stderr: ChildStderr, plugin_name: String, _shutdown: ShutdownToken) {
+    let lines = reader_to_stream(stderr);
+    tokio::pin!(lines);
+    loop {
+        match lines.next().await {
+            Some(Ok(line)) => {
+                // dumb: I can't factorize this because tracing::event!
+                // requires its log level to be a constant.
+                if line.starts_with("DEBUG ") {
+                    tracing::debug!("plugin {plugin_name}: {}", line.split_at(5).1)
+                } else if line.starts_with("INFO ") {
+                    tracing::info!("plugin {plugin_name}: {}", line.split_at(4).1)
+                } else if line.starts_with("WARN ") {
+                    tracing::warn!("plugin {plugin_name}: {}", line.split_at(4).1)
+                } else if line.starts_with("ERROR ") {
+                    tracing::error!("plugin {plugin_name}: {}", line.split_at(5).1)
+                } else {
+                    // If there is no log level, we suppose it's an error (panic or something)
+                    tracing::error!("plugin {plugin_name}: {}", line)
+                }
+            }
+            Some(Err(err)) => {
+                error!("while trying to read plugin {plugin_name} stderr: {err}");
+                break;
+            }
+            None => break,
+        }
     }
 }
 

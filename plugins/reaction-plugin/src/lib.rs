@@ -1,8 +1,5 @@
 //! This crate defines the API between reaction's core and plugins.
 //!
-//! It's based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
-//! calls over a single transport channel.
-//!
 //! To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 //! the entrypoint for a plugin.
 //! It permits to define 0 to n (stream, filter, action) custom types.
@@ -37,13 +34,38 @@
 //!
 //! It will be run in its own directory, in which it should have write access.
 //!
-//! ## Examples
+//! ## Communication
+//!
+//! Communication between the plugin and reaction is based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
+//! calls over a single transport channel.
+//! The channels used are stdin and stdout, so you can't use them for something else.
+//!
+//! ### Errors
+//!
+//! Errors can be printed to stderr.
+//! They'll be captured line by line and re-printed by reaction, with the plugin name prepended.
+//!
+//! A line can start with `DEBUG `, `INFO `, `WARN `, `ERROR `.
+//! If the starts with none of the above, the line is assumed to be an error.
+//!
+//! Examples:
+//! ```log
+//! WARN This is an official warning from the plugin
+//! # will become:
+//! WARN plugin test: This is an official warning from the plugin
+//!
+//! Freeeee errrooooorrr
+//! # will become:
+//! ERROR plugin test: Freeeee errrooooorrr
+//! ```
+//!
+//! ## Starting template
 //!
 //! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>
 //! The "virtual" plugin is the simplest and can serve as a template.
 //! You'll have to adjust dependencies versions in `Cargo.toml`.
 
-use std::{collections::BTreeSet, error::Error, fmt::Display};
+use std::{collections::BTreeSet, error::Error, fmt::Display, process::exit};
 
 use remoc::{
     Connect, rch,
@@ -159,7 +181,7 @@ impl Hello {
 
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
-    pub stream: rch::mpsc::Receiver<Line>,
+    pub stream: rch::mpsc::Receiver<String>,
     /// Whether this stream works standalone, or if it needs other streams to be fed.
     /// Defaults to true.
     /// When false, reaction will exit if it's the last one standing.
@@ -170,8 +192,6 @@ pub struct StreamImpl {
 fn _true() -> bool {
     true
 }
-
-pub type Line = Result<String, String>;
 
 // #[derive(Serialize, Deserialize)]
 // pub struct FilterImpl {
@@ -207,7 +227,24 @@ pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
 
     let (server, client) = PluginInfoServer::new(plugin_info, 1);
 
-    let _ = tokio::join!(tx.send(client), server.serve(), tokio::spawn(conn));
+    let (res1, (_, res2), res3) = tokio::join!(tx.send(client), server.serve(), tokio::spawn(conn));
+    let mut exit_code = 0;
+    if let Err(err) = res1 {
+        eprintln!("ERROR could not send plugin info to reaction: {err}");
+        exit_code = 1;
+    }
+    if let Err(err) = res2 {
+        eprintln!("ERROR could not launch plugin service for reaction: {err}");
+        exit_code = 2;
+    }
+    if let Err(err) = res3 {
+        eprintln!("ERROR could not setup connection with reaction: {err}");
+        exit_code = 3;
+    } else if let Ok(Err(err)) = res3 {
+        eprintln!("ERROR could not setup connection with reaction: {err}");
+        exit_code = 3;
+    }
+    exit(exit_code);
 }
 
 // Errors

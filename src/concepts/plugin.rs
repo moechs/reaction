@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
     process::{Child, Command},
-    runtime::Handle,
 };
 use tracing::{debug, warn};
 
@@ -48,7 +47,16 @@ impl Plugin {
             return Err("can't specify empty plugin path".into());
         }
 
-        #[cfg(not(debug_assertions))]
+        // Only when testing, make relative paths absolute
+        #[cfg(debug_assertions)]
+        if !self.path.starts_with("/") {
+            self.path = std::fs::canonicalize(&self.path)
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+        }
+
+        // Disallow relative paths
         if !self.path.starts_with("/") {
             return Err(format!("plugin paths must be absolute: {}", self.path));
         }
@@ -68,10 +76,7 @@ impl Plugin {
         // owner check
         if self.check_root {
             let path = self.path.clone();
-            let stat = Handle::current()
-                .spawn_blocking(|| std::fs::metadata(path))
-                .await
-                .unwrap()?;
+            let stat = fs::metadata(path).await?;
 
             if stat.st_uid() != 0 {
                 return Err(Error::new(
@@ -94,8 +99,9 @@ impl Plugin {
         };
 
         // Create plugin working directory (also state directory)
-        let plugin_working_directory = plugin_working_directory(&self.name, state_directory)?;
-        fs::create_dir(&plugin_working_directory).await?;
+        let plugin_working_directory = format!("{state_directory}/plugin_data/{}", self.name);
+        dbg!(&plugin_working_directory);
+        fs::create_dir_all(&plugin_working_directory).await?;
 
         let mut command = if self_uid.is_some_and(|self_uid| self_uid == 0) {
             let mut command = Command::new("run0");
@@ -127,22 +133,10 @@ impl Plugin {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .env("RUST_BACKTRACE", "1")
             .spawn()
     }
-}
-
-fn plugin_working_directory(plugin_name: &str, state_directory: &str) -> Result<String, Error> {
-    std::fs::canonicalize(format!("{state_directory}/plugin_data/{plugin_name}")).and_then(|path| {
-        path.to_str()
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorKind::Other,
-                    "state_directory is not UTF-8. please run reaction at an UTF-8 named path",
-                )
-            })
-            .map(str::to_owned)
-    })
 }
 
 // TODO commented options block execution of program,

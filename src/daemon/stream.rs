@@ -27,7 +27,7 @@ fn to_line(data: &[u8]) -> String {
         .replace(std::char::REPLACEMENT_CHARACTER, "")
 }
 
-fn reader_to_stream(
+pub fn reader_to_stream(
     reader: impl tokio::io::AsyncRead + Unpin,
 ) -> impl AsyncStream<Item = Result<String, std::io::Error>> {
     let buf_reader = BufReader::new(reader);
@@ -127,12 +127,8 @@ impl StreamManager {
 
         loop {
             match plugin.stream.recv().await {
-                Ok(Some(Ok(line))) => {
+                Ok(Some(line)) => {
                     self.handle_line(line).await;
-                }
-                Ok(Some(Err(err))) => {
-                    error!("stream {} exit with error: {}", self.stream.name, err);
-                    return;
                 }
                 Err(err) => {
                     if err.is_final() {
@@ -149,6 +145,7 @@ impl StreamManager {
                     }
                 }
                 Ok(None) => {
+                    error!("stream {} has exited", self.stream.name);
                     return;
                 }
             }

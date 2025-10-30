@@ -2,3 +2,4 @@ Test what happens when a Filter's pattern Set changes (I think it's shitty)
 DB: add tests on stress testing (lines should always be in order)
 plugins: pipe stderr too and wrap errors in logs
 plugins: provide treedb storage? omg (add an enum that's either remoc::rch::mpsc or tokio::mpsc)
+plugins: implement a tracing subscriber over stderr? or more simply, capture lines and reprint them prefixed by the plugin name?
