@@ -1,10 +1,67 @@
 //! This crate defines the API between reaction's core and plugins.
 //!
+//! Plugins must be written in Rust.
+//!
+//! This documentation assumes the reader has some knowledge of Rust.
+//! However, if you find that something is unclear, don't hesitate to
+//! [ask for help](https://framagit.org/ppom/reaction/#help), even if you're new to Rust.
+//!
 //! To implement a plugin, one has to provide an implementation of [`PluginInfo`], that provides
 //! the entrypoint for a plugin.
-//! It permits to define 0 to n (stream, filter, action) custom types.
+//! It permits to define `0` to `n` custom stream and action types.
 //!
-//! Minimal example:
+//! ## Naming & calling conventions
+//!
+//! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`.
+//! It will be invoked with one positional argument "serve".
+//! ```
+//! reaction-plugin-$NAME serve
+//! ```
+//! This can be useful if you want to provide CLI functionnality to your users,
+//! so you can distinguish between a human user and reaction.
+//!
+//! It will be executed in its own directory, in which it should have write access.
+//! The directory is `$reaction_state_directory/plugin_data/$NAME`.
+//! reaction's [state_directory](https://reaction.ppom.me/reference.html#state_directory)
+//! defaults to its working directory.
+//!
+//! ## Communication
+//!
+//! Communication between the plugin and reaction is based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
+//! calls over a single transport channel.
+//! The channels is made of stdin and stdout, so don't use them for something else.
+//!
+//! [`remoc`] build upon [`tokio`], so you'll need to use tokio too.
+//!
+//! ### Errors
+//!
+//! Errors can be printed to stderr.
+//! They'll be captured line by line and re-printed by reaction, with the plugin name prepended.
+//!
+//! A line can start with `DEBUG `, `INFO `, `WARN `, `ERROR `.
+//! If the starts with none of the above, the line is assumed to be an error.
+//!
+//! Example:
+//! Those lines:
+//! ```log
+//! WARN This is an official warning from the plugin
+//! Freeeee errrooooorrr
+//! ```
+//! Will become:
+//! ```log
+//! WARN plugin test: This is an official warning from the plugin
+//! ERROR plugin test: Freeeee errrooooorrr
+//! ```
+//!
+//! ## Starting template
+//!
+//! ```bash
+//! cargo new reaction-plugin-$NAME
+//! cd reaction-plugin-$NAME
+//! cargo add reaction-plugin tokio
+//! vim src/main.rs
+//! ```
+//!
 //! `src/main.rs`
 //! ```rust
 //! use reaction_plugin::PluginInfo;
@@ -20,50 +77,13 @@
 //!
 //! impl PluginInfo for Plugin {
 //!   // ...
+//!   // Your IDE should propose to implement missing members of the `Plugin` trait
+//!   // ...
 //! }
 //! ```
 //!
-//! ## Naming & calling conventions
-//!
-//! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`.
-//! It will be invoked with one positional argument "serve".
-//! ```
-//! reaction-plugin-$NAME serve
-//! ```
-//! This can be useful if you want to provide CLI functionnality to your users.
-//!
-//! It will be run in its own directory, in which it should have write access.
-//!
-//! ## Communication
-//!
-//! Communication between the plugin and reaction is based on [`remoc`], which permits to multiplex channels and remote objects/functions/trait
-//! calls over a single transport channel.
-//! The channels used are stdin and stdout, so you can't use them for something else.
-//!
-//! ### Errors
-//!
-//! Errors can be printed to stderr.
-//! They'll be captured line by line and re-printed by reaction, with the plugin name prepended.
-//!
-//! A line can start with `DEBUG `, `INFO `, `WARN `, `ERROR `.
-//! If the starts with none of the above, the line is assumed to be an error.
-//!
-//! Examples:
-//! ```log
-//! WARN This is an official warning from the plugin
-//! # will become:
-//! WARN plugin test: This is an official warning from the plugin
-//!
-//! Freeeee errrooooorrr
-//! # will become:
-//! ERROR plugin test: Freeeee errrooooorrr
-//! ```
-//!
-//! ## Starting template
-//!
-//! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>
-//! The "virtual" plugin is the simplest and can serve as a template.
-//! You'll have to adjust dependencies versions in `Cargo.toml`.
+//! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>.
+//! The "virtual" plugin is the simplest and can serve as a good complete example.
 
 use std::{collections::BTreeSet, error::Error, fmt::Display, process::exit};
 

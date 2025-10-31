@@ -26,14 +26,14 @@
           regex: ['^<num>$'],
           actions: {
             a0: {
-              type: 'virtual',
+              type: 'cluster_send',
               options: {
                 send: 'a0 <num>',
                 to: 's1',
               },
             },
             b0: {
-              type: 'virtual',
+              type: 'cluster_send',
               options: {
                 send: 'b0 <num>',
                 to: 's1',

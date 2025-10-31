@@ -12,7 +12,7 @@ use tokio::{
     process::{Child, ChildStderr},
     time::sleep,
 };
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     concepts::{Config, Plugin},
@@ -225,9 +225,15 @@ impl Plugins {
         stream_type: String,
         config: Value,
     ) -> Result<StreamImpl, String> {
-        let plugin_name = self.streams.get(&stream_type).ok_or(format!(
-            "No plugin provided the stream type '{stream_type}'"
-        ))?;
+        let plugin_name = match self.streams.get(&stream_type) {
+            Some(name) => name,
+            None => {
+                display_plugin_exposed_types(&self.streams, "stream");
+                return Err(format!(
+                    "No plugin provided the stream type '{stream_type}'"
+                ));
+            }
+        };
 
         let plugin = self.plugins.get_mut(plugin_name).unwrap();
 
@@ -246,9 +252,15 @@ impl Plugins {
         config: Value,
         patterns: Vec<String>,
     ) -> Result<ActionImpl, String> {
-        let plugin_name = self.actions.get(&action_type).ok_or(format!(
-            "No plugin provided the action type '{action_type}'"
-        ))?;
+        let plugin_name = match self.actions.get(&action_type) {
+            Some(name) => name,
+            None => {
+                display_plugin_exposed_types(&self.actions, "action");
+                return Err(format!(
+                    "No plugin provided the action type '{action_type}'"
+                ));
+            }
+        };
 
         let plugin = self.plugins.get_mut(plugin_name).unwrap();
 
@@ -287,5 +299,18 @@ impl Plugins {
                 plugin.handle_child().await;
             });
         }
+    }
+}
+
+fn display_plugin_exposed_types(type_to_plugin: &BTreeMap<String, String>, name: &str) {
+    let mut plugin_to_types: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (type_, plugin) in type_to_plugin {
+        plugin_to_types.entry(plugin).or_default().push(type_);
+    }
+    for (plugin, types) in plugin_to_types {
+        info!(
+            "Plugin {plugin} exposes those {name} types: '{}'",
+            types.join("', '")
+        );
     }
 }
