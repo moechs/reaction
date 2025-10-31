@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 use reaction_plugin::ActionImpl;
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
@@ -80,6 +80,10 @@ impl FilterManager {
                             .collect(),
                     )
                     .await?,
+            );
+            debug!(
+                "successfully intialized action {}.{}.{}",
+                action.stream_name, action.filter_name, action.name
             );
         }
         let this = Self {

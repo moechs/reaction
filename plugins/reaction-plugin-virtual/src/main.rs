@@ -152,7 +152,7 @@ impl VirtualActionInit {
         config: Value,
         patterns: Vec<String>,
     ) -> Result<(Self, mpsc::Sender<Exec>), String> {
-        let options: ActionOptions = serde_json::from_value(config).map_err(|err| {
+        let options: ActionOptions = serde_json::from_value(config.into()).map_err(|err| {
             format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
         })?;
 

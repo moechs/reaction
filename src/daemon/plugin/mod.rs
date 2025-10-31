@@ -238,7 +238,7 @@ impl Plugins {
         let plugin = self.plugins.get_mut(plugin_name).unwrap();
 
         plugin
-            .stream_impl(stream_name.clone(), stream_type, config)
+            .stream_impl(stream_name.clone(), stream_type, config.into())
             .await
             .map_err(|err| format!("plugin error while initializing stream {stream_name}: {err}"))
     }
@@ -270,7 +270,7 @@ impl Plugins {
                 filter_name.clone(),
                 action_name.clone(),
                 action_type,
-                config,
+                config.into(),
                 patterns,
             )
             .await

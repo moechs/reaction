@@ -11,7 +11,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStderr, ChildStdout, Command},
 };
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     concepts::{Filter, Stream},
@@ -85,6 +85,8 @@ impl StreamManager {
         } else {
             None
         };
+
+        debug!("successfully initialized stream {}", stream.name);
 
         Ok(StreamManager {
             compiled_regex_set: RegexSet::new(all_regexes.keys()).map_err(|err| err.to_string())?,

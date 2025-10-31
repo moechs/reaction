@@ -85,14 +85,19 @@
 //! Core plugins can be found here: <https://framagit.org/ppom/reaction/-/tree/main/plugins>.
 //! The "virtual" plugin is the simplest and can serve as a good complete example.
 
-use std::{collections::BTreeSet, error::Error, fmt::Display, process::exit};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::Display,
+    process::exit,
+};
 
 use remoc::{
     Connect, rch,
     rtc::{self, Server},
 };
 use serde::{Deserialize, Serialize};
-pub use serde_json::Value;
+use serde_json::{Number, Value as JValue};
 use tokio::io::{stdin, stdout};
 
 /// This is the only trait that **must** be implemented by a plugin.
@@ -102,7 +107,8 @@ pub trait PluginInfo {
     /// Return the manifest of the plugin.
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError>;
 
-    /// Return one stream of a given type if it exists
+    /// Return one stream of a given type.
+    /// Errors if the type does not exist or if config is invalid.
     async fn stream_impl(
         &mut self,
         stream_name: String,
@@ -110,7 +116,8 @@ pub trait PluginInfo {
         config: Value,
     ) -> RemoteResult<StreamImpl>;
 
-    /// Return one instance of a given type.
+    /// Return one action of a given type.
+    /// Errors if the type does not exist or if config is invalid.
     async fn action_impl(
         &mut self,
         stream_name: String,
@@ -187,6 +194,54 @@ impl Hello {
     }
 }
 
+/// A clone of [`serde_json::Value`]
+/// Implements From & Into [`serde_json::Value`]
+#[derive(Serialize, Deserialize, Clone)]
+pub enum Value {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    String(String),
+    Array(Vec<Value>),
+    Object(BTreeMap<String, Value>),
+}
+
+impl From<JValue> for Value {
+    fn from(value: serde_json::Value) -> Self {
+        match value {
+            JValue::Null => Value::Null,
+            JValue::Bool(b) => Value::Bool(b),
+            JValue::Number(number) => {
+                if let Some(number) = number.as_i64() {
+                    Value::Integer(number)
+                } else if let Some(number) = number.as_f64() {
+                    Value::Float(number)
+                } else {
+                    Value::Null
+                }
+            }
+            JValue::String(s) => Value::String(s.into()),
+            JValue::Array(v) => Value::Array(v.into_iter().map(|e| e.into()).collect()),
+            JValue::Object(m) => Value::Object(m.into_iter().map(|(k, v)| (k, v.into())).collect()),
+        }
+    }
+}
+
+impl Into<JValue> for Value {
+    fn into(self) -> JValue {
+        match self {
+            Value::Null => JValue::Null,
+            Value::Bool(v) => JValue::Bool(v),
+            Value::Integer(v) => JValue::Number(v.into()),
+            Value::Float(v) => JValue::Number(Number::from_f64(v).unwrap()),
+            Value::String(v) => JValue::String(v),
+            Value::Array(v) => JValue::Array(v.into_iter().map(|e| e.into()).collect()),
+            Value::Object(m) => JValue::Object(m.into_iter().map(|(k, v)| (k, v.into())).collect()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
     pub stream: rch::mpsc::Receiver<String>,
@@ -223,7 +278,17 @@ pub struct Exec {
     pub result: rch::oneshot::Sender<Result<(), String>>,
 }
 
-// TODO write main function here?
+/// The main loop for a plugin.
+///
+/// Your main function should only create a struct that implements [`PluginInfo`]
+/// and then call [`main_loop`]:
+/// ```rust
+/// #[tokio::main]
+/// async fn main() {
+///     let plugin = MyPlugin::default();
+///     reaction_plugin::main_loop(plugin).await;
+/// }
+/// ```
 pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
     let (conn, mut tx, _rx): (
         _,
@@ -235,7 +300,7 @@ pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
 
     let (server, client) = PluginInfoServer::new(plugin_info, 1);
 
-    let (res1, (_, res2), res3) = tokio::join!(tx.send(client), server.serve(), tokio::spawn(conn));
+    let (res1, (_, res2), res3) = tokio::join!(tx.send(client), server.serve(), conn);
     let mut exit_code = 0;
     if let Err(err) = res1 {
         eprintln!("ERROR could not send plugin info to reaction: {err}");
@@ -246,10 +311,7 @@ pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
         exit_code = 2;
     }
     if let Err(err) = res3 {
-        eprintln!("ERROR could not setup connection with reaction: {err}");
-        exit_code = 3;
-    } else if let Ok(Err(err)) = res3 {
-        eprintln!("ERROR could not setup connection with reaction: {err}");
+        eprintln!("ERROR connection error with reaction: {err}");
         exit_code = 3;
     }
     exit(exit_code);

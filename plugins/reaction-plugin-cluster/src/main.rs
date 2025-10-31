@@ -5,11 +5,10 @@ use std::{
 
 use iroh::{Endpoint, PublicKey, SecretKey};
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, main_loop,
+    ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, Value, main_loop,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::fs;
 
 mod cluster;
@@ -122,8 +121,8 @@ impl PluginInfo for Plugin {
             return Err("This plugin can't handle other stream types than cluster".into());
         }
 
-        let options: StreamOptions =
-            serde_json::from_value(config).map_err(|err| format!("invalid options: {err}"))?;
+        let options: StreamOptions = serde_json::from_value(config.into())
+            .map_err(|err| format!("invalid options: {err}"))?;
 
         let shared_secret = if let Some(shared_secret) = options.shared_secret {
             shared_secret
@@ -194,8 +193,8 @@ impl PluginInfo for Plugin {
             return Err("This plugin can't handle other action types than cluster".into());
         }
 
-        let options: ActionOptions =
-            serde_json::from_value(config).map_err(|err| format!("invalid options: {err}"))?;
+        let options: ActionOptions = serde_json::from_value(config.into())
+            .map_err(|err| format!("invalid options: {err}"))?;
 
         let (tx, rx) = mpsc::channel(1);
 
