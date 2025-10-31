@@ -245,6 +245,7 @@ French version: [#reaction-dev-fr:club1.fr](https://matrix.to/#/#reaction-dev-fr
 
 You can ask for help in the issues or in this Matrix room: [#reaction-users-en:club1.fr](https://matrix.to/#/#reaction-users-en:club1.fr).
 French version: [#reaction-users-fr:club1.fr](https://matrix.to/#/#reaction-users-fr:club1.fr).
+You can alternatively send a mail: `reaction` on domain `ppom.me`.
 
 ## Funding
 
