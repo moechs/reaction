@@ -84,6 +84,11 @@ impl ShutdownToken {
         self.shutdown_notifyer.cancelled()
     }
 
+    /// Returns true if the shutdown request happened
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown_notifyer.is_cancelled()
+    }
+
     /// Ask for all tasks to quit
     pub fn ask_shutdown(&self) {
         self.shutdown_notifyer.cancel();

@@ -147,7 +147,9 @@ impl StreamManager {
                     }
                 }
                 Ok(None) => {
-                    error!("stream {} has exited", self.stream.name);
+                    if !self.shutdown.is_shutdown() {
+                        error!("stream {} has exited", self.stream.name);
+                    }
                     return;
                 }
             }
