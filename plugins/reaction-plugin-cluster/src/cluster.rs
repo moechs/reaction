@@ -1,21 +1,19 @@
 use std::{
     collections::BTreeMap,
     net::{SocketAddrV4, SocketAddrV6},
-    sync::Arc,
 };
 
 use iroh::{Endpoint, EndpointAddr, EndpointId, endpoint::Connection};
 use reaction_plugin::Exec;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{ActionInit, StreamInit, connection::ConnectionInitializer};
+use crate::{ActionInit, StreamInit, endpoint::EndpointManager};
 
 pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 
 type ShutdownNotification = oneshot::Receiver<oneshot::Sender<()>>;
 
 pub struct Cluster {
-    endpoint: Arc<Endpoint>,
     stream: StreamInit,
     actions: Vec<ActionInit>,
     shutdown: ShutdownNotification,
@@ -49,10 +47,9 @@ impl Cluster {
                 stream.name
             )
         })?;
-        let endpoint = Arc::new(endpoint);
 
         let (endpoint_addr_tx, connection_rx) =
-            ConnectionInitializer::new(endpoint.clone(), stream.name.clone(), stream.nodes.len());
+            EndpointManager::new(endpoint, stream.name.clone(), stream.nodes.len());
 
         for node in stream.nodes.values() {
             endpoint_addr_tx.send(node.clone()).await.unwrap();
@@ -64,7 +61,6 @@ impl Cluster {
             // Values passed as-is
             stream,
             actions,
-            endpoint,
             shutdown,
             endpoint_addr_tx,
             connection_rx,

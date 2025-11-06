@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{fs, sync::oneshot};
 
 mod cluster;
-mod connection;
+mod endpoint;
 mod secret_key;
 
 use secret_key::{key_b64_to_bytes, key_bytes_to_b64, secret_key};
