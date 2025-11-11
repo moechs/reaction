@@ -1,9 +1,12 @@
+use std::arch::x86_64::_mm_sha256rnds2_epu32;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use iroh::Endpoint;
-use iroh::endpoint::Incoming;
+use iroh::endpoint::{ConnectionStats, Incoming};
 use iroh::{EndpointAddr, endpoint::Connection};
+use rand::{Rng, rng};
+use sha2::{Digest, Sha256};
 use tokio::{
     sync::mpsc,
     time::{Instant, sleep, sleep_until},
@@ -38,12 +41,14 @@ pub struct EndpointManager {
     endpoint_addr_rx: mpsc::Receiver<EndpointAddr>,
     /// Connection sender to the [`crate::Cluster`]
     connection_tx: mpsc::Sender<Connection>,
+    shared_secret: String,
 }
 
 impl EndpointManager {
     pub fn new(
         endpoint: Endpoint,
         cluster_name: String,
+        shared_secret: String,
         cluster_size: usize,
     ) -> (mpsc::Sender<EndpointAddr>, mpsc::Receiver<Connection>) {
         let (tx1, rx1) = mpsc::channel(cluster_size);
@@ -56,6 +61,7 @@ impl EndpointManager {
                 retry_connections: Default::default(),
                 endpoint_addr_rx: rx1,
                 connection_tx: tx2,
+                shared_secret,
             }
             .task()
             .await
@@ -172,10 +178,110 @@ impl EndpointManager {
     }
 
     async fn handshake(&mut self, connection: Connection, initiated_by_me: bool) -> Break {
-        // TODO validate handshake before sending
-        if let Err(_) = self.connection_tx.send(connection).await {
-            // This means the main cluster loop has exited, so let's quit
-            return Break::Yes;
+        let remote_id = connection
+            .remote_id()
+            .map(|id| id.to_string())
+            .unwrap_or("".to_string());
+
+        // Send challenge and check response
+        let ask_future = {
+            let connection = connection.clone();
+            let shared_secret = self.shared_secret.clone();
+            let remote_id = remote_id.clone();
+
+            async move {
+                let (mut tx, mut rx) = connection.open_bi().await.map_err(|err| {
+                    format!(
+                        "could not init a QUIC communication channel with node {remote_id}: {err}",
+                    )
+                })?;
+
+                let salt: [u8; 32] = rand::rng().random();
+
+                tx.write_all(&salt)
+                    .await
+                    .map_err(|err| format!("could not send data to node {remote_id}: {err}"))?;
+
+                let mut concat: Vec<u8> = Vec::with_capacity(64);
+                concat.extend_from_slice(shared_secret.as_bytes());
+                concat.extend_from_slice(&salt);
+                let expected_hash = Sha256::digest(concat);
+
+                let mut received_hash = [0u8; 32];
+                rx.read_exact(&mut received_hash)
+                    .await
+                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
+
+                if expected_hash.iter().eq(received_hash.iter()) {
+                    // Send "ok"
+                    // Return Ok(())
+                    tx.write_all(&[1u8])
+                        .await
+                        .map_err(|err| format!("could not send data to node {remote_id}: {err}"))
+                } else {
+                    let _ = tx.write_all(&[0u8]).await;
+                    Err(format!(
+                        "hash mismatch from node {remote_id}. It most probably has a different `secret_key` set."
+                    ))
+                }
+            }
+        };
+
+        // Receive challenge and send response
+        let answer_future = {
+            let connection = connection.clone();
+            let shared_secret = self.shared_secret.clone();
+            let remote_id = remote_id.clone();
+
+            async move {
+                let (mut tx, mut rx) = connection.accept_bi().await.map_err(|err| {
+                    format!(
+                        "could not receive a QUIC communication channel from node {remote_id}: {err}",
+                    )
+                })?;
+
+                let mut received_salt = [0u8; 32];
+                rx.read_exact(&mut received_salt)
+                    .await
+                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
+
+                let mut concat: Vec<u8> = Vec::with_capacity(64);
+                concat.extend_from_slice(shared_secret.as_bytes());
+                concat.extend_from_slice(&received_salt);
+                let computed_hash = Sha256::digest(concat);
+
+                tx.write_all(&computed_hash)
+                    .await
+                    .map_err(|err| format!("could not send data to node {remote_id}: {err}"))?;
+
+                let mut response = [0u8; 1];
+                rx.read_exact(&mut response)
+                    .await
+                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
+
+                if response[0] == 1 {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "node {remote_id} announced a hash mismatch. It most probably has a different `secret_key` set."
+                    ))
+                }
+            }
+        };
+
+        let (ask_result, answer_result) = tokio::join!(ask_future, answer_future);
+        if let Err(err) = &ask_result {
+            eprintln!("ERROR {err}");
+        }
+        if let Err(err) = &answer_result {
+            eprintln!("ERROR {err}");
+        }
+
+        if ask_result.is_ok() && answer_result.is_ok() {
+            if let Err(_) = self.connection_tx.send(connection).await {
+                // This means the main cluster loop has exited, so let's quit
+                return Break::Yes;
+            }
         }
         Break::No
     }
