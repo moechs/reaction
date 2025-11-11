@@ -1,12 +1,9 @@
-use std::arch::x86_64::_mm_sha256rnds2_epu32;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use iroh::Endpoint;
-use iroh::endpoint::{ConnectionStats, Incoming};
+use iroh::endpoint::Incoming;
+use iroh::{Endpoint, PublicKey};
 use iroh::{EndpointAddr, endpoint::Connection};
-use rand::{Rng, rng};
-use sha2::{Digest, Sha256};
 use tokio::{
     sync::mpsc,
     time::{Instant, sleep, sleep_until},
@@ -37,6 +34,8 @@ pub struct EndpointManager {
     cluster_name: String,
     /// Map of remote Endpoints to try to connect to
     retry_connections: BTreeMap<Instant, (EndpointAddr, Duration)>,
+    /// Set of PublicKeys we're trying to connect to
+    all_connections: BTreeMap<PublicKey, Instant>,
     /// Connection requests from the [`crate::Cluster`]
     endpoint_addr_rx: mpsc::Receiver<EndpointAddr>,
     /// Connection sender to the [`crate::Cluster`]
@@ -59,6 +58,7 @@ impl EndpointManager {
                 endpoint,
                 cluster_name,
                 retry_connections: Default::default(),
+                all_connections: Default::default(),
                 endpoint_addr_rx: rx1,
                 connection_tx: tx2,
                 shared_secret,
@@ -92,7 +92,13 @@ impl EndpointManager {
             }
 
             // Tick at next deadline
-            tick = sleep_until(*self.retry_connections.keys().next().unwrap());
+            tick = sleep_until(
+                self.retry_connections
+                    .keys()
+                    .next()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| Instant::now() + MAX_TIMEOUT),
+            );
         }
 
         self.endpoint.close().await
@@ -103,25 +109,21 @@ impl EndpointManager {
             Event::Quit => return Break::Yes,
 
             Event::TryConnect(endpoint_addr) => match self.try_connect(endpoint_addr).await {
-                Ok(connection) => return self.handshake(connection, true).await,
+                Ok(connection) => return self.check_and_send_connection(connection).await,
                 Err(endpoint_addr) => {
-                    self.insert_address(endpoint_addr, START_TIMEOUT);
+                    self.insert_endpoint(endpoint_addr, START_TIMEOUT);
                 }
             },
 
             Event::Tick => {
-                if self
-                    .retry_connections
-                    .keys()
-                    .next()
-                    .is_some_and(|time| time < &Instant::now())
-                {
-                    let (_, (endpoint_addr, delta)) = self.retry_connections.pop_first().unwrap();
+                if let Some((endpoint_addr, delta)) = self.pop_next_endpoint() {
                     match self.try_connect(endpoint_addr).await {
-                        Ok(connection) => return self.handshake(connection, true).await,
+                        Ok(connection) => {
+                            return self.check_and_send_connection(connection).await;
+                        }
                         Err(endpoint_addr) => {
                             let delta = next_delta(delta);
-                            self.insert_address(endpoint_addr, delta);
+                            self.insert_endpoint(endpoint_addr, delta);
                         }
                     }
                 }
@@ -136,7 +138,9 @@ impl EndpointManager {
                     let remote_address = incoming.remote_address();
                     let remote_address_validated = incoming.remote_address_validated();
                     match incoming.await {
-                        Ok(connection) => return self.handshake(connection, false).await,
+                        Ok(connection) => {
+                            return self.check_and_send_connection(connection).await;
+                        }
                         Err(err) => {
                             if remote_address_validated {
                                 eprintln!("INFO refused connection from {}: {err}", remote_address)
@@ -151,19 +155,37 @@ impl EndpointManager {
         Break::No
     }
 
-    fn insert_address(&mut self, endpoint_addr: EndpointAddr, delta: Duration) {
+    /// Schedule an endpoint to try to connect to later
+    fn insert_endpoint(&mut self, endpoint_addr: EndpointAddr, delta: Duration) {
         if !delta.is_zero() {
             eprintln!(
                 "INFO cluster {}: retry connecting to node {} in {:?}",
                 self.cluster_name, endpoint_addr.id, delta
             );
         }
-        let now = Instant::now();
+        let next = Instant::now() + delta;
         // Schedule this address for later
-        self.retry_connections
-            .insert(now + delta, (endpoint_addr, delta));
+        self.all_connections.insert(endpoint_addr.id, next);
+        self.retry_connections.insert(next, (endpoint_addr, delta));
     }
 
+    /// Returns the next endpoint we should try to connect to
+    fn pop_next_endpoint(&mut self) -> Option<(EndpointAddr, Duration)> {
+        if self
+            .retry_connections
+            .keys()
+            .next()
+            .is_some_and(|time| time < &Instant::now())
+        {
+            let (_, tuple) = self.retry_connections.pop_first().unwrap();
+            self.all_connections.remove(&tuple.0.id);
+            Some(tuple)
+        } else {
+            None
+        }
+    }
+
+    /// Try connecting to a remote endpoint
     async fn try_connect(&self, addr: EndpointAddr) -> Result<Connection, EndpointAddr> {
         match self.endpoint.connect(addr.clone(), ALPN[0]).await {
             Ok(connection) => Ok(connection),
@@ -177,116 +199,51 @@ impl EndpointManager {
         }
     }
 
-    async fn handshake(&mut self, connection: Connection, initiated_by_me: bool) -> Break {
-        let remote_id = connection
-            .remote_id()
-            .map(|id| id.to_string())
-            .unwrap_or("".to_string());
-
-        // Send challenge and check response
-        let ask_future = {
-            let connection = connection.clone();
-            let shared_secret = self.shared_secret.clone();
-            let remote_id = remote_id.clone();
-
-            async move {
-                let (mut tx, mut rx) = connection.open_bi().await.map_err(|err| {
-                    format!(
-                        "could not init a QUIC communication channel with node {remote_id}: {err}",
-                    )
-                })?;
-
-                let salt: [u8; 32] = rand::rng().random();
-
-                tx.write_all(&salt)
-                    .await
-                    .map_err(|err| format!("could not send data to node {remote_id}: {err}"))?;
-
-                let mut concat: Vec<u8> = Vec::with_capacity(64);
-                concat.extend_from_slice(shared_secret.as_bytes());
-                concat.extend_from_slice(&salt);
-                let expected_hash = Sha256::digest(concat);
-
-                let mut received_hash = [0u8; 32];
-                rx.read_exact(&mut received_hash)
-                    .await
-                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
-
-                if expected_hash.iter().eq(received_hash.iter()) {
-                    // Send "ok"
-                    // Return Ok(())
-                    tx.write_all(&[1u8])
-                        .await
-                        .map_err(|err| format!("could not send data to node {remote_id}: {err}"))
-                } else {
-                    let _ = tx.write_all(&[0u8]).await;
-                    Err(format!(
-                        "hash mismatch from node {remote_id}. It most probably has a different `secret_key` set."
-                    ))
-                }
+    /// Check that an incoming connection is an endpoint we're trying to connect,
+    /// and send it to the [`Cluster`]
+    async fn check_and_send_connection(&mut self, connection: Connection) -> Break {
+        let remote_id = match connection.remote_id() {
+            Ok(id) => id,
+            Err(err) => {
+                eprintln!(
+                    "ERROR cluster {}: could not retrieve peer's id: {err}",
+                    self.cluster_name
+                );
+                return Break::No;
             }
         };
 
-        // Receive challenge and send response
-        let answer_future = {
-            let connection = connection.clone();
-            let shared_secret = self.shared_secret.clone();
-            let remote_id = remote_id.clone();
-
-            async move {
-                let (mut tx, mut rx) = connection.accept_bi().await.map_err(|err| {
-                    format!(
-                        "could not receive a QUIC communication channel from node {remote_id}: {err}",
-                    )
-                })?;
-
-                let mut received_salt = [0u8; 32];
-                rx.read_exact(&mut received_salt)
-                    .await
-                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
-
-                let mut concat: Vec<u8> = Vec::with_capacity(64);
-                concat.extend_from_slice(shared_secret.as_bytes());
-                concat.extend_from_slice(&received_salt);
-                let computed_hash = Sha256::digest(concat);
-
-                tx.write_all(&computed_hash)
-                    .await
-                    .map_err(|err| format!("could not send data to node {remote_id}: {err}"))?;
-
-                let mut response = [0u8; 1];
-                rx.read_exact(&mut response)
-                    .await
-                    .map_err(|err| format!("could not read data from node {remote_id}: {err}"))?;
-
-                if response[0] == 1 {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "node {remote_id} announced a hash mismatch. It most probably has a different `secret_key` set."
-                    ))
-                }
+        match self.all_connections.remove(&remote_id) {
+            None => {
+                eprintln!(
+                    "WARN cluster {}: new peer's id '{remote_id}' is not in our list, refusing incoming connection.",
+                    self.cluster_name
+                );
+                eprintln!(
+                    "INFO cluster {}: {}, {}",
+                    self.cluster_name,
+                    "maybe we're already connected to it, maybe it's not from our cluster",
+                    "maybe it is new and it has not been configured yet on this node"
+                );
+                return Break::No;
             }
-        };
-
-        let (ask_result, answer_result) = tokio::join!(ask_future, answer_future);
-        if let Err(err) = &ask_result {
-            eprintln!("ERROR {err}");
-        }
-        if let Err(err) = &answer_result {
-            eprintln!("ERROR {err}");
+            Some(time) => {
+                self.retry_connections.remove(&time);
+            }
         }
 
-        if ask_result.is_ok() && answer_result.is_ok() {
-            if let Err(_) = self.connection_tx.send(connection).await {
-                // This means the main cluster loop has exited, so let's quit
-                return Break::Yes;
-            }
+        // TODO persist the incoming address, so that we don't forget this address
+
+        if let Err(_) = self.connection_tx.send(connection).await {
+            // This means the main cluster loop has exited, so let's quit
+            return Break::Yes;
         }
         Break::No
     }
 }
 
+/// Compute the next wait Duration.
+/// We're multiplying the Duration by [`TIMEOUT_FACTOR`] and cap it to [`MAX_TIMEOUT`].
 fn next_delta(delta: Duration) -> Duration {
     // Multiply timeout by TIMEOUT_FACTOR
     let delta = Duration::from_millis(((delta.as_millis() as f64) * TIMEOUT_FACTOR) as u64);
