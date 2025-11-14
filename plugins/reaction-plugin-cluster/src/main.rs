@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+    time::Duration,
 };
 
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
@@ -14,6 +15,8 @@ use tokio::{fs, sync::oneshot};
 mod cluster;
 mod endpoint;
 mod secret_key;
+
+use reaction::concepts::parse_duration;
 
 use secret_key::{key_b64_to_bytes, key_bytes_to_b64, secret_key};
 
@@ -52,6 +55,8 @@ struct StreamOptions {
     shared_secret_file: Option<String>,
     /// Other nodes which are part of the cluster.
     nodes: Vec<NodeOption>,
+    /// Max duration before we drop pending messages to a node we can't connect to.
+    message_timeout: String,
 }
 
 fn ipv4_unspecified() -> Option<Ipv4Addr> {
@@ -69,6 +74,7 @@ struct StreamInit {
     bind_ipv6: Option<Ipv6Addr>,
     shared_secret: String,
     secret_key: SecretKey,
+    message_timeout: Duration,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
     tx: mpsc::Sender<String>,
 }
@@ -136,6 +142,10 @@ impl PluginInfo for Plugin {
         };
 
         let mut nodes = BTreeMap::default();
+
+        let message_timeout = parse_duration(&options.message_timeout)
+            .map_err(|err| format!("invalid message_timeout: {err}"))?;
+
         for node in options.nodes.into_iter() {
             let bytes = key_b64_to_bytes(&node.public_key)
                 .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
@@ -171,6 +181,7 @@ impl PluginInfo for Plugin {
             bind_ipv6: options.bind_ipv6,
             shared_secret,
             secret_key,
+            message_timeout,
             nodes,
             tx,
         };

@@ -11,7 +11,7 @@ use std::fmt::Debug;
 pub use action::Action;
 pub use config::{Config, Patterns};
 pub use filter::{Duplicate, Filter};
-use parse_duration::parse_duration;
+pub use parse_duration::parse_duration;
 pub use pattern::{Pattern, PatternType};
 pub use plugin::Plugin;
 use serde::{Deserialize, Serialize};

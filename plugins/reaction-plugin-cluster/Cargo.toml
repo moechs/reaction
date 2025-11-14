@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+reaction.path = "../../"
 reaction-plugin.workspace = true
 
 remoc.workspace = true

@@ -108,8 +108,11 @@ impl Action {
 
         if let Some(after) = &self.after {
             self.after_duration = Some(
-                parse_duration(after)
-                    .map_err(|err| format!("failed to parse after time: {}", err))?,
+                TimeDelta::from_std(
+                    parse_duration(after)
+                        .map_err(|err| format!("failed to parse after time: {}", err))?,
+                )
+                .map_err(|err| format!("too big after time: {err}"))?,
             );
             self.after = None;
         } else if self.on_exit {

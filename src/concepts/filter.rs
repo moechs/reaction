@@ -124,8 +124,11 @@ impl Filter {
 
         if let Some(retry_period) = &self.retry_period {
             self.retry_duration = Some(
-                parse_duration(retry_period)
-                    .map_err(|err| format!("failed to parse retry time: {}", err))?,
+                TimeDelta::from_std(
+                    parse_duration(retry_period)
+                        .map_err(|err| format!("failed to parse retry period: {}", err))?,
+                )
+                .map_err(|err| format!("too big retry period: {err}"))?,
             );
             self.retry_period = None;
         }
