@@ -10,7 +10,7 @@ use reaction_plugin::{
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
-use tokio::{fs, sync::oneshot};
+use tokio::sync::oneshot;
 
 mod cluster;
 mod endpoint;
@@ -45,14 +45,9 @@ struct StreamOptions {
     #[serde(default = "ipv4_unspecified")]
     bind_ipv4: Option<Ipv4Addr>,
     /// The IPv6 to bind to. Defaults to 0.0.0.0.
-    /// Set to `null` to use IPv6 only.
+    /// Set to `null` to use IPv4 only.
     #[serde(default = "ipv6_unspecified")]
     bind_ipv6: Option<Ipv6Addr>,
-    /// The secret that permits to join the cluster.
-    shared_secret: Option<String>,
-    /// The secret that permits to join the cluster, as a file.
-    /// Beginning and ending whitespace will be trimmed.
-    shared_secret_file: Option<String>,
     /// Other nodes which are part of the cluster.
     nodes: Vec<NodeOption>,
     /// Max duration before we drop pending messages to a node we can't connect to.
@@ -72,7 +67,6 @@ struct StreamInit {
     listen_port: u16,
     bind_ipv4: Option<Ipv4Addr>,
     bind_ipv6: Option<Ipv6Addr>,
-    shared_secret: String,
     secret_key: SecretKey,
     message_timeout: Duration,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
@@ -127,20 +121,6 @@ impl PluginInfo for Plugin {
         let options: StreamOptions = serde_json::from_value(config.into())
             .map_err(|err| format!("invalid options: {err}"))?;
 
-        let shared_secret = if let Some(shared_secret) = options.shared_secret {
-            shared_secret
-        } else if let Some(shared_secret_file) = &options.shared_secret_file {
-            fs::read_to_string(shared_secret_file)
-                .await
-                .map_err(|err| {
-                    format!("can't access shared_secret_file {shared_secret_file}: {err}")
-                })?
-                .trim()
-                .to_owned()
-        } else {
-            return Err("missing shared secret: either shared_secret or shared_secret_file must be provided".into());
-        };
-
         let mut nodes = BTreeMap::default();
 
         let message_timeout = parse_duration(&options.message_timeout)
@@ -179,7 +159,6 @@ impl PluginInfo for Plugin {
             listen_port: options.listen_port,
             bind_ipv4: options.bind_ipv4,
             bind_ipv6: options.bind_ipv6,
-            shared_secret,
             secret_key,
             message_timeout,
             nodes,

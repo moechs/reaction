@@ -40,14 +40,12 @@ pub struct EndpointManager {
     endpoint_addr_rx: mpsc::Receiver<EndpointAddr>,
     /// Connection sender to the [`crate::Cluster`]
     connection_tx: mpsc::Sender<Connection>,
-    shared_secret: String,
 }
 
 impl EndpointManager {
     pub fn new(
         endpoint: Endpoint,
         cluster_name: String,
-        shared_secret: String,
         cluster_size: usize,
     ) -> (mpsc::Sender<EndpointAddr>, mpsc::Receiver<Connection>) {
         let (tx1, rx1) = mpsc::channel(cluster_size);
@@ -61,7 +59,6 @@ impl EndpointManager {
                 all_connections: Default::default(),
                 endpoint_addr_rx: rx1,
                 connection_tx: tx2,
-                shared_secret,
             }
             .task()
             .await

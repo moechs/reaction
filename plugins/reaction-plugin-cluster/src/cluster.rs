@@ -51,10 +51,6 @@ impl Cluster {
         let (endpoint_addr_tx, connection_rx) =
             EndpointManager::new(endpoint, stream.name.clone(), stream.nodes.len());
 
-        for node in stream.nodes.values() {
-            endpoint_addr_tx.send(node.clone()).await.unwrap();
-        }
-
         let this = Self {
             // No connection for now
             connections: Default::default(),
@@ -71,18 +67,17 @@ impl Cluster {
     }
 
     async fn task(mut self) {
+        // Ask connections for all nodes
+        for node in self.stream.nodes.values() {
+            self.endpoint_addr_tx.send(node.clone()).await.unwrap();
+        }
         let action_rx = self.spawn_actions();
 
         // Ok donc là il faut :
-        // - Que je réessaie plus tard les connections qui ont raté
-        // - Que j'accepte des nouvelles connections
         // - Que j'ai une queue par noeud
         // - Que chaque élément de la queue puisse timeout
         // - Que j'envoie les messages de mes actions dans toutes les queues
-        //
         // - Que j'écoute les messages de mes pairs et que je les renvoie à mon stream
-        //
-        // Et que je gère l'authentification en début de connection
     }
 
     fn spawn_actions(&mut self) -> mpsc::Receiver<(Exec, bool)> {
