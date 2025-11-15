@@ -6,6 +6,11 @@ use predicates::prelude::predicate;
 
 #[test]
 fn plugin_virtual() {
+    // First build reaction-plugin-virtual
+    Command::new("cargo")
+        .args(["build", "-p", "reaction-plugin-virtual"])
+        .unwrap();
+
     let tmp_dir = assert_fs::TempDir::new().unwrap();
     tmp_dir
         .child("config.jsonnet")
