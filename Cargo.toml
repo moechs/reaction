@@ -50,7 +50,7 @@ jrsonnet-evaluator = "0.4.2"
 # Error macro
 thiserror = "1.0.63"
 # Async runtime & helpers
-futures = "0.3.30"
+futures = { workspace = true }
 tokio = { workspace = true, features = ["full", "tracing"] }
 tokio-util = { workspace = true, features = ["codec"] }
 # Async logging
@@ -79,6 +79,7 @@ members = ["plugins/reaction-plugin", "plugins/reaction-plugin-cluster", "plugin
 
 [workspace.dependencies]
 chrono = { version = "0.4.38", features = ["std", "clock", "serde"] }
+futures = "0.3.30"
 remoc = { version = "0.18.3" }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"

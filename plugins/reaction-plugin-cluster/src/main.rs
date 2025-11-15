@@ -11,9 +11,9 @@ use reaction_plugin::{
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
 
 mod cluster;
+mod connection;
 mod endpoint;
 mod secret_key;
 
@@ -60,6 +60,12 @@ fn ipv6_unspecified() -> Option<Ipv6Addr> {
     Some(Ipv6Addr::UNSPECIFIED)
 }
 
+#[derive(Serialize, Deserialize)]
+struct NodeOption {
+    public_key: String,
+    addresses: Vec<SocketAddr>,
+}
+
 /// Stream information before start
 struct StreamInit {
     name: String,
@@ -70,12 +76,6 @@ struct StreamInit {
     message_timeout: TimeDelta,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
     tx: mpsc::Sender<Line>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct NodeOption {
-    public_key: String,
-    addresses: Vec<SocketAddr>,
 }
 
 #[derive(Serialize, Deserialize)]

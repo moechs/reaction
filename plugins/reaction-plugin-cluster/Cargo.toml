@@ -7,6 +7,7 @@ edition = "2024"
 reaction-plugin.workspace = true
 
 chrono.workspace = true
+futures.workspace = true
 remoc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
