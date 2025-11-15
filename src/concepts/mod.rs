@@ -1,7 +1,6 @@
 mod action;
 mod config;
 mod filter;
-mod parse_duration;
 mod pattern;
 mod plugin;
 mod stream;
@@ -11,7 +10,6 @@ use std::fmt::Debug;
 pub use action::Action;
 pub use config::{Config, Patterns};
 pub use filter::{Duplicate, Filter};
-pub use parse_duration::parse_duration;
 pub use pattern::{Pattern, PatternType};
 pub use plugin::Plugin;
 use serde::{Deserialize, Serialize};

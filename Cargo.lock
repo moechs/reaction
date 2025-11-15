@@ -2847,6 +2847,7 @@ dependencies = [
 name = "reaction-plugin"
 version = "1.0.0"
 dependencies = [
+ "chrono",
  "remoc",
  "serde",
  "serde_json",
@@ -2857,10 +2858,10 @@ dependencies = [
 name = "reaction-plugin-cluster"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "data-encoding",
  "iroh",
  "rand 0.9.2",
- "reaction",
  "reaction-plugin",
  "remoc",
  "serde",

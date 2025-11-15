@@ -1,12 +1,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
-    time::Duration,
 };
 
+use chrono::TimeDelta;
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, Value, main_loop,
+    parse_duration,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -16,11 +17,9 @@ mod cluster;
 mod endpoint;
 mod secret_key;
 
-use reaction::concepts::parse_duration;
-
 use secret_key::{key_b64_to_bytes, key_bytes_to_b64, secret_key};
 
-use crate::cluster::Cluster;
+use crate::cluster::{bind, cluster_tasks};
 
 #[tokio::main]
 async fn main() {
@@ -68,7 +67,7 @@ struct StreamInit {
     bind_ipv4: Option<Ipv4Addr>,
     bind_ipv6: Option<Ipv6Addr>,
     secret_key: SecretKey,
-    message_timeout: Duration,
+    message_timeout: TimeDelta,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
     tx: mpsc::Sender<String>,
 }
@@ -213,12 +212,14 @@ impl PluginInfo for Plugin {
         while let Some((stream_name, stream)) = self.streams.pop_first() {
             let (tx, rx) = oneshot::channel();
             self.cluster_shutdown.push(tx);
-            Cluster::new(
+
+            let endpoint = bind(&stream).await?;
+            cluster_tasks(
+                endpoint,
                 stream,
                 self.actions.remove(&stream_name).unwrap_or_default(),
                 rx,
-            )
-            .await?;
+            );
         }
         // Check there is no action left
         if !self.actions.is_empty() {

@@ -2,11 +2,12 @@ use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 
 use chrono::TimeDelta;
 
+use reaction_plugin::parse_duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
-use super::{Match, Pattern, PatternType, null_value, parse_duration::*};
+use super::{Match, Pattern, PatternType, null_value};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -108,11 +109,8 @@ impl Action {
 
         if let Some(after) = &self.after {
             self.after_duration = Some(
-                TimeDelta::from_std(
-                    parse_duration(after)
-                        .map_err(|err| format!("failed to parse after time: {}", err))?,
-                )
-                .map_err(|err| format!("too big after time: {err}"))?,
+                parse_duration(after)
+                    .map_err(|err| format!("failed to parse after time: {}", err))?,
             );
             self.after = None;
         } else if self.on_exit {

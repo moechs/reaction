@@ -7,10 +7,11 @@ use std::{
 };
 
 use chrono::TimeDelta;
+use reaction_plugin::parse_duration;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::{Action, Match, Pattern, PatternType, Patterns, parse_duration};
+use super::{Action, Match, Pattern, PatternType, Patterns};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Duplicate {
@@ -124,11 +125,8 @@ impl Filter {
 
         if let Some(retry_period) = &self.retry_period {
             self.retry_duration = Some(
-                TimeDelta::from_std(
-                    parse_duration(retry_period)
-                        .map_err(|err| format!("failed to parse retry period: {}", err))?,
-                )
-                .map_err(|err| format!("too big retry period: {err}"))?,
+                parse_duration(retry_period)
+                    .map_err(|err| format!("failed to parse retry period: {}", err))?,
             );
             self.retry_period = None;
         }

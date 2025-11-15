@@ -4,11 +4,10 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
+chrono.workspace = true
 remoc.workspace = true
-
 serde.workspace = true
-
 serde_json.workspace = true
-
 tokio.workspace = true
 tokio.features = ["io-std"]
+
