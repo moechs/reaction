@@ -101,8 +101,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value as JValue};
 use tokio::io::{stdin, stdout};
 
-mod time;
-pub use time::parse_duration;
+pub mod shutdown;
+pub mod time;
 
 /// This is the only trait that **must** be implemented by a plugin.
 /// It provides lists of stream, filter and action types implemented by a dynamic plugin.

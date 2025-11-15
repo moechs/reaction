@@ -7,7 +7,7 @@ use chrono::TimeDelta;
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
-    main_loop, parse_duration,
+    main_loop, shutdown::ShutdownController, time::parse_duration,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ async fn main() {
 struct Plugin {
     streams: BTreeMap<String, StreamInit>,
     actions: BTreeMap<String, Vec<ActionInit>>,
-    cluster_shutdown: Vec<oneshot::Sender<oneshot::Sender<()>>>,
+    cluster_shutdown: ShutdownController,
 }
 
 /// Stream options as defined by the user
@@ -210,15 +210,12 @@ impl PluginInfo for Plugin {
 
     async fn finish_setup(&mut self) -> RemoteResult<()> {
         while let Some((stream_name, stream)) = self.streams.pop_first() {
-            let (tx, rx) = oneshot::channel();
-            self.cluster_shutdown.push(tx);
-
             let endpoint = bind(&stream).await?;
             cluster_tasks(
                 endpoint,
                 stream,
                 self.actions.remove(&stream_name).unwrap_or_default(),
-                rx,
+                self.cluster_shutdown.token(),
             );
         }
         // Check there is no action left
@@ -240,6 +237,8 @@ impl PluginInfo for Plugin {
     }
 
     async fn close(self) -> RemoteResult<()> {
-        todo!()
+        self.cluster_shutdown.ask_shutdown();
+        self.cluster_shutdown.wait_shutdown().await;
+        Ok(())
     }
 }

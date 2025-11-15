@@ -7,7 +7,7 @@ use std::{
 };
 
 use chrono::TimeDelta;
-use reaction_plugin::parse_duration;
+use reaction_plugin::time::parse_duration;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 

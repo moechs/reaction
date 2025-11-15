@@ -6,14 +6,12 @@ use std::{
 
 use chrono::{DateTime, Local, Utc};
 use iroh::{Endpoint, EndpointAddr, endpoint::Connection};
-use reaction_plugin::Line;
-use tokio::sync::{mpsc, oneshot};
+use reaction_plugin::{Line, shutdown::ShutdownToken};
+use tokio::sync::mpsc;
 
 use crate::{ActionInit, StreamInit, endpoint::EndpointManager};
 
 pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
-
-type ShutdownNotification = oneshot::Receiver<oneshot::Sender<()>>;
 
 type UtcLine = Arc<(String, DateTime<Utc>)>;
 
@@ -43,7 +41,7 @@ pub fn cluster_tasks(
     endpoint: Endpoint,
     stream: StreamInit,
     actions: Vec<ActionInit>,
-    shutdown: ShutdownNotification,
+    shutdown: ShutdownToken,
 ) {
     let messages_from_actions = spawn_actions(actions, stream.tx.clone());
 

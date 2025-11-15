@@ -5,7 +5,7 @@ use std::{
 
 use chrono::Local;
 use futures::{FutureExt, Stream as AsyncStream, StreamExt, future::join_all};
-use reaction_plugin::StreamImpl;
+use reaction_plugin::{StreamImpl, shutdown::ShutdownToken};
 use regex::RegexSet;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -17,8 +17,6 @@ use crate::{
     concepts::{Filter, Stream, Time},
     daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
-
-use super::shutdown::ShutdownToken;
 
 /// Converts bytes to line string, discarding invalid utf8 sequences and newlines at the end
 fn to_line(data: &[u8]) -> String {

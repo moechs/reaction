@@ -5,7 +5,7 @@ mod state;
 
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
-use reaction_plugin::ActionImpl;
+use reaction_plugin::{ActionImpl, shutdown::ShutdownToken};
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
 use tracing::{debug, error, info};
@@ -18,8 +18,6 @@ use crate::{
 };
 
 use state::State;
-
-use super::shutdown::ShutdownToken;
 
 /// Responsible for handling all runtime logic dedicated to a [`Filter`].
 /// Notably handles incoming lines from [`super::stream::stream_manager`]

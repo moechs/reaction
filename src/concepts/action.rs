@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
 
 use chrono::TimeDelta;
 
-use reaction_plugin::parse_duration;
+use reaction_plugin::time::parse_duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;

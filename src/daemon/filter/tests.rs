@@ -6,17 +6,18 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
+use reaction_plugin::shutdown::ShutdownController;
 use serde_json::json;
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
 
 use super::{
-    state::{filter_ordered_times_db_name, filter_triggers_db_name},
     FilterManager, React,
+    state::{filter_ordered_times_db_name, filter_triggers_db_name},
 };
 use crate::{
     concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time},
-    daemon::{plugin::Plugins, shutdown::ShutdownController},
+    daemon::plugin::Plugins,
     tests::TempDatabase,
 };
 

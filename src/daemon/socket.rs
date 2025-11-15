@@ -6,6 +6,7 @@ use std::{
 
 use chrono::Local;
 use futures::{SinkExt, StreamExt};
+use reaction_plugin::shutdown::ShutdownToken;
 use regex::Regex;
 use tokio::{fs, net::UnixListener};
 use tokio_util::{
@@ -19,7 +20,7 @@ use crate::{
     protocol::{ClientRequest, ClientStatus, DaemonResponse, Order},
 };
 
-use super::{filter::FilterManager, shutdown::ShutdownToken};
+use super::filter::FilterManager;
 
 async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
     macro_rules! err_str {

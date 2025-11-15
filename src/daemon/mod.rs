@@ -10,6 +10,7 @@ use std::{
 
 use chrono::Local;
 use futures::future::join_all;
+use reaction_plugin::shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use tokio::{
     select,
     signal::unix::{SignalKind, signal},
@@ -21,7 +22,6 @@ use crate::{concepts::Config, treedb::Database};
 use filter::FilterManager;
 pub use filter::React;
 use plugin::Plugins;
-pub use shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use socket::Socket;
 use stream::StreamManager;
 
@@ -30,7 +30,6 @@ pub use filter::tests;
 
 mod filter;
 mod plugin;
-mod shutdown;
 mod socket;
 mod stream;
 mod utils;

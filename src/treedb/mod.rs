@@ -18,6 +18,7 @@ use std::{
 };
 
 use chrono::{Local, TimeDelta};
+use reaction_plugin::shutdown::ShutdownToken;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
@@ -26,10 +27,7 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 
-use crate::{
-    concepts::{Config, Time},
-    daemon::ShutdownToken,
-};
+use crate::concepts::{Config, Time};
 
 pub mod helpers;
 
@@ -481,11 +479,12 @@ mod tests {
     };
 
     use chrono::{Local, TimeDelta};
+    use reaction_plugin::shutdown::ShutdownController;
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
     use tokio::fs::{File, write};
 
-    use crate::{concepts::Config, daemon::ShutdownController};
+    use crate::concepts::Config;
 
     use super::{
         DB_NAME, Database, DatabaseManager, Entry, KeyType, LoadedDB, Tree, ValueType, helpers::*,
