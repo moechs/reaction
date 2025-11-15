@@ -14,7 +14,7 @@
 //!
 //! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`.
 //! It will be invoked with one positional argument "serve".
-//! ```
+//! ```bash
 //! reaction-plugin-$NAME serve
 //! ```
 //! This can be useful if you want to provide CLI functionnality to your users,
@@ -63,7 +63,7 @@
 //! ```
 //!
 //! `src/main.rs`
-//! ```rust
+//! ```ignore
 //! use reaction_plugin::PluginInfo;
 //!
 //! #[tokio::main]
@@ -285,7 +285,7 @@ pub struct Exec {
 ///
 /// Your main function should only create a struct that implements [`PluginInfo`]
 /// and then call [`main_loop`]:
-/// ```rust
+/// ```ignore
 /// #[tokio::main]
 /// async fn main() {
 ///     let plugin = MyPlugin::default();
