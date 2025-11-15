@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+    ActionImpl, Exec, Hello, Line, Local, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -105,11 +105,11 @@ impl PluginInfo for Plugin {
 
 #[derive(Clone)]
 struct VirtualStream {
-    tx: mpsc::Sender<String>,
+    tx: mpsc::Sender<Line>,
 }
 
 impl VirtualStream {
-    fn new(config: Value) -> Result<(Self, mpsc::Receiver<String>), String> {
+    fn new(config: Value) -> Result<(Self, mpsc::Receiver<Line>), String> {
         const CONFIG_ERROR: &'static str = "streams of type virtual take no options";
         match config {
             Value::Null => (),
@@ -205,7 +205,7 @@ impl VirtualAction {
                         acc.replace(pattern, &m.match_[i])
                     })
             };
-            let result = match self.to.tx.send(line).await {
+            let result = match self.to.tx.send((line, Local::now())).await {
                 Ok(_) => Ok(()),
                 Err(err) => Err(format!("{err}")),
             };

@@ -14,7 +14,7 @@ use tokio::{
 use tracing::{debug, error, info};
 
 use crate::{
-    concepts::{Filter, Stream},
+    concepts::{Filter, Stream, Time},
     daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
 
@@ -129,8 +129,8 @@ impl StreamManager {
 
         loop {
             match plugin.stream.recv().await {
-                Ok(Some(line)) => {
-                    self.handle_line(line).await;
+                Ok(Some((line, time))) => {
+                    self.handle_line(line, time).await;
                 }
                 Err(err) => {
                     if err.is_final() {
@@ -208,7 +208,7 @@ impl StreamManager {
         loop {
             match lines.next().await {
                 Some(Ok(line)) => {
-                    self.handle_line(line).await;
+                    self.handle_line(line, Local::now()).await;
                 }
                 Some(Err(err)) => {
                     error!(
@@ -224,10 +224,9 @@ impl StreamManager {
         }
     }
 
-    async fn handle_line(&self, line: String) {
-        let now = Local::now();
+    async fn handle_line(&self, line: String, time: Time) {
         for manager in self.matching_filters(&line) {
-            manager.handle_line(&line, now).await;
+            manager.handle_line(&line, time).await;
         }
     }
 

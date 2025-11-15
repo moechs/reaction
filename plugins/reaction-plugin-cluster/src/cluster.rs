@@ -4,8 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use iroh::{Endpoint, EndpointAddr, endpoint::Connection};
+use reaction_plugin::Line;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{ActionInit, StreamInit, endpoint::EndpointManager};
@@ -13,6 +14,8 @@ use crate::{ActionInit, StreamInit, endpoint::EndpointManager};
 pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 
 type ShutdownNotification = oneshot::Receiver<oneshot::Sender<()>>;
+
+type UtcLine = Arc<(String, DateTime<Utc>)>;
 
 pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
     let mut builder = Endpoint::builder()
@@ -52,8 +55,8 @@ pub fn cluster_tasks(
 
 fn spawn_actions(
     mut actions: Vec<ActionInit>,
-    own_cluster_tx: remoc::rch::mpsc::Sender<String>,
-) -> mpsc::Receiver<Arc<String>> {
+    own_cluster_tx: remoc::rch::mpsc::Sender<Line>,
+) -> mpsc::Receiver<UtcLine> {
     let (nodes_tx, nodes_rx) = mpsc::channel(1);
     while let Some(mut action) = actions.pop() {
         let nodes_tx = nodes_tx.clone();
@@ -66,8 +69,8 @@ fn spawn_actions(
 impl ActionInit {
     async fn serve(
         &mut self,
-        nodes_tx: mpsc::Sender<Arc<String>>,
-        own_stream_tx: remoc::rch::mpsc::Sender<String>,
+        nodes_tx: mpsc::Sender<UtcLine>,
+        own_stream_tx: remoc::rch::mpsc::Sender<Line>,
     ) {
         while let Ok(Some(m)) = self.rx.recv().await {
             let line = if m.match_.is_empty() {
@@ -79,13 +82,14 @@ impl ActionInit {
                         acc.replace(pattern, &m.match_[i])
                     })
             };
+            let now = Local::now();
             if self.self_
-                && let Err(err) = own_stream_tx.send(line.clone()).await
+                && let Err(err) = own_stream_tx.send((line.clone(), now.clone())).await
             {
                 eprintln!("ERROR while queueing message to be sent to own cluster stream: {err}");
             }
 
-            let line = Arc::new(line);
+            let line = Arc::new((line, now.to_utc()));
             if let Err(err) = nodes_tx.send(line).await {
                 eprintln!("ERROR while queueing message to be sent to cluster nodes: {err}");
             };
@@ -97,11 +101,6 @@ impl ActionInit {
     }
 }
 
-pub struct TimeMessage {
-    pub message: Arc<String>,
-    pub timeout: DateTime<Local>,
-}
-
 pub struct ConnectionManager {
     endpoint: EndpointAddr,
     // Ask the EndpointManager to connect
@@ -111,7 +110,21 @@ pub struct ConnectionManager {
     // The EndpointManager sending us a connection (whether we asked for it or not)
     connection_rx: mpsc::Receiver<Connection>,
     // Our queue of messages to send
-    queue: VecDeque<TimeMessage>,
+    queue: VecDeque<UtcLine>,
     // Messages we send from remote nodes to our own stream
     own_cluster_tx: remoc::rch::mpsc::Sender<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Local};
+
+    fn different_local_tz_is_ok() {
+        let date1: DateTime<Local> =
+            serde_json::from_str("2025-11-02T17:47:21.716229569+01:00").unwrap();
+        let date2: DateTime<Local> =
+            serde_json::from_str("2025-11-02T18:47:21.716229569+02:00").unwrap();
+
+        assert_eq!(date1.to_utc(), date2.to_utc());
+    }
 }

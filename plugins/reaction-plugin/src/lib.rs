@@ -92,6 +92,7 @@ use std::{
     process::exit,
 };
 
+pub use chrono::{DateTime, Local};
 use remoc::{
     Connect, rch,
     rtc::{self, Server},
@@ -245,9 +246,11 @@ impl Into<JValue> for Value {
     }
 }
 
+pub type Line = (String, DateTime<Local>);
+
 #[derive(Serialize, Deserialize)]
 pub struct StreamImpl {
-    pub stream: rch::mpsc::Receiver<String>,
+    pub stream: rch::mpsc::Receiver<Line>,
     /// Whether this stream works standalone, or if it needs other streams to be fed.
     /// Defaults to true.
     /// When false, reaction will exit if it's the last one standing.

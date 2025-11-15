@@ -6,8 +6,8 @@ use std::{
 use chrono::TimeDelta;
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Manifest, PluginInfo, RemoteResult, StreamImpl, Value, main_loop,
-    parse_duration,
+    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+    main_loop, parse_duration,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,7 @@ struct StreamInit {
     secret_key: SecretKey,
     message_timeout: TimeDelta,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
-    tx: mpsc::Sender<String>,
+    tx: mpsc::Sender<Line>,
 }
 
 #[derive(Serialize, Deserialize)]
