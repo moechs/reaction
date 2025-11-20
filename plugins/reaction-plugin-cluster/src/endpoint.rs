@@ -5,7 +5,7 @@ use iroh::{
     Endpoint, PublicKey,
     endpoint::{Connection, Incoming},
 };
-use reaction_plugin::shutdown::ShutdownToken;
+use reaction_plugin::shutdown::ShutdownController;
 use tokio::sync::mpsc;
 
 enum Break {
@@ -21,7 +21,7 @@ pub struct EndpointManager {
     /// Connection sender to the Connection Managers
     connections_tx: BTreeMap<PublicKey, mpsc::Sender<Connection>>,
     /// shutdown
-    shutdown: ShutdownToken,
+    shutdown: ShutdownController,
 }
 
 impl EndpointManager {
@@ -29,7 +29,7 @@ impl EndpointManager {
         endpoint: Arc<Endpoint>,
         cluster_name: String,
         connections_tx: BTreeMap<PublicKey, mpsc::Sender<Connection>>,
-        shutdown: ShutdownToken,
+        shutdown: ShutdownController,
     ) {
         tokio::spawn(async move {
             Self {
@@ -111,7 +111,11 @@ impl EndpointManager {
             }
             Some(tx) => {
                 if let Err(_) = tx.send(connection).await {
-                    // This means the main cluster loop has exited, so let's quit
+                    eprintln!(
+                        "DEBUG cluster {}: EndpointManager: quitting because ConnectionManager has quit",
+                        self.cluster_name,
+                    );
+                    self.shutdown.ask_shutdown();
                     return Break::Yes;
                 }
             }

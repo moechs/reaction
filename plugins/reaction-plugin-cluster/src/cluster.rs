@@ -7,7 +7,7 @@ use std::{
 use chrono::{DateTime, Local, Utc};
 use futures::future::join_all;
 use iroh::{Endpoint, PublicKey, endpoint::Connection};
-use reaction_plugin::{Line, shutdown::ShutdownToken};
+use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
 use tokio::sync::mpsc as tokioMpsc;
 
@@ -43,7 +43,7 @@ pub fn cluster_tasks(
     endpoint: Endpoint,
     mut stream: StreamInit,
     mut actions: Vec<ActionInit>,
-    shutdown: ShutdownToken,
+    shutdown: ShutdownController,
 ) {
     let (message_action2connection_txs, mut message_action2connection_rxs): (
         Vec<tokioMpsc::Sender<UtcLine>>,
@@ -94,6 +94,7 @@ pub fn cluster_tasks(
         let endpoint = endpoint.clone();
         let message_action2connection_rx = message_action2connection_rxs.pop().unwrap();
         let stream_tx = stream.tx.clone();
+        let shutdown = shutdown.clone();
         tokio::spawn(async move {
             ConnectionManager::new(
                 cluster_name,
@@ -103,6 +104,7 @@ pub fn cluster_tasks(
                 stream.message_timeout,
                 message_action2connection_rx,
                 stream_tx,
+                shutdown,
             )
             .task()
             .await

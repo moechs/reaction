@@ -215,7 +215,7 @@ impl PluginInfo for Plugin {
                 endpoint,
                 stream,
                 self.actions.remove(&stream_name).unwrap_or_default(),
-                self.cluster_shutdown.token(),
+                self.cluster_shutdown.clone(),
             );
         }
         // Check there is no action left
@@ -238,7 +238,7 @@ impl PluginInfo for Plugin {
 
     async fn close(self) -> RemoteResult<()> {
         self.cluster_shutdown.ask_shutdown();
-        self.cluster_shutdown.wait_shutdown().await;
+        self.cluster_shutdown.wait_all_task_shutdown().await;
         Ok(())
     }
 }
