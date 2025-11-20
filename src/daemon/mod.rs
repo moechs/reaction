@@ -82,7 +82,7 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
     shutdown.ask_shutdown();
 
     debug!("Waiting for all tasks to quit...");
-    shutdown.wait_shutdown().await;
+    shutdown.wait_all_task_shutdown().await;
 
     let mut stop_ok = true;
     if config_started {

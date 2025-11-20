@@ -5,7 +5,7 @@ use tokio_util::{
 
 /// Permits to keep track of ongoing tasks, ask them to shutdown and for all of them to quit.
 /// Stupid wrapper around [`tokio_util::CancellationToken`] and [`tokio_util::task_tracker::TaskTracker`].
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ShutdownController {
     shutdown_notifyer: CancellationToken,
     task_tracker: TaskTracker,
@@ -29,7 +29,7 @@ impl ShutdownController {
     /// Wait for all tasks to quit.
     /// This task may return even without having called [`ShutdownController::ask_shutdown`]
     /// first, if all tasks quit by themselves.
-    pub async fn wait_shutdown(self) {
+    pub async fn wait_all_task_shutdown(self) {
         self.task_tracker.close();
         self.task_tracker.wait().await;
     }
@@ -43,6 +43,11 @@ impl ShutdownController {
     /// without counting as a task that needs to be awaited.
     pub fn delegate(&self) -> ShutdownDelegate {
         ShutdownDelegate(self.shutdown_notifyer.clone())
+    }
+
+    /// Returns a future that will resolve only when a shutdown request happened.
+    pub fn wait(&self) -> WaitForCancellationFuture<'_> {
+        self.shutdown_notifyer.cancelled()
     }
 }
 
