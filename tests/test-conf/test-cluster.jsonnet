@@ -28,17 +28,9 @@
             a0: {
               type: 'cluster_send',
               options: {
-                send: 'a0 <num>',
+                send: 'NODE a0 <num>',
                 to: 's1',
               },
-            },
-            b0: {
-              type: 'cluster_send',
-              options: {
-                send: 'b0 <num>',
-                to: 's1',
-              },
-              after: '600ms',
             },
           },
         },
@@ -47,12 +39,14 @@
     s1: {
       type: 'cluster',
       options: {
-        listen_port: 9000,
-        shared_secret: '',
-        nodes: {
-          publickey: '',
-          addresses: ['127.0.0.1:9001'],
-        },
+        listen_port: 1234,
+        bind_ipv4: '127.0.0.1',
+        bind_ipv6: null,
+        message_timeout: '30s',
+        nodes: [{
+          public_key: 'PUBLIC_KEY',
+          addresses: ['127.0.0.1:4321'],
+        }],
       },
       filters: {
         f1: {

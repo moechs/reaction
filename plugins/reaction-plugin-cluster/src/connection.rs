@@ -5,6 +5,7 @@ use std::{
 };
 
 use chrono::{DateTime, Local, TimeDelta, Utc};
+use futures::FutureExt;
 use iroh::{
     Endpoint, EndpointAddr,
     endpoint::{Connection, VarInt},
@@ -14,7 +15,10 @@ use remoc::{Connect, rch::base};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, time::sleep};
 
-use crate::cluster::{ALPN, UtcLine};
+use crate::{
+    cluster::{ALPN, UtcLine},
+    secret_key::key_bytes_to_b64,
+};
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
@@ -117,13 +121,20 @@ impl ConnectionManager {
             tokio::pin!(tick);
 
             let have_connection = self.connection.is_some();
-            let maybe_conn_rx = self.connection.as_mut().map(|conn| conn.rx.recv());
+            let maybe_conn_rx = self
+                .connection
+                .as_mut()
+                .map(|conn| conn.rx.recv().boxed())
+                // This Future will never be polled because of the if in select!
+                // It still needs to be present because the branch will be evaluated
+                // so we can't unwrap
+                .unwrap_or(false_recv().boxed());
 
             let event = tokio::select! {
                 // Tick when we don't have a connection
                 _ = tick, if !have_connection => Some(Event::Tick),
                 // Receive remote message when we have a connection
-                msg = maybe_conn_rx.unwrap(), if have_connection => Some(Event::RemoteMessageReceived(msg)),
+                msg = maybe_conn_rx, if have_connection => Some(Event::RemoteMessageReceived(msg)),
                 // Receive a connection from EndpointManager
                 conn = self.connection_rx.recv() => Some(Event::ConnectionReceived(conn)),
                 // Receive a message from local Actions
@@ -208,7 +219,8 @@ impl ConnectionManager {
         if count > 0 {
             eprintln!(
                 "DEBUG cluster {}: node {}: dropping {count} messages that reached timeout",
-                self.cluster_name, self.remote.id,
+                self.cluster_name,
+                key_bytes_to_b64(self.remote.id.as_bytes()),
             )
         }
     }
@@ -220,7 +232,8 @@ impl ConnectionManager {
             None => {
                 eprintln!(
                     "DEBUG cluster {}: ConnectionManager {}: quitting because EndpointManager has quit",
-                    self.cluster_name, self.remote.id
+                    self.cluster_name,
+                    key_bytes_to_b64(self.remote.id.as_bytes())
                 );
                 self.quit();
                 false
@@ -243,7 +256,8 @@ impl ConnectionManager {
                 } else {
                     eprintln!(
                         "WARN cluster {}: ignoring incoming connection from {}, as we already have a valid connection with it",
-                        self.cluster_name, self.remote.id
+                        self.cluster_name,
+                        key_bytes_to_b64(self.remote.id.as_bytes())
                     );
                     true
                 }
@@ -258,11 +272,14 @@ impl ConnectionManager {
         self.delta = Some(delta);
         eprintln!(
             "ERROR cluster {}: trying to connect to node {}: {err}",
-            self.cluster_name, self.remote.id
+            self.cluster_name,
+            key_bytes_to_b64(self.remote.id.as_bytes())
         );
         eprintln!(
             "INFO cluster {}: retry connecting to node {} in {:?}",
-            self.cluster_name, self.remote.id, self.delta
+            self.cluster_name,
+            key_bytes_to_b64(self.remote.id.as_bytes()),
+            self.delta
         );
     }
 
@@ -274,7 +291,8 @@ impl ConnectionManager {
             Err(err) => {
                 eprintln!(
                     "WARN cluster {}: error receiving message from node {}: {err}",
-                    self.cluster_name, self.remote.id
+                    self.cluster_name,
+                    key_bytes_to_b64(self.remote.id.as_bytes())
                 );
                 self.close_connection(1, b"error receiving from your stream")
                     .await;
@@ -282,20 +300,23 @@ impl ConnectionManager {
             Ok(None) => {
                 eprintln!(
                     "WARN cluster {}: node {} closed its stream",
-                    self.cluster_name, self.remote.id
+                    self.cluster_name,
+                    key_bytes_to_b64(self.remote.id.as_bytes())
                 );
                 self.close_connection(1, b"you closed your stream").await;
             }
             Ok(Some(RemoteMessage::Version(_))) => {
                 eprintln!(
                     "WARN cluster {}: node {} sent invalid message, ignoring",
-                    self.cluster_name, self.remote.id
+                    self.cluster_name,
+                    key_bytes_to_b64(self.remote.id.as_bytes())
                 );
             }
             Ok(Some(RemoteMessage::Quitting)) => {
                 eprintln!(
                     "INFO cluster {}: node {} is quitting, bye bye",
-                    self.cluster_name, self.remote.id
+                    self.cluster_name,
+                    key_bytes_to_b64(self.remote.id.as_bytes())
                 );
                 self.close_connection(0, b"you said you'll quit so I quit")
                     .await;
@@ -338,7 +359,8 @@ impl ConnectionManager {
                     {
                         eprintln!(
                             "INFO cluster {}: connection with node {} failed: {err}",
-                            self.cluster_name, self.remote.id
+                            self.cluster_name,
+                            key_bytes_to_b64(self.remote.id.as_bytes())
                         );
                         self.message_queue.push_back(message);
                         self.close_connection(
@@ -437,4 +459,8 @@ async fn open_channels(
         Ok(None) => Err("remote unexpectedly closed its channel".into()),
         Err(err) => Err(format!("could not receive message: {err}")),
     }
+}
+
+async fn false_recv() -> Result<Option<RemoteMessage>, remoc::rch::base::RecvError> {
+    Ok(None)
 }

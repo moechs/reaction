@@ -145,7 +145,7 @@ impl PluginInfo for Plugin {
             );
         }
 
-        let secret_key = secret_key(&stream_name).await?;
+        let secret_key = secret_key(".", &stream_name).await?;
         eprintln!(
             "INFO public key of this node for cluster {stream_name}: {}",
             key_bytes_to_b64(secret_key.public().as_bytes())
@@ -183,7 +183,7 @@ impl PluginInfo for Plugin {
         config: Value,
         patterns: Vec<String>,
     ) -> RemoteResult<ActionImpl> {
-        if &action_type != "cluster" {
+        if &action_type != "cluster_send" {
             return Err("This plugin can't handle other action types than cluster".into());
         }
 
