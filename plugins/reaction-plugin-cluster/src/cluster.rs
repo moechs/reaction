@@ -45,6 +45,8 @@ pub fn cluster_tasks(
     mut actions: Vec<ActionInit>,
     shutdown: ShutdownController,
 ) {
+    eprintln!("DEBUG cluster tasks starts running");
+
     let (message_action2connection_txs, mut message_action2connection_rxs): (
         Vec<tokioMpsc::Sender<UtcLine>>,
         Vec<tokioMpsc::Receiver<UtcLine>>,
@@ -110,6 +112,8 @@ pub fn cluster_tasks(
             .await
         });
     }
+
+    eprintln!("DEBUG cluster tasks finished running");
 }
 
 impl ActionInit {
@@ -120,6 +124,7 @@ impl ActionInit {
         own_stream_tx: remocMpsc::Sender<Line>,
     ) {
         while let Ok(Some(m)) = self.rx.recv().await {
+            eprintln!("DEBUG action: received a message to send to connections");
             let line = if m.match_.is_empty() {
                 self.send.clone()
             } else {

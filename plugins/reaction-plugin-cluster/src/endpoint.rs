@@ -8,6 +8,8 @@ use iroh::{
 use reaction_plugin::shutdown::ShutdownController;
 use tokio::sync::mpsc;
 
+use crate::key::Show;
+
 enum Break {
     Yes,
     No,
@@ -66,10 +68,13 @@ impl EndpointManager {
     }
 
     async fn handle_incoming(&mut self, incoming: Incoming) -> Break {
+        eprintln!(
+            "DEBUG cluster {}: EndpointManager: receiving connection",
+            self.cluster_name,
+        );
         // FIXME a malicious actor could maybe prevent a node from connecting to
         // its cluster by sending lots of invalid slow connection requests?
-        // We could lower its priority https://docs.rs/tokio/latest/tokio/macro.select.html#fairness
-        // And/or moving the handshake to another task
+        // This function could be moved to a new 'oneshot' task instead
         let remote_address = incoming.remote_address();
         let remote_address_validated = incoming.remote_address_validated();
         let connection = match incoming.await {
@@ -118,6 +123,11 @@ impl EndpointManager {
                     self.shutdown.ask_shutdown();
                     return Break::Yes;
                 }
+                eprintln!(
+                    "DEBUG cluster {}: EndpointManager: receiving connection from {}",
+                    self.cluster_name,
+                    remote_id.show(),
+                );
             }
         }
 

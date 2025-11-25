@@ -92,8 +92,9 @@ impl PluginInfo for Plugin {
                 }
             }
         }
-        self.streams = BTreeMap::new();
-        self.actions_init = Vec::new();
+        // Free containers
+        self.streams = Default::default();
+        self.actions_init = Default::default();
 
         Ok(())
     }

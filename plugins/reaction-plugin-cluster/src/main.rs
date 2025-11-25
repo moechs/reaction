@@ -15,11 +15,12 @@ use serde::{Deserialize, Serialize};
 mod cluster;
 mod connection;
 mod endpoint;
-mod secret_key;
+mod key;
 
-use secret_key::{key_b64_to_bytes, key_bytes_to_b64, secret_key};
-
-use crate::cluster::{bind, cluster_tasks};
+use crate::{
+    cluster::{bind, cluster_tasks},
+    key::{Show, key_b64_to_bytes, secret_key},
+};
 
 #[tokio::main]
 async fn main() {
@@ -148,7 +149,7 @@ impl PluginInfo for Plugin {
         let secret_key = secret_key(".", &stream_name).await?;
         eprintln!(
             "INFO public key of this node for cluster {stream_name}: {}",
-            key_bytes_to_b64(secret_key.public().as_bytes())
+            secret_key.public().show()
         );
 
         let (tx, rx) = mpsc::channel(1);
@@ -233,6 +234,8 @@ impl PluginInfo for Plugin {
         // Free containers
         self.actions = Default::default();
         self.streams = Default::default();
+        eprintln!("DEBUG finished setup.");
+
         Ok(())
     }
 

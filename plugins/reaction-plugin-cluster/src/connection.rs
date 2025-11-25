@@ -17,7 +17,7 @@ use tokio::{sync::mpsc, time::sleep};
 
 use crate::{
     cluster::{ALPN, UtcLine},
-    secret_key::key_bytes_to_b64,
+    key::Show,
 };
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -112,6 +112,7 @@ impl ConnectionManager {
         self.try_connect().await;
 
         loop {
+            eprintln!("DEBUG connection: NEW LOOP!");
             let tick = sleep(if self.connection.is_none() {
                 self.delta.unwrap_or(START_TIMEOUT)
             } else {
@@ -131,16 +132,17 @@ impl ConnectionManager {
                 .unwrap_or(false_recv().boxed());
 
             let event = tokio::select! {
+                biased;
+                // Quitting
+                _ = self.shutdown.wait() => None,
+                // Receive a connection from EndpointManager
+                conn = self.connection_rx.recv() => Some(Event::ConnectionReceived(conn)),
                 // Tick when we don't have a connection
                 _ = tick, if !have_connection => Some(Event::Tick),
                 // Receive remote message when we have a connection
                 msg = maybe_conn_rx, if have_connection => Some(Event::RemoteMessageReceived(msg)),
-                // Receive a connection from EndpointManager
-                conn = self.connection_rx.recv() => Some(Event::ConnectionReceived(conn)),
                 // Receive a message from local Actions
                 msg = self.message_rx.recv() => Some(Event::LocalMessageReceived(msg)),
-                // Quitting
-                _ = self.shutdown.wait() => None,
             };
 
             match event {
@@ -160,12 +162,27 @@ impl ConnectionManager {
                 self.handle_tick().await;
             }
             Event::ConnectionReceived(connection) => {
+                eprintln!(
+                    "DEBUG cluster {}: node {}: received a connection",
+                    self.cluster_name,
+                    self.remote.id.show(),
+                );
                 self.handle_connection(connection).await;
             }
             Event::LocalMessageReceived(utc_line) => {
+                eprintln!(
+                    "DEBUG cluster {}: node {}: received a local message",
+                    self.cluster_name,
+                    self.remote.id.show(),
+                );
                 self.handle_local_message(utc_line, Insert::Back).await;
             }
             Event::RemoteMessageReceived(message) => {
+                eprintln!(
+                    "DEBUG cluster {}: node {}: received a remote message",
+                    self.cluster_name,
+                    self.remote.id.show(),
+                );
                 self.handle_remote_message(message).await;
             }
         }
@@ -175,8 +192,21 @@ impl ConnectionManager {
     /// Returns true if we have a valid connection now
     async fn try_connect(&mut self) -> bool {
         if self.connection.is_none() {
+            eprintln!(
+                "DEBUG cluster {}: node {}: trying to connect...",
+                self.cluster_name,
+                self.remote.id.show(),
+            );
             match self.endpoint.connect(self.remote.clone(), ALPN[0]).await {
-                Ok(connection) => self.handle_connection(Some(connection)).await,
+                Ok(connection) => {
+                    eprintln!(
+                        "DEBUG cluster {}: node {}: created connection",
+                        self.cluster_name,
+                        self.remote.id.show(),
+                    );
+
+                    self.handle_connection(Some(connection)).await
+                }
                 Err(err) => {
                     self.try_connect_error(err.to_string());
                     false
@@ -220,7 +250,7 @@ impl ConnectionManager {
             eprintln!(
                 "DEBUG cluster {}: node {}: dropping {count} messages that reached timeout",
                 self.cluster_name,
-                key_bytes_to_b64(self.remote.id.as_bytes()),
+                self.remote.id.show(),
             )
         }
     }
@@ -233,7 +263,7 @@ impl ConnectionManager {
                 eprintln!(
                     "DEBUG cluster {}: ConnectionManager {}: quitting because EndpointManager has quit",
                     self.cluster_name,
-                    key_bytes_to_b64(self.remote.id.as_bytes())
+                    self.remote.id.show()
                 );
                 self.quit();
                 false
@@ -257,7 +287,7 @@ impl ConnectionManager {
                     eprintln!(
                         "WARN cluster {}: ignoring incoming connection from {}, as we already have a valid connection with it",
                         self.cluster_name,
-                        key_bytes_to_b64(self.remote.id.as_bytes())
+                        self.remote.id.show()
                     );
                     true
                 }
@@ -273,12 +303,12 @@ impl ConnectionManager {
         eprintln!(
             "ERROR cluster {}: trying to connect to node {}: {err}",
             self.cluster_name,
-            key_bytes_to_b64(self.remote.id.as_bytes())
+            self.remote.id.show()
         );
         eprintln!(
             "INFO cluster {}: retry connecting to node {} in {:?}",
             self.cluster_name,
-            key_bytes_to_b64(self.remote.id.as_bytes()),
+            self.remote.id.show(),
             self.delta
         );
     }
@@ -292,7 +322,7 @@ impl ConnectionManager {
                 eprintln!(
                     "WARN cluster {}: error receiving message from node {}: {err}",
                     self.cluster_name,
-                    key_bytes_to_b64(self.remote.id.as_bytes())
+                    self.remote.id.show()
                 );
                 self.close_connection(1, b"error receiving from your stream")
                     .await;
@@ -301,7 +331,7 @@ impl ConnectionManager {
                 eprintln!(
                     "WARN cluster {}: node {} closed its stream",
                     self.cluster_name,
-                    key_bytes_to_b64(self.remote.id.as_bytes())
+                    self.remote.id.show()
                 );
                 self.close_connection(1, b"you closed your stream").await;
             }
@@ -309,14 +339,14 @@ impl ConnectionManager {
                 eprintln!(
                     "WARN cluster {}: node {} sent invalid message, ignoring",
                     self.cluster_name,
-                    key_bytes_to_b64(self.remote.id.as_bytes())
+                    self.remote.id.show()
                 );
             }
             Ok(Some(RemoteMessage::Quitting)) => {
                 eprintln!(
                     "INFO cluster {}: node {} is quitting, bye bye",
                     self.cluster_name,
-                    key_bytes_to_b64(self.remote.id.as_bytes())
+                    self.remote.id.show()
                 );
                 self.close_connection(0, b"you said you'll quit so I quit")
                     .await;
@@ -333,6 +363,13 @@ impl ConnectionManager {
                         self.cluster_name, line.0
                     );
                     self.quit();
+                } else {
+                    eprintln!(
+                        "DEBUG cluster {}: node {}: sent a remote message to local stream: {}",
+                        self.cluster_name,
+                        self.remote.id.show(),
+                        line.0
+                    );
                 }
             }
         }
@@ -360,7 +397,7 @@ impl ConnectionManager {
                         eprintln!(
                             "INFO cluster {}: connection with node {} failed: {err}",
                             self.cluster_name,
-                            key_bytes_to_b64(self.remote.id.as_bytes())
+                            self.remote.id.show()
                         );
                         self.message_queue.push_back(message);
                         self.close_connection(
@@ -368,6 +405,13 @@ impl ConnectionManager {
                             b"could not send a message to your channel so I quit",
                         )
                         .await;
+                    } else {
+                        eprintln!(
+                            "DEBUG cluster {}: node {}: sent a local message to remote: {}",
+                            self.cluster_name,
+                            self.remote.id.show(),
+                            message.0
+                        );
                     }
                 }
                 None => {

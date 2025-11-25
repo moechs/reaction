@@ -1,7 +1,7 @@
 use std::io;
 
 use data_encoding::DecodeError;
-use iroh::SecretKey;
+use iroh::{PublicKey, SecretKey};
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
@@ -40,7 +40,7 @@ async fn get_secret_key(path: &str) -> Result<Option<SecretKey>, String> {
 }
 
 async fn set_secret_key(path: &str, key: &SecretKey) -> Result<(), String> {
-    let secret_key = key_bytes_to_b64(&key.to_bytes());
+    let secret_key = key.show();
     File::options()
         .mode(0o600)
         .write(true)
@@ -72,6 +72,24 @@ pub fn key_bytes_to_b64(key: &[u8; 32]) -> String {
     data_encoding::BASE64URL.encode(key)
 }
 
+/// Implemented by PublicKey & SecretKey to display keys as base64 instead of hexadecimal.
+/// Similar to Display/ToString
+pub trait Show {
+    fn show(&self) -> String;
+}
+
+impl Show for PublicKey {
+    fn show(&self) -> String {
+        key_bytes_to_b64(self.as_bytes())
+    }
+}
+
+impl Show for SecretKey {
+    fn show(&self) -> String {
+        key_bytes_to_b64(&self.to_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_fs::{
@@ -81,7 +99,7 @@ mod tests {
     use iroh::{PublicKey, SecretKey};
     use tokio::fs::read_to_string;
 
-    use crate::secret_key::{
+    use crate::key::{
         get_secret_key, key_b64_to_bytes, key_bytes_to_b64, secret_key_path, set_secret_key,
     };
 
