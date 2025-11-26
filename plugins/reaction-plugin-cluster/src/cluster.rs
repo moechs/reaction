@@ -2,11 +2,15 @@ use std::{
     collections::BTreeMap,
     net::{SocketAddrV4, SocketAddrV6},
     sync::Arc,
+    time::Duration,
 };
 
 use chrono::{DateTime, Local, Utc};
 use futures::future::join_all;
-use iroh::{Endpoint, PublicKey, endpoint::Connection};
+use iroh::{
+    Endpoint, PublicKey,
+    endpoint::{Connection, TransportConfig, VarInt},
+};
 use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
 use tokio::sync::mpsc as tokioMpsc;
@@ -18,11 +22,17 @@ pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 pub type UtcLine = Arc<(String, DateTime<Utc>)>;
 
 pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
+    let mut transport = TransportConfig::default();
+    transport
+        .max_idle_timeout(Some(VarInt::from_u32(1).into()))
+        .keep_alive_interval(Some(Duration::from_millis(400)));
+
     let mut builder = Endpoint::builder()
         .secret_key(stream.secret_key.clone())
         .alpns(ALPN.iter().map(|slice| slice.to_vec()).collect())
         .relay_mode(iroh::RelayMode::Disabled)
-        .clear_discovery();
+        .clear_discovery()
+        .transport_config(transport);
 
     if let Some(ip) = stream.bind_ipv4 {
         builder = builder.bind_addr_v4(SocketAddrV4::new(ip, stream.listen_port));
@@ -69,13 +79,17 @@ pub fn cluster_tasks(
 
     let (connection_endpoint2connection_txs, mut connection_endpoint2connection_rxs): (
         BTreeMap<PublicKey, tokioMpsc::Sender<Connection>>,
-        Vec<(PublicKey, tokioMpsc::Receiver<Connection>)>,
+        Vec<(
+            PublicKey,
+            tokioMpsc::Sender<Connection>,
+            tokioMpsc::Receiver<Connection>,
+        )>,
     ) = stream
         .nodes
         .keys()
         .map(|pk| {
             let (tx, rx) = tokioMpsc::channel(1);
-            ((pk.clone(), tx), (pk.clone(), rx))
+            ((pk.clone(), tx.clone()), (pk.clone(), tx, rx))
         })
         .unzip();
 
@@ -88,7 +102,7 @@ pub fn cluster_tasks(
     );
 
     // Spawn connection managers
-    while let Some((pk, connection_endpoint2connection_rx)) =
+    while let Some((pk, connection_endpoint2connection_tx, connection_endpoint2connection_rx)) =
         connection_endpoint2connection_rxs.pop()
     {
         let cluster_name = stream.name.clone();
@@ -102,6 +116,7 @@ pub fn cluster_tasks(
                 cluster_name,
                 endpoint_addr,
                 endpoint,
+                connection_endpoint2connection_tx,
                 connection_endpoint2connection_rx,
                 stream.message_timeout,
                 message_action2connection_rx,
