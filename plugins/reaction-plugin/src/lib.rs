@@ -53,6 +53,17 @@
 //! ERROR plugin test: Freeeee errrooooorrr
 //! ```
 //!
+//! ## Helpers
+//!
+//! Those helpers permits to easily maintain similar configuration interfaces accross plugins:
+//!
+//! - [`line::PatternLine`], to permit users to use templated lines (ie. "\<ip> bad password").
+//! - [`time::parse_duration`] to parse durations (ie. "6h", "3 days").
+//!
+//! Those helpers solve common issues for reaction plugins:
+//!
+//! - The [`shutdown`] module provides structures to ease the quitting process when having multiple tokio tasks.
+//!
 //! ## Starting template
 //!
 //! ```bash
@@ -101,6 +112,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value as JValue};
 use tokio::io::{stdin, stdout};
 
+pub mod line;
 pub mod shutdown;
 pub mod time;
 
@@ -248,7 +260,7 @@ impl Into<JValue> for Value {
 
 pub type Line = (String, DateTime<Local>);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StreamImpl {
     pub stream: rch::mpsc::Receiver<Line>,
     /// Whether this stream works standalone, or if it needs other streams to be fed.
