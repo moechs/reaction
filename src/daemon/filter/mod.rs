@@ -247,7 +247,7 @@ impl FilterManager {
 
                             // Execute the action early
                             if let Order::Flush = order {
-                                self.exec_now(action, m.clone());
+                                self.exec_now(action, m.clone(), t);
                             }
                         }
                     }
@@ -291,7 +291,7 @@ impl FilterManager {
 
             if exec_time <= now {
                 if state.decrement_trigger(&m, t, false).await {
-                    self.exec_now(action, m);
+                    self.exec_now(action, m, t);
                 }
             } else {
                 let this = self.clone();
@@ -313,7 +313,7 @@ impl FilterManager {
                         #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().await;
                         if state.decrement_trigger(&m, t, exiting).await {
-                            exec_now(&this.exec_limit, this.shutdown, action, action_impl, m);
+                            exec_now(&this.exec_limit, this.shutdown, action, action_impl, m, t);
                         }
                     }
                 });
@@ -373,7 +373,7 @@ impl FilterManager {
         }
     }
 
-    fn exec_now(&self, action: &'static Action, m: Match) {
+    fn exec_now(&self, action: &'static Action, m: Match, t: Time) {
         let action_impl = self.action_plugins.get(&action.name).cloned();
         exec_now(
             &self.exec_limit,
@@ -381,6 +381,7 @@ impl FilterManager {
             action,
             action_impl,
             m,
+            t,
         )
     }
 }
@@ -391,6 +392,7 @@ fn exec_now(
     action: &'static Action,
     action_impl: Option<ActionImpl>,
     m: Match,
+    t: Time,
 ) {
     let exec_limit = exec_limit.clone();
     tokio::spawn(async move {
@@ -412,6 +414,7 @@ fn exec_now(
                     .send(reaction_plugin::Exec {
                         match_: m,
                         result: response_tx,
+                        time: t,
                     })
                     .await
                 {

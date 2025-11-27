@@ -294,6 +294,7 @@ pub struct ActionImpl {
 pub struct Exec {
     pub match_: Vec<String>,
     pub result: rch::oneshot::Sender<Result<(), String>>,
+    pub time: DateTime<Local>,
 }
 
 /// The main loop for a plugin.
