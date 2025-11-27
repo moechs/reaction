@@ -1,10 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Line, Local, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
+    line::PatternLine,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+mod tests;
 
 #[tokio::main]
 async fn main() {
@@ -128,6 +132,7 @@ impl VirtualStream {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ActionOptions {
     /// The line to send to the corresponding virtual stream, example: "ban \<ip\>"
     send: String,
@@ -157,11 +162,6 @@ impl VirtualActionInit {
             format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
         })?;
 
-        let patterns = patterns
-            .into_iter()
-            .map(|pattern| format!("<{pattern}>"))
-            .collect();
-
         let (tx, rx) = mpsc::channel(1);
         Ok((
             Self {
@@ -180,37 +180,28 @@ impl VirtualActionInit {
 
 struct VirtualAction {
     rx: mpsc::Receiver<Exec>,
-    patterns: Vec<String>,
-    send: String,
+    send: PatternLine,
     to: VirtualStream,
 }
 
 impl VirtualAction {
     fn from(action_init: VirtualActionInit, to: VirtualStream) -> VirtualAction {
+        let send = PatternLine::new(action_init.send, action_init.patterns);
         VirtualAction {
             rx: action_init.rx,
-            patterns: action_init.patterns,
-            send: action_init.send,
+            send,
             to,
         }
     }
 
     async fn serve(&mut self) {
-        while let Ok(Some(m)) = self.rx.recv().await {
-            let line = if m.match_.is_empty() {
-                self.send.clone()
-            } else {
-                (0..(m.match_.len()))
-                    .zip(&self.patterns)
-                    .fold(self.send.clone(), |acc, (i, pattern)| {
-                        acc.replace(pattern, &m.match_[i])
-                    })
-            };
-            let result = match self.to.tx.send((line, Local::now())).await {
+        while let Ok(Some(exec)) = self.rx.recv().await {
+            let line = self.send.line(exec.match_);
+            let result = match self.to.tx.send((line, exec.time)).await {
                 Ok(_) => Ok(()),
                 Err(err) => Err(format!("{err}")),
             };
-            m.result.send(result).unwrap();
+            exec.result.send(result).unwrap();
         }
     }
 }
