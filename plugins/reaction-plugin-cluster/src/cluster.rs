@@ -22,10 +22,11 @@ pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 pub type UtcLine = Arc<(String, DateTime<Utc>)>;
 
 pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
+    // FIXME higher timeouts and keep alive
     let mut transport = TransportConfig::default();
     transport
-        .max_idle_timeout(Some(VarInt::from_u32(1).into()))
-        .keep_alive_interval(Some(Duration::from_millis(400)));
+        .max_idle_timeout(Some(VarInt::from_u32(2).into()))
+        .keep_alive_interval(Some(Duration::from_millis(200)));
 
     let mut builder = Endpoint::builder()
         .secret_key(stream.secret_key.clone())
