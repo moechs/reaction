@@ -76,7 +76,7 @@ impl OwnConnection {
 
     /// Cancel-safe function that returns next line from peer
     /// Returns None if we don't have all data yet.
-    async fn recv_line(&mut self) -> Result<Option<(String, DateTime<Utc>)>, std::io::Error> {
+    async fn recv_line(&mut self) -> Result<Option<RemoteLine>, std::io::Error> {
         if self.next_time.is_none() {
             self.next_time = Some(Utc.timestamp_nanos(self.line_rx.read_i64().await?));
         }
@@ -85,17 +85,28 @@ impl OwnConnection {
             self.next_len = Some(self.line_rx.read_u32().await? as usize);
         }
         // Ok we have next_len.is_some()
+        let next_len = self.next_len.clone().unwrap();
 
         if self.next_line.is_none() {
-            self.next_line = Some(Vec::with_capacity(self.next_len.unwrap()));
+            self.next_line = Some(Vec::with_capacity(next_len));
         }
-        let actual_len = self.next_line.as_ref().unwrap().len();
-        self.line_rx
-            .read(&mut self.next_line.as_mut().unwrap()[actual_len..self.next_len.unwrap()])
-            .await?;
-        // Ok we have next_line.is_some(), but don't know yet
+        // Ok we have next_line.is_some()
+        let next_line = self.next_line.as_mut().unwrap();
 
-        if self.next_line.as_ref().unwrap().len() == self.next_len.unwrap() {
+        let actual_len = next_line.len();
+        // Resize to wanted length
+        next_line.resize(next_len, 0);
+
+        // Read bytes
+        let bytes_read = self
+            .line_rx
+            .read(&mut next_line[actual_len..next_len])
+            .await?;
+        // Truncate possibly unread bytes
+        next_line.truncate(actual_len + bytes_read);
+
+        // Let's test if we read all bytes
+        if next_line.len() == next_len {
             // Ok we have a full line
             self.next_len.take();
             let line = String::try_from(self.next_line.take().unwrap()).map_err(|err| {
