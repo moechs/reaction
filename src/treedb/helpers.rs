@@ -3,6 +3,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::DateTime;
 use serde_json::Value;
 
 use crate::concepts::{Match, MatchTime, Time};
@@ -17,13 +18,31 @@ pub fn to_u64(val: &Value) -> Result<u64, String> {
     val.as_u64().ok_or("not a u64".into())
 }
 
-pub fn string_to_time(val: &str) -> Result<Time, String> {
+/// Old way of converting time: with chrono's serialization
+fn old_string_to_time(val: &str) -> Result<Time, String> {
+    let time = DateTime::parse_from_rfc3339(val).map_err(|err| err.to_string())?;
+    Ok(Duration::new(time.timestamp() as u64, time.timestamp_subsec_nanos()).into())
+}
+
+/// New way of converting time: with our own implem
+fn new_string_to_time(val: &str) -> Result<Time, String> {
     let nanos: u128 = val.parse().map_err(|_| "not a number")?;
     Ok(Duration::new(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     )
     .into())
+}
+
+/// Tries to convert a [`&str`] into a [`Time`]
+fn string_to_time(val: &str) -> Result<Time, String> {
+    match new_string_to_time(val) {
+        Err(err) => match old_string_to_time(val) {
+            Err(_) => Err(err),
+            ok => ok,
+        },
+        ok => ok,
+    }
 }
 
 /// Tries to convert a [`Value`] into a [`Time`]
