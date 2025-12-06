@@ -1,4 +1,6 @@
-use reaction_plugin::{Exec, Local, PluginInfo, Value};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use reaction_plugin::{Exec, PluginInfo, Value};
 use remoc::rch::oneshot;
 use serde_json::json;
 
@@ -178,7 +180,7 @@ async fn run_simple() {
 
     for m in ["test1", "test2", "test3", "  a   a a aa a a"] {
         let (tx, rx) = oneshot::channel();
-        let time = Local::now();
+        let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         assert!(
             action
                 .tx
@@ -233,7 +235,7 @@ async fn run_two_actions() {
 
     assert!(plugin.finish_setup().await.is_ok());
 
-    let time = Local::now();
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
     let (tx, rx1) = oneshot::channel();
     assert!(

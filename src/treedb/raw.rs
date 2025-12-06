@@ -1,6 +1,9 @@
-use std::{collections::HashMap, io::Error as IoError};
+use std::{
+    collections::HashMap,
+    io::Error as IoError,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -9,6 +12,8 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
 };
 use tracing::error;
+
+use crate::concepts::Time;
 
 use super::{Entry, LoadedDB};
 
@@ -43,7 +48,7 @@ struct WriteEntry<'a> {
     #[serde(rename = "v")]
     pub value: &'a Option<Value>,
     #[serde(rename = "e")]
-    pub expiry: i64,
+    pub expiry: u64,
 }
 
 /// Entry in custom database format, just read from database
@@ -56,7 +61,7 @@ struct ReadEntry {
     #[serde(rename = "v")]
     pub value: Option<Value>,
     #[serde(rename = "e")]
-    pub expiry: i64,
+    pub expiry: u64,
 }
 
 /// Permits to write entries in a database.
@@ -109,7 +114,7 @@ impl WriteDB {
             tree: tree_id,
             key: &entry.key,
             value: &entry.value,
-            expiry: entry.expiry.timestamp_millis(),
+            expiry: entry.expiry.as_millis() as u64,
         })
         .await
         .map(|bytes_written| bytes_written + written)
@@ -176,12 +181,14 @@ impl ReadDB {
                 Ok(Some(entry)) => {
                     // Add back in new DB
                     match write_db.write_entry(&entry).await {
-                            Ok(_) => (),
-                            Err(err) => match err {
-                                SerdeOrIoError::IO(err) => return Err(err),
-                                SerdeOrIoError::Serde(err) => error!("serde should be able to serialize an entry just deserialized: {err}"),
-                            }
-                        }
+                        Ok(_) => (),
+                        Err(err) => match err {
+                            SerdeOrIoError::IO(err) => return Err(err),
+                            SerdeOrIoError::Serde(err) => error!(
+                                "serde should be able to serialize an entry just deserialized: {err}"
+                            ),
+                        },
+                    }
                     // Insert data in RAM
                     if load_db {
                         let map: &mut HashMap<Value, Value> =
@@ -199,7 +206,10 @@ impl ReadDB {
     }
 
     async fn next(&mut self) -> Result<Option<Entry>, DatabaseError> {
-        let now = Local::now().timestamp_millis();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
         // Loop until we get a non-special value
         let raw_entry = loop {
             self.buffer.clear();
@@ -239,7 +249,7 @@ impl ReadDB {
                 tree: tree.to_owned(),
                 key: raw_entry.key,
                 value: raw_entry.value,
-                expiry: Local.timestamp_millis_opt(raw_entry.expiry).unwrap(),
+                expiry: Time::from_millis(raw_entry.expiry),
             })),
             None => Err(DatabaseError::MissingKeyId(raw_entry.tree)),
         }
@@ -250,22 +260,24 @@ impl ReadDB {
 mod tests {
     use std::collections::HashMap;
 
-    use chrono::{Local, TimeDelta, TimeZone};
     use serde_json::Value;
     use tempfile::NamedTempFile;
-    use tokio::fs::{read, write, File};
+    use tokio::fs::{File, read, write};
 
-    use crate::treedb::{
-        raw::{DatabaseError, ReadDB, WriteDB, DB_TREE_ID},
-        Entry,
+    use crate::{
+        concepts::{Time, now},
+        treedb::{
+            Entry,
+            raw::{DB_TREE_ID, DatabaseError, ReadDB, WriteDB},
+        },
     };
 
     #[tokio::test]
     async fn write_db_write_entry() {
-        let now = Local::now();
-        let expired = now - TimeDelta::seconds(2);
-        let expired_ts = expired.timestamp_millis();
-        // let valid = now + TimeDelta::seconds(2);
+        let now = now();
+        let expired = now - Time::from_secs(2);
+        let expired_ts = expired.as_millis();
+        // let valid = now + Time::from_secs(2);
         // let valid_ts = valid.timestamp_millis();
 
         let path = NamedTempFile::new().unwrap().into_temp_path();
@@ -289,21 +301,23 @@ mod tests {
 
         assert_eq!(
             contents,
-            format!("{{\"t\":0,\"k\":1,\"v\":\"yooo\",\"e\":0}}\n{{\"t\":1,\"k\":\"key1\",\"v\":\"value1\",\"e\":{expired_ts}}}\n")
+            format!(
+                "{{\"t\":0,\"k\":1,\"v\":\"yooo\",\"e\":0}}\n{{\"t\":1,\"k\":\"key1\",\"v\":\"value1\",\"e\":{expired_ts}}}\n"
+            )
         );
     }
 
     #[tokio::test]
     async fn read_db_next() {
-        let now = Local::now();
+        let now = now();
 
-        let expired = now - TimeDelta::seconds(2);
-        let expired_ts = expired.timestamp_millis();
+        let expired = now - Time::from_secs(2);
+        let expired_ts = expired.as_millis();
 
-        let valid = now + TimeDelta::seconds(2);
-        let valid_ts = valid.timestamp_millis();
+        let valid = now + Time::from_secs(2);
+        let valid_ts = valid.as_millis();
         // Truncate to millisecond precision
-        let valid = Local.timestamp_millis_opt(valid_ts).unwrap();
+        let valid = Time::new(valid.as_secs(), valid.subsec_millis() * 1_000_000);
 
         let path = NamedTempFile::new().unwrap().into_temp_path();
 
@@ -343,13 +357,13 @@ mod tests {
 
     #[tokio::test]
     async fn read_db_read() {
-        let now = Local::now();
+        let now = now();
 
-        let expired = now - TimeDelta::seconds(2);
-        let expired_ts = expired.timestamp_millis();
+        let expired = now - Time::from_secs(2);
+        let expired_ts = expired.as_millis();
 
-        let valid = now + TimeDelta::seconds(2);
-        let valid_ts = valid.timestamp_millis();
+        let valid = now + Time::from_secs(2);
+        let valid_ts = valid.as_millis();
 
         let read_path = NamedTempFile::new().unwrap().into_temp_path();
         let write_path = NamedTempFile::new().unwrap().into_temp_path();
@@ -422,13 +436,13 @@ mod tests {
     #[tokio::test]
     async fn write_then_read_1000() {
         // Generate entries
-        let now = Local::now();
+        let now = now();
         let entries: Vec<_> = (0..1000)
             .map(|i| Entry {
                 tree: format!("tree{}", i % 4),
                 key: format!("key{}", i % 10).into(),
                 value: Some(format!("value{}", i % 10).into()),
-                expiry: now + TimeDelta::seconds((i % 4) - 1),
+                expiry: now + Time::from_secs(i % 4) - Time::from_secs(1),
             })
             .collect();
 
@@ -438,7 +452,7 @@ mod tests {
                 tree: format!("tree{}", i % 4),
                 key: format!("key{}", i % 10).into(),
                 value: None,
-                expiry: now + TimeDelta::seconds(i % 4),
+                expiry: now + Time::from_secs(i % 4),
             })
             .collect();
 

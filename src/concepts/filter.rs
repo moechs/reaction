@@ -4,9 +4,9 @@ use std::{
     fmt::Display,
     hash::Hash,
     sync::Arc,
+    time::Duration,
 };
 
-use chrono::TimeDelta;
 use reaction_plugin::time::parse_duration;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ pub enum Duplicate {
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     #[serde(skip)]
-    pub longuest_action_duration: TimeDelta,
+    pub longuest_action_duration: Duration,
     #[serde(skip)]
     pub has_ip: bool,
 
@@ -47,7 +47,7 @@ pub struct Filter {
     #[serde(rename = "retryperiod", skip_serializing_if = "Option::is_none")]
     pub retry_period: Option<String>,
     #[serde(skip)]
-    pub retry_duration: Option<TimeDelta>,
+    pub retry_duration: Option<Duration>,
 
     #[serde(default)]
     pub duplicate: Duplicate,
@@ -187,10 +187,12 @@ impl Filter {
             .any(|action| action.ipv4only || action.ipv6only);
 
         self.longuest_action_duration =
-            self.actions.values().fold(TimeDelta::seconds(0), |acc, v| {
-                v.after_duration
-                    .map_or(acc, |v| if v > acc { v } else { acc })
-            });
+            self.actions
+                .values()
+                .fold(Duration::from_secs(0), |acc, v| {
+                    v.after_duration
+                        .map_or(acc, |v| if v > acc { v } else { acc })
+                });
 
         Ok(())
     }
@@ -480,14 +482,14 @@ pub mod tests {
         let name = "name".to_string();
         let empty_patterns = Patterns::new();
         let minute_str = "1m".to_string();
-        let minute = TimeDelta::seconds(60);
-        let two_minutes = TimeDelta::seconds(60 * 2);
+        let minute = Duration::from_secs(60);
+        let two_minutes = Duration::from_secs(60 * 2);
         let two_minutes_str = "2m".to_string();
 
         // duration 0
         filter = ok_filter();
         filter.setup(&name, &name, &empty_patterns).unwrap();
-        assert_eq!(filter.longuest_action_duration, TimeDelta::default());
+        assert_eq!(filter.longuest_action_duration, Duration::default());
 
         let minute_action = ok_action_with_after(minute_str.clone(), &minute_str);
 

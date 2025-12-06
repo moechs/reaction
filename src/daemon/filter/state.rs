@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     concepts::{Filter, Match, MatchTime, Time},
     treedb::{
-        helpers::{to_match, to_matchtime, to_time, to_timemap, to_u64},
         Database, Tree,
+        helpers::{to_match, to_matchtime, to_time, to_timemap, to_u64},
     },
 };
 
@@ -41,12 +41,12 @@ pub struct State {
     /// I'm pretty confident that Time will always be unique, because it has enough precision.
     /// See this code that gives different times, even in a minimal loop:
     /// ```rust
-    /// use chrono::{Local};
+    /// use reaction::concepts::now;
     ///
     /// let mut res = vec![];
     /// for _ in 0..10 {
-    ///     let now = Local::now();
-    ///     res.push(format!("Now: {now}"));
+    ///     let now = now();
+    ///     res.push(format!("Now: {}", now.as_nanos()));
     /// }
     /// for s in res {
     ///     println!("{s}");
@@ -172,11 +172,7 @@ impl State {
                             .fetch_update(mt.m, |map| {
                                 map.and_then(|mut map| {
                                     map.remove(&mt.t);
-                                    if map.is_empty() {
-                                        None
-                                    } else {
-                                        Some(map)
-                                    }
+                                    if map.is_empty() { None } else { Some(map) }
                                 })
                             })
                             .await;
@@ -249,11 +245,10 @@ impl State {
 mod tests {
     use std::collections::{BTreeMap, HashMap};
 
-    use chrono::{DateTime, Local, TimeDelta};
     use serde_json::json;
 
     use crate::{
-        concepts::{filter_tests::ok_filter, Action, Duplicate, Filter, Pattern},
+        concepts::{Action, Duplicate, Filter, Pattern, Time, filter_tests::ok_filter, now},
         daemon::filter::state::State,
         tests::TempDatabase,
     };
@@ -285,15 +280,16 @@ mod tests {
             &patterns,
         );
 
-        let now = DateTime::parse_from_rfc3339("2025-07-10T12:35:00.000+00:00")
-            .unwrap()
-            .with_timezone(&Local);
-        let now_plus_1m = now + TimeDelta::minutes(1);
-        let now_plus_1m01 = now_plus_1m + TimeDelta::seconds(1);
-        let now_less_1m = now - TimeDelta::minutes(1);
-        let now_less_1s = now - TimeDelta::seconds(1);
-        let now_less_4s = now - TimeDelta::seconds(4);
-        let now_less_5s = now - TimeDelta::seconds(5);
+        let now = Time::from_secs(1234567);
+        // DateTime::parse_from_rfc3339("2025-07-10T12:35:00.000+00:00")
+        // .unwrap()
+        // .with_timezone(&Local);
+        let now_plus_1m = now + Time::from_mins(1);
+        let now_plus_1m01 = now_plus_1m + Time::from_secs(1);
+        let now_less_1m = now - Time::from_mins(1);
+        let now_less_1s = now - Time::from_secs(1);
+        let now_less_4s = now - Time::from_secs(4);
+        let now_less_5s = now - Time::from_secs(5);
 
         let triggers = [
             // format v1
@@ -332,10 +328,10 @@ mod tests {
                     json!(["one"]),
                     json!({
                         // Will stay
-                        now_plus_1m.to_rfc3339(): 1,
-                        now_less_1s.to_rfc3339(): 1,
+                        now_plus_1m.as_nanos().to_string(): 1,
+                        now_less_1s.as_nanos().to_string(): 1,
                     // Will not get cleaned because it's FilterManager's task
-                        now_less_5s.to_rfc3339(): 1,
+                        now_less_5s.as_nanos().to_string(): 1,
                     }),
                 )]),
             ),
@@ -347,13 +343,13 @@ mod tests {
                     "filter_ordered_times_s1.f1".into(),
                     HashMap::from([
                         // Will stay
-                        (now_plus_1m.to_rfc3339().into(), ["one"].into()),
-                        (now_plus_1m01.to_rfc3339().into(), ["one"].into()),
-                        (now_less_1s.to_rfc3339().into(), ["two"].into()), // stays because retry: 2s
+                        (now_plus_1m.as_nanos().to_string().into(), ["one"].into()),
+                        (now_plus_1m01.as_nanos().to_string().into(), ["one"].into()),
+                        (now_less_1s.as_nanos().to_string().into(), ["two"].into()), // stays because retry: 2s
                         // Will get cleaned
-                        (now_less_4s.to_rfc3339().into(), ["two"].into()),
-                        (now_less_5s.to_rfc3339().into(), ["three"].into()),
-                        (now_less_1m.to_rfc3339().into(), ["two"].into()),
+                        (now_less_4s.as_nanos().to_string().into(), ["two"].into()),
+                        (now_less_5s.as_nanos().to_string().into(), ["three"].into()),
+                        (now_less_1m.as_nanos().to_string().into(), ["two"].into()),
                     ]),
                 ),
                 trigger_db,
@@ -397,11 +393,9 @@ mod tests {
 
         let one = vec!["one".into()];
 
-        let now = DateTime::parse_from_rfc3339("2025-07-10T12:35:00.000+00:00")
-            .unwrap()
-            .with_timezone(&Local);
-        let now_less_1s = now - TimeDelta::seconds(1);
-        let now_less_4s = now - TimeDelta::seconds(4);
+        let now = Time::from_secs(1234567);
+        let now_less_1s = now - Time::from_secs(1);
+        let now_less_4s = now - Time::from_secs(4);
 
         let mut db = TempDatabase::default().await;
         let mut state = State::new(filter, &mut db, now).await.unwrap();
@@ -442,7 +436,7 @@ mod tests {
         let filter = Box::leak(Box::new(ok_filter()));
 
         let one = vec!["one".into()];
-        let now = Local::now();
+        let now = now();
 
         let mut db = TempDatabase::default().await;
         let mut state = State::new(filter, &mut db, now).await.unwrap();
@@ -495,8 +489,8 @@ mod tests {
         );
 
         let one = vec!["one".into()];
-        let now = Local::now();
-        let now_plus_1s = now + TimeDelta::seconds(1);
+        let now = now();
+        let now_plus_1s = now + Time::from_secs(1);
 
         let mut db = TempDatabase::default().await;
         let mut state = State::new(filter, &mut db, now).await.unwrap();

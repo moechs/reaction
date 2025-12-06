@@ -2,10 +2,9 @@ use std::{
     collections::BTreeMap,
     net::{SocketAddrV4, SocketAddrV6},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{DateTime, Local, Utc};
 use futures::future::join_all;
 use iroh::{
     Endpoint, PublicKey,
@@ -19,7 +18,7 @@ use crate::{ActionInit, StreamInit, connection::ConnectionManager, endpoint::End
 
 pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 
-pub type UtcLine = Arc<(String, DateTime<Utc>)>;
+pub type UtcLine = Arc<(String, Duration)>;
 
 pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
     // FIXME higher timeouts and keep alive
@@ -150,14 +149,15 @@ impl ActionInit {
                         acc.replace(pattern, &m.match_[i])
                     })
             };
-            let now = Local::now();
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
             if self.self_
                 && let Err(err) = own_stream_tx.send((line.clone(), now.clone())).await
             {
                 eprintln!("ERROR while queueing message to be sent to own cluster stream: {err}");
             }
 
-            let line = Arc::new((line, now.to_utc()));
+            // TODO to_utc
+            let line = Arc::new((line, now));
             for result in join_all(nodes_tx.iter().map(|tx| tx.send(line.clone()))).await {
                 if let Err(err) = result {
                     eprintln!("ERROR while queueing message to be sent to cluster nodes: {err}");

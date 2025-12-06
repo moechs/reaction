@@ -189,7 +189,9 @@ impl PatternIp {
                     let cidr_normalized = Cidr::from_str(cidr)?;
                     let cidr_normalized_string = cidr_normalized.to_string();
                     if &cidr_normalized_string != cidr {
-                        warn!("CIDR {cidr} should be rewritten in its normalized form: {cidr_normalized_string}");
+                        warn!(
+                            "CIDR {cidr} should be rewritten in its normalized form: {cidr_normalized_string}"
+                        );
                     }
                     self.ignore_cidr_normalized.push(cidr_normalized);
                 }
@@ -289,12 +291,11 @@ impl PatternIp {
 mod patternip_tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    use chrono::Local;
     use tokio::{fs::read_to_string, task::JoinSet};
 
     use crate::{
-        concepts::{Action, Duplicate, Filter, Pattern},
-        daemon::{tests::TestBed, React},
+        concepts::{Action, Duplicate, Filter, Pattern, now},
+        daemon::{React, tests::TestBed},
     };
 
     use super::{Cidr, PatternIp, PatternType};
@@ -708,9 +709,9 @@ mod patternip_tests {
                         Duplicate::Ignore,
                         &bed.ip_patterns,
                     );
-                    let bed = bed.part2(filter, Local::now(), None).await;
+                    let bed = bed.part2(filter, now(), None).await;
                     assert_eq!(
-                        bed.manager.handle_line(&line, Local::now()).await,
+                        bed.manager.handle_line(&line, now()).await,
                         React::Trigger,
                         "line: {line}"
                     );

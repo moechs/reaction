@@ -5,6 +5,7 @@ mod state;
 
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
+use chrono::TimeZone;
 use reaction_plugin::{ActionImpl, shutdown::ShutdownToken};
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
@@ -238,12 +239,23 @@ impl FilterManager {
                     for action in self.filter.filtered_actions_from_match(&m) {
                         let action_time = t + action.after_duration.unwrap_or_default();
                         if action_time > now {
+                            // Pretty print time
+                            let time = chrono::Local
+                                .timestamp_opt(
+                                    action_time.as_secs() as i64,
+                                    action_time.subsec_nanos(),
+                                )
+                                .unwrap()
+                                .to_rfc3339()
+                                .chars()
+                                .take(19)
+                                .collect();
                             // Insert action
                             pattern_status
                                 .actions
                                 .entry(action.name.clone())
                                 .or_default()
-                                .push(action_time.to_rfc3339().chars().take(19).collect());
+                                .push(time);
 
                             // Execute the action early
                             if let Order::Flush = order {
@@ -297,15 +309,11 @@ impl FilterManager {
                 let this = self.clone();
                 let action_impl = self.action_plugins.get(&action.name).cloned();
                 tokio::spawn(async move {
-                    let dur = (exec_time - now)
-                        .to_std()
-                        // Could cause an error if t + after < now
-                        // In this case, 0 is fine
-                        .unwrap_or_default();
+                    let dur = exec_time - now;
                     // Wait either for end of sleep
                     // or reaction exiting
                     let exiting = tokio::select! {
-                        _ = tokio::time::sleep(dur) => false,
+                        _ = tokio::time::sleep(dur.into()) => false,
                         _ = this.shutdown.wait() => true,
                     };
                     // Exec action if triggered hasn't been already flushed
@@ -414,7 +422,7 @@ fn exec_now(
                     .send(reaction_plugin::Exec {
                         match_: m,
                         result: response_tx,
-                        time: t,
+                        time: t.into(),
                     })
                     .await
                 {

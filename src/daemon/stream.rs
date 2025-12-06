@@ -3,7 +3,6 @@ use std::{
     process::Stdio,
 };
 
-use chrono::Local;
 use futures::{FutureExt, Stream as AsyncStream, StreamExt, future::join_all};
 use reaction_plugin::{StreamImpl, shutdown::ShutdownToken};
 use regex::RegexSet;
@@ -14,7 +13,7 @@ use tokio::{
 use tracing::{debug, error, info};
 
 use crate::{
-    concepts::{Filter, Stream, Time},
+    concepts::{Filter, Stream, Time, now},
     daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
 
@@ -104,7 +103,7 @@ impl StreamManager {
 
     pub async fn start(mut self) {
         // First start FilterManagers persisted actions
-        let now = Local::now();
+        let now = now();
         join_all(
             self.regex_index_to_filter_manager
                 .iter()
@@ -128,7 +127,7 @@ impl StreamManager {
         loop {
             match plugin.stream.recv().await {
                 Ok(Some((line, time))) => {
-                    self.handle_line(line, time).await;
+                    self.handle_line(line, time.into()).await;
                 }
                 Err(err) => {
                     if err.is_final() {
@@ -206,7 +205,8 @@ impl StreamManager {
         loop {
             match lines.next().await {
                 Some(Ok(line)) => {
-                    self.handle_line(line, Local::now()).await;
+                    let now = now();
+                    self.handle_line(line, now).await;
                 }
                 Some(Err(err)) => {
                     error!(

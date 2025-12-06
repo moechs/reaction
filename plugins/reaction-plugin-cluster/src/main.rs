@@ -1,9 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+    time::Duration,
 };
 
-use chrono::TimeDelta;
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
@@ -74,7 +74,7 @@ struct StreamInit {
     bind_ipv4: Option<Ipv4Addr>,
     bind_ipv6: Option<Ipv6Addr>,
     secret_key: SecretKey,
-    message_timeout: TimeDelta,
+    message_timeout: Duration,
     nodes: BTreeMap<PublicKey, EndpointAddr>,
     tx: mpsc::Sender<Line>,
 }

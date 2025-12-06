@@ -8,7 +8,6 @@ use std::{
     },
 };
 
-use chrono::Local;
 use futures::future::join_all;
 use reaction_plugin::shutdown::{ShutdownController, ShutdownDelegate, ShutdownToken};
 use tokio::{
@@ -18,7 +17,10 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::{concepts::Config, treedb::Database};
+use crate::{
+    concepts::{Config, now},
+    treedb::Database,
+};
 use filter::FilterManager;
 pub use filter::React;
 use plugin::Plugins;
@@ -124,7 +126,7 @@ async fn daemon_start(
         };
 
         // Filter managers
-        let now = Local::now();
+        let now = now();
         let mut state = HashMap::new();
         let mut stream_managers = Vec::new();
         for stream in config.streams.values() {

@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use chrono::Local;
 use futures::{SinkExt, StreamExt};
 use reaction_plugin::shutdown::ShutdownToken;
 use regex::Regex;
@@ -16,7 +15,7 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{Config, Filter, Pattern, Stream},
+    concepts::{Config, Filter, Pattern, Stream, now},
     protocol::{ClientRequest, ClientStatus, DaemonResponse, Order},
 };
 
@@ -100,8 +99,7 @@ async fn handle_trigger_order(
         }
     };
 
-    let now = Local::now();
-    match filter_manager.handle_trigger(patterns, now).await {
+    match filter_manager.handle_trigger(patterns, now()).await {
         Ok(()) => DaemonResponse::Ok(()),
         Err(err) => DaemonResponse::Err(err),
     }
@@ -114,7 +112,7 @@ async fn handle_show_or_flush_order(
     order: Order,
     shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
 ) -> DaemonResponse {
-    let now = Local::now();
+    let now = now();
     let iter = shared_state
         .iter()
         // stream filtering

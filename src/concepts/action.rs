@@ -1,6 +1,4 @@
-use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc};
-
-use chrono::TimeDelta;
+use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc, time::Duration};
 
 use reaction_plugin::time::parse_duration;
 use serde::{Deserialize, Serialize};
@@ -19,7 +17,7 @@ pub struct Action {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
     #[serde(skip)]
-    pub after_duration: Option<TimeDelta>,
+    pub after_duration: Option<Duration>,
 
     #[serde(
         rename = "onexit",

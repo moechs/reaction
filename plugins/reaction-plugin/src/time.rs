@@ -1,7 +1,7 @@
-use chrono::TimeDelta;
+use std::time::Duration;
 
-/// Parses the &str argument as a TimeDelta
-/// Returns Ok(TimeDelta) if successful, or Err(String).
+/// Parses the &str argument as a Duration
+/// Returns Ok(Duration) if successful, or Err(String).
 ///
 /// Format is defined as follows: `<integer> <unit>`
 /// - whitespace between the integer and unit is optional
@@ -12,7 +12,7 @@ use chrono::TimeDelta;
 ///   - `m` / `min` / `mins` / `minute` / `minutes`
 ///   - `h` / `hour` / `hours`
 ///   - `d` / `day` / `days`
-pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
+pub fn parse_duration(d: &str) -> Result<Duration, String> {
     let d_trimmed = d.trim();
     let chars = d_trimmed.as_bytes();
     let mut value = 0;
@@ -24,14 +24,14 @@ pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
     if i == 0 {
         return Err(format!("duration '{}' doesn't start with digits", d));
     }
-    let ok_as = |func: fn(i64) -> TimeDelta| -> Result<_, String> { Ok(func(value as i64)) };
+    let ok_as = |func: fn(u64) -> Duration| -> Result<_, String> { Ok(func(value as u64)) };
 
     match d_trimmed[i..].trim() {
-        "ms" | "millis" | "millisecond" | "milliseconds" => ok_as(TimeDelta::milliseconds),
-        "s" | "sec" | "secs" | "second" | "seconds" => ok_as(TimeDelta::seconds),
-        "m" | "min" | "mins" | "minute" | "minutes" => ok_as(TimeDelta::minutes),
-        "h" | "hour" | "hours" => ok_as(TimeDelta::hours),
-        "d" | "day" | "days" => ok_as(TimeDelta::days),
+        "ms" | "millis" | "millisecond" | "milliseconds" => ok_as(Duration::from_millis),
+        "s" | "sec" | "secs" | "second" | "seconds" => ok_as(Duration::from_secs),
+        "m" | "min" | "mins" | "minute" | "minutes" => ok_as(Duration::from_mins),
+        "h" | "hour" | "hours" => ok_as(Duration::from_hours),
+        "d" | "day" | "days" => ok_as(|d: u64| Duration::from_hours(d * 24)),
         unit => Err(format!(
             "unit {} not recognised. must be one of s/sec/seconds, m/min/minutes, h/hours, d/days",
             unit
@@ -42,8 +42,6 @@ pub fn parse_duration(d: &str) -> Result<TimeDelta, String> {
 #[cfg(test)]
 mod tests {
 
-    use chrono::TimeDelta;
-
     use super::*;
 
     #[test]
@@ -53,13 +51,13 @@ mod tests {
 
     #[test]
     fn parse_duration_test() {
-        assert_eq!(parse_duration("1s"), Ok(TimeDelta::seconds(1)));
-        assert_eq!(parse_duration("12s"), Ok(TimeDelta::seconds(12)));
-        assert_eq!(parse_duration("  12  secs  "), Ok(TimeDelta::seconds(12)));
-        assert_eq!(parse_duration("2m"), Ok(TimeDelta::minutes(2)));
-        assert_eq!(parse_duration("6 hours"), Ok(TimeDelta::hours(6)));
-        assert_eq!(parse_duration("1d"), Ok(TimeDelta::days(1)));
-        assert_eq!(parse_duration("365d"), Ok(TimeDelta::days(365)));
+        assert_eq!(parse_duration("1s"), Ok(Duration::from_secs(1)));
+        assert_eq!(parse_duration("12s"), Ok(Duration::from_secs(12)));
+        assert_eq!(parse_duration("  12  secs  "), Ok(Duration::from_secs(12)));
+        assert_eq!(parse_duration("2m"), Ok(Duration::from_mins(2)));
+        assert_eq!(parse_duration("6 hours"), Ok(Duration::from_hours(6)));
+        assert_eq!(parse_duration("1d"), Ok(Duration::from_hours(1 * 24)));
+        assert_eq!(parse_duration("365d"), Ok(Duration::from_hours(365 * 24)));
 
         assert!(parse_duration("d 3").is_err());
         assert!(parse_duration("d3").is_err());

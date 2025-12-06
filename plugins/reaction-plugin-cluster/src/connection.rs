@@ -1,6 +1,11 @@
-use std::{cmp::max, collections::VecDeque, io::Error as IoError, sync::Arc};
+use std::{
+    cmp::max,
+    collections::VecDeque,
+    io::Error as IoError,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use chrono::{DateTime, Local, TimeDelta, TimeZone, Utc};
 use futures::FutureExt;
 use iroh::{
     Endpoint, EndpointAddr,
@@ -24,7 +29,7 @@ use crate::{
 
 const PROTOCOL_VERSION: u32 = 1;
 
-type RemoteLine = (String, DateTime<Utc>);
+type RemoteLine = (String, Duration);
 type MaybeRemoteLine = Result<Option<RemoteLine>, IoError>;
 
 enum Event {
@@ -44,7 +49,7 @@ struct OwnConnection {
     line_tx: BufWriter<SendStream>,
     line_rx: BufReader<RecvStream>,
 
-    next_time: Option<DateTime<Utc>>,
+    next_time: Option<Duration>,
     next_len: Option<usize>,
     next_line: Option<Vec<u8>>,
 }
@@ -67,7 +72,7 @@ impl OwnConnection {
 
     /// Send a line to peer
     async fn send_line(&mut self, line: RemoteLine) -> Result<(), std::io::Error> {
-        self.line_tx.write_i64(line.1.timestamp_micros()).await?;
+        self.line_tx.write_u64(line.1.as_micros() as u64).await?;
         self.line_tx.write_u32(line.0.len() as u32).await?;
         self.line_tx.write_all(line.0.as_bytes()).await?;
         self.line_tx.flush().await?;
@@ -78,7 +83,7 @@ impl OwnConnection {
     /// Returns None if we don't have all data yet.
     async fn recv_line(&mut self) -> Result<Option<RemoteLine>, std::io::Error> {
         if self.next_time.is_none() {
-            self.next_time = Some(Utc.timestamp_nanos(self.line_rx.read_i64().await?));
+            self.next_time = Some(Duration::from_micros(self.line_rx.read_u64().await?));
         }
         // Ok we have next_time.is_some()
         if self.next_len.is_none() {
@@ -140,7 +145,7 @@ pub struct ConnectionManager {
     last_connexion_id: u64,
 
     /// Max duration before we drop pending messages to a node we can't connect to.
-    message_timeout: TimeDelta,
+    message_timeout: Duration,
     /// Message we receive from actions
     message_rx: mpsc::Receiver<UtcLine>,
     /// Our queue of messages to send
@@ -160,7 +165,7 @@ impl ConnectionManager {
         endpoint: Arc<Endpoint>,
         connection_tx: mpsc::Sender<Connection>,
         connection_rx: mpsc::Receiver<Connection>,
-        message_timeout: TimeDelta,
+        message_timeout: Duration,
         message_rx: mpsc::Receiver<UtcLine>,
         own_cluster_tx: remoc::rch::mpsc::Sender<Line>,
         shutdown: ShutdownController,
@@ -253,7 +258,7 @@ impl ConnectionManager {
     }
 
     async fn drop_timeout_messages(&mut self) {
-        let now = Utc::now();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let mut count = 0;
         while self
             .message_queue
@@ -330,7 +335,8 @@ impl ConnectionManager {
                 self.close_connection(1, b"you closed your stream").await;
             }
             Ok(Some(line)) => {
-                let local_time = line.1.with_timezone(&Local);
+                // TODO from_utc
+                let local_time = line.1;
                 if let Err(err) = self.own_cluster_tx.send((line.0.clone(), local_time)).await {
                     eprintln!(
                         "ERROR cluster {}: could not send message to reaction stream: {err}",
@@ -366,10 +372,8 @@ impl ConnectionManager {
             }
             Some(message) => match &mut self.connection {
                 Some(connection) => {
-                    if let Err(err) = connection
-                        .send_line((message.0.clone(), message.1.with_timezone(&Utc)))
-                        .await
-                    {
+                    // TODO to_utc
+                    if let Err(err) = connection.send_line((message.0.clone(), message.1)).await {
                         eprintln!(
                             "INFO cluster {}: connection with node {} failed: {err}",
                             self.cluster_name, self.node_id,

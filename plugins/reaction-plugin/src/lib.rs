@@ -101,9 +101,9 @@ use std::{
     error::Error,
     fmt::Display,
     process::exit,
+    time::Duration,
 };
 
-pub use chrono::{DateTime, Local};
 use remoc::{
     Connect, rch,
     rtc::{self, Server},
@@ -258,7 +258,7 @@ impl Into<JValue> for Value {
     }
 }
 
-pub type Line = (String, DateTime<Local>);
+pub type Line = (String, Duration);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StreamImpl {
@@ -294,7 +294,7 @@ pub struct ActionImpl {
 pub struct Exec {
     pub match_: Vec<String>,
     pub result: rch::oneshot::Sender<Result<(), String>>,
-    pub time: DateTime<Local>,
+    pub time: Duration,
 }
 
 /// The main loop for a plugin.

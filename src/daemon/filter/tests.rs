@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use chrono::{Local, TimeDelta};
 use reaction_plugin::shutdown::ShutdownController;
 use serde_json::json;
 use tempfile::TempPath;
@@ -16,7 +15,7 @@ use super::{
     state::{filter_ordered_times_db_name, filter_triggers_db_name},
 };
 use crate::{
-    concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time},
+    concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time, now},
     daemon::plugin::Plugins,
     tests::TempDatabase,
 };
@@ -175,11 +174,12 @@ async fn three_matches_then_action_then_delayed_action() {
             &bed.az_patterns,
         );
 
-        let bed = bed.part2(filter, Local::now(), None).await;
+        let now = now();
+        let bed = bed.part2(filter, now, None).await;
 
         let now = bed.now;
-        let now1s = bed.now + TimeDelta::seconds(1);
-        let now2s = bed.now + TimeDelta::seconds(2);
+        let now1s = bed.now + Time::from_secs(1);
+        let now2s = bed.now + Time::from_secs(2);
 
         // No match
         assert_eq!(
@@ -306,8 +306,8 @@ async fn one_match_one_action() {
             &bed.az_patterns,
         );
 
-        let bed = bed.part2(filter, Local::now(), None).await;
-        let now = bed.now;
+        let now = now();
+        let bed = bed.part2(filter, now, None).await;
 
         // No match
         assert_eq!(
@@ -359,8 +359,8 @@ async fn one_match_one_delayed_action() {
             &bed.az_patterns,
         );
 
-        let bed = bed.part2(filter, Local::now(), None).await;
-        let now = bed.now;
+        let now = now();
+        let bed = bed.part2(filter, now, None).await;
 
         // No match
         assert_eq!(
@@ -432,13 +432,13 @@ async fn one_db_match_one_runtime_match_one_action() {
         );
 
         // Pre-add match
-        let now = Local::now();
+        let now = now();
         let one = vec!["one".to_string()];
-        let now1s = now - TimeDelta::seconds(1);
+        let now1s = now - Time::from_secs(1);
 
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
-            HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
+            HashMap::from([(now1s.as_nanos().to_string().into(), one.clone().into())]),
         )]))
         .await;
 
@@ -501,13 +501,13 @@ async fn one_outdated_db_match() {
         );
 
         // Pre-add match
-        let now = Local::now();
+        let now = now();
         let one = vec!["one".to_string()];
-        let now1s = now - TimeDelta::milliseconds(1001);
+        let now1s = now - Time::from_millis(1001);
 
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
-            HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
+            HashMap::from([(now1s.as_nanos().to_string().into(), one.clone().into())]),
         )]))
         .await;
 
@@ -558,7 +558,7 @@ async fn trigger_unmatched_pattern() {
             &bed.az_patterns,
         );
 
-        let now = Local::now();
+        let now = now();
         let one = vec!["one".to_string()];
         let bed = bed.part2(filter, now, None).await;
 
@@ -632,13 +632,13 @@ async fn trigger_matched_pattern() {
             &bed.az_patterns,
         );
 
-        let now = Local::now();
-        let now1s = now - TimeDelta::milliseconds(10);
+        let now = now();
+        let now1s = now - Time::from_millis(10);
         let one = vec!["one".to_string()];
 
         let db = TempDatabase::from_loaded_db(HashMap::from([(
             filter_ordered_times_db_name(filter),
-            HashMap::from([(now1s.to_rfc3339().into(), one.clone().into())]),
+            HashMap::from([(now1s.as_nanos().to_string().into(), one.clone().into())]),
         )]))
         .await;
         let bed = bed.part2(filter, now, Some(db)).await;
@@ -713,9 +713,9 @@ async fn trigger_deduplication_on_start() {
             &bed.az_patterns,
         );
 
-        let now = Local::now();
-        let now1s = now - TimeDelta::milliseconds(1000);
-        let now2s = now - TimeDelta::milliseconds(1030);
+        let now = now();
+        let now1s = now - Time::from_millis(1000);
+        let now2s = now - Time::from_millis(1030);
         let one = vec!["one".to_string()];
 
         let db = TempDatabase::from_loaded_db(HashMap::from([(
@@ -723,8 +723,8 @@ async fn trigger_deduplication_on_start() {
             HashMap::from([(
                 one.clone().into(),
                 json!({
-                    now1s.to_rfc3339(): 1,
-                    now2s.to_rfc3339(): 1,
+                    now1s.as_nanos().to_string(): 1,
+                    now2s.as_nanos().to_string(): 1,
                 }),
             )]),
         )]))
@@ -799,15 +799,17 @@ async fn multiple_triggers() {
             &bed.az_patterns,
         );
 
-        let bed = bed.part2(filter, Local::now(), None).await;
+        let now = now();
+        let bed = bed.part2(filter, now, None).await;
 
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             React::Match,
             "Duplicate: {dup:?}"
         );
+        let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             React::Trigger,
             "Duplicate: {dup:?}"
         );
@@ -823,8 +825,9 @@ async fn multiple_triggers() {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
+        let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Match,
@@ -832,8 +835,9 @@ async fn multiple_triggers() {
             "Duplicate: {dup:?}"
         );
 
+        let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Trigger,
@@ -964,10 +968,12 @@ async fn extend_trigger_multiple_after_actions() {
             &bed.az_patterns,
         );
 
-        let bed = bed.part2(filter, Local::now(), None).await;
+        let now = now();
+        let bed = bed.part2(filter, now, None).await;
 
+        let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             React::Trigger,
         );
 
@@ -980,8 +986,9 @@ async fn extend_trigger_multiple_after_actions() {
             "Sleep: {second_match_duration:?}"
         );
 
+        let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", Local::now()).await,
+            bed.manager.handle_line("test one", now).await,
             React::Trigger,
         );
 
@@ -1045,10 +1052,12 @@ async fn ip_specific() {
         &bed.ip_patterns,
     );
 
-    let bed = bed.part2(filter, Local::now(), None).await;
+    let now = now();
+    let bed = bed.part2(filter, now, None).await;
 
+    let now = crate::concepts::now();
     assert_eq!(
-        bed.manager.handle_line("test 1.2.3.4", Local::now()).await,
+        bed.manager.handle_line("test 1.2.3.4", now).await,
         React::Trigger,
     );
 
@@ -1062,10 +1071,9 @@ async fn ip_specific() {
 
     bed.reset_out_file().await;
 
+    let now = crate::concepts::now();
     assert_eq!(
-        bed.manager
-            .handle_line("test 1:2:3:4:5:6:7:8", Local::now())
-            .await,
+        bed.manager.handle_line("test 1:2:3:4:5:6:7:8", now).await,
         React::Trigger,
     );
 

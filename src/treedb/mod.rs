@@ -17,7 +17,6 @@ use std::{
     time::Duration,
 };
 
-use chrono::{Local, TimeDelta};
 use reaction_plugin::shutdown::ShutdownToken;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -27,7 +26,7 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 
-use crate::concepts::{Config, Time};
+use crate::concepts::{Config, Time, now};
 
 pub mod helpers;
 
@@ -320,7 +319,7 @@ pub struct Tree<K: KeyType, V: ValueType> {
     /// This property permits the database rotation to be `O(n)` in time and `O(1)` in RAM space,
     /// `n` being the number of write operations from the last rotation plus the number of new
     /// operations.
-    entry_timeout: TimeDelta,
+    entry_timeout: Duration,
     /// The inner BTreeMap
     tree: BTreeMap<K, V>,
     /// The sender that permits to asynchronously send write operations to database
@@ -335,7 +334,7 @@ impl Database {
     pub async fn open_tree<K: KeyType, V: ValueType, F>(
         &mut self,
         name: String,
-        entry_timeout: TimeDelta,
+        entry_timeout: Duration,
         map_f: F,
     ) -> Result<Tree<K, V>, String>
     where
@@ -404,11 +403,12 @@ impl<K: KeyType, V: ValueType> Deref for Tree<K, V> {
 impl<K: KeyType, V: ValueType> Tree<K, V> {
     /// Log an [`Entry`] to the [`Database`]
     async fn log(&mut self, k: &K, v: Option<&V>) {
+        let now = now();
         let e = Entry {
             tree: self.id.clone(),
             key: serde_json::to_value(k).expect("could not serialize key"),
             value: v.map(|v| serde_json::to_value(v).expect("could not serialize value")),
-            expiry: Local::now() + self.entry_timeout,
+            expiry: now + self.entry_timeout,
         };
         let tx = self.tx.clone();
         // FIXME what if send fails?
@@ -476,15 +476,15 @@ mod tests {
         collections::{BTreeMap, BTreeSet, HashMap},
         io::Error as IoError,
         path::Path,
+        time::Duration,
     };
 
-    use chrono::{Local, TimeDelta};
     use reaction_plugin::shutdown::ShutdownController;
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
     use tokio::fs::{File, write};
 
-    use crate::concepts::Config;
+    use crate::concepts::{Config, Time, now};
 
     use super::{
         DB_NAME, Database, DatabaseManager, Entry, KeyType, LoadedDB, Tree, ValueType, helpers::*,
@@ -546,10 +546,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_rotate_db() {
-        let now = Local::now();
+        let now = now();
 
-        let expired = now - TimeDelta::seconds(2);
-        let valid = now + TimeDelta::seconds(2);
+        let expired = now - Time::from_secs(2);
+        let valid = now + Time::from_secs(2);
 
         let entries = [
             Entry {
@@ -647,15 +647,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_open_tree() {
-        let now = Local::now();
-        let now2 = now + TimeDelta::milliseconds(2);
-        let now3 = now + TimeDelta::milliseconds(3);
+        let now = now();
 
-        let now_ms = now.to_rfc3339();
-        let now2_ms = now2.to_rfc3339();
-        let now3_ms = now3.to_rfc3339();
+        let now2 = now + Time::from_millis(2);
+        let now3 = now + Time::from_millis(3);
 
-        let valid = now + TimeDelta::seconds(2);
+        // let now_ms = now.as_nanos().to_string();
+        // let now2_ms = now2.as_nanos().to_string();
+        // let now3_ms = now3.as_nanos().to_string();
+
+        let valid = now + Time::from_secs(2);
 
         let ip127 = vec!["127.0.0.1".to_string()];
         let ip1 = vec!["1.1.1.1".to_string()];
@@ -663,44 +664,50 @@ mod tests {
         let entries = [
             Entry {
                 tree: "time-match".into(),
-                key: now_ms.clone().into(),
+                key: now.as_nanos().to_string().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now2_ms.clone().into(),
+                key: now2.as_nanos().to_string().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now3_ms.clone().into(),
+                key: now3.as_nanos().to_string().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "time-match".into(),
-                key: now2_ms.clone().into(),
+                key: now2.as_nanos().to_string().into(),
                 value: Some(ip127.clone().into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip127.clone().into(),
-                value: Some([Value::String(now_ms)].into()),
+                value: Some([Value::String(now.as_nanos().to_string())].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::String(now2_ms.clone())].into()),
+                value: Some([Value::String(now2.as_nanos().to_string())].into()),
                 expiry: valid,
             },
             Entry {
                 tree: "match-timeset".into(),
                 key: ip1.clone().into(),
-                value: Some([Value::String(now2_ms.clone()), now3_ms.into()].into()),
+                value: Some(
+                    [
+                        Value::String(now2.as_nanos().to_string()),
+                        Value::String(now3.as_nanos().to_string()),
+                    ]
+                    .into(),
+                ),
                 expiry: valid,
             },
         ];
@@ -721,7 +728,7 @@ mod tests {
         let time_match = database
             .open_tree(
                 "time-match".into(),
-                TimeDelta::seconds(2),
+                Duration::from_secs(2),
                 |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
             )
             .await
@@ -738,7 +745,7 @@ mod tests {
         let match_timeset = database
             .open_tree(
                 "match-timeset".into(),
-                TimeDelta::hours(2),
+                Duration::from_hours(2),
                 |(key, value)| Ok((to_match(&key)?, to_timeset(&value)?)),
             )
             .await
@@ -754,7 +761,7 @@ mod tests {
         let unknown_tree = database
             .open_tree(
                 "unknown_tree".into(),
-                TimeDelta::hours(2),
+                Duration::from_hours(2),
                 |(key, value)| Ok((to_match(&key)?, to_timeset(&value)?)),
             )
             .await

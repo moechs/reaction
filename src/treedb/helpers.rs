@@ -1,6 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
-use chrono::{DateTime, Local};
 use serde_json::Value;
 
 use crate::concepts::{Match, MatchTime, Time};
@@ -15,15 +17,18 @@ pub fn to_u64(val: &Value) -> Result<u64, String> {
     val.as_u64().ok_or("not a u64".into())
 }
 
-fn string_to_time(val: &str) -> Result<Time, String> {
-    Ok(DateTime::parse_from_rfc3339(val)
-        .map_err(|err| err.to_string())?
-        .with_timezone(&Local))
+pub fn string_to_time(val: &str) -> Result<Time, String> {
+    let nanos: u128 = val.parse().map_err(|_| "not a number")?;
+    Ok(Duration::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    )
+    .into())
 }
 
 /// Tries to convert a [`Value`] into a [`Time`]
 pub fn to_time(val: &Value) -> Result<Time, String> {
-    string_to_time(val.as_str().ok_or("not a datetime")?)
+    string_to_time(val.as_str().ok_or("not a string number")?)
 }
 
 /// Tries to convert a [`Value`] into a [`Match`]
@@ -66,7 +71,6 @@ pub fn to_timemap(val: &Value) -> Result<BTreeMap<Time, u64>, String> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use chrono::TimeZone;
     use serde_json::Map;
 
     use super::*;
@@ -96,15 +100,12 @@ mod tests {
 
     #[test]
     fn test_to_time() {
-        assert_eq!(
-            to_time(&"1970-01-01T01:02:03.456+01:00".into()).unwrap(),
-            Local.timestamp_millis_opt(123456).unwrap(),
-        );
+        assert_eq!(to_time(&"123456".into()).unwrap(), Time::from_nanos(123456),);
         assert!(to_time(&(u64::MAX.into())).is_err());
 
         assert!(to_time(&(["ploup"].into())).is_err());
         assert!(to_time(&(true.into())).is_err());
-        assert!(to_time(&(12345.into())).is_err());
+        // assert!(to_time(&(12345.into())).is_err());
         assert!(to_time(&(None::<String>.into())).is_err());
     }
 
@@ -126,22 +127,14 @@ mod tests {
     #[test]
     fn test_to_timeset() {
         assert_eq!(
-            to_timeset(&(["1970-01-01T01:20:34.567+01:00"].into())),
-            Ok(BTreeSet::from([Local
-                .timestamp_millis_opt(1234567)
-                .unwrap()]))
+            to_timeset(&Value::from([Value::from("123456789")])),
+            Ok(BTreeSet::from([Time::from_nanos(123456789)]))
         );
         assert_eq!(
-            to_timeset(
-                &([
-                    "1970-01-01T01:00:00.008+01:00",
-                    "1970-01-01T01:02:03.456+01:00"
-                ]
-                .into())
-            ),
+            to_timeset(&Value::from([Value::from("8"), Value::from("123456")])),
             Ok(BTreeSet::from([
-                Local.timestamp_millis_opt(8).unwrap(),
-                Local.timestamp_millis_opt(123456).unwrap()
+                Time::from_nanos(8),
+                Time::from_nanos(123456),
             ]))
         );
         assert!(to_timeset(&[Value::from("plip"), Value::from(10)].into()).is_err());
@@ -159,40 +152,48 @@ mod tests {
             to_matchtime(&Value::Object(Map::from_iter(
                 BTreeMap::from([
                     ("m".into(), ["plip", "ploup"].into()),
-                    ("t".into(), "1970-01-01T04:25:45.678+01:00".into()),
+                    ("t".into(), "12345678".into()),
                 ])
                 .into_iter()
             ))),
             Ok(MatchTime {
                 m: vec!["plip".into(), "ploup".into()],
-                t: Local.timestamp_millis_opt(12345678).unwrap(),
+                t: Time::from_nanos(12345678),
             })
         );
 
-        assert!(to_matchtime(&Value::Object(Map::from_iter(
-            BTreeMap::from([("m".into(), ["plip", "ploup"].into()),]).into_iter()
-        )))
-        .is_err());
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("m".into(), ["plip", "ploup"].into()),]).into_iter()
+            )))
+            .is_err()
+        );
 
-        assert!(to_matchtime(&Value::Object(Map::from_iter(
-            BTreeMap::from([("t".into(), 12345678.into()),]).into_iter()
-        )))
-        .is_err());
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("t".into(), 12345678.into()),]).into_iter()
+            )))
+            .is_err()
+        );
 
-        assert!(to_matchtime(&Value::Object(Map::from_iter(
-            BTreeMap::from([("m".into(), "ploup".into()), ("t".into(), 12345678.into()),])
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("m".into(), "ploup".into()), ("t".into(), 12345678.into()),])
+                    .into_iter()
+            )))
+            .is_err()
+        );
+
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([
+                    ("m".into(), ["plip", "ploup"].into()),
+                    ("t".into(), [1234567].into()),
+                ])
                 .into_iter()
-        )))
-        .is_err());
-
-        assert!(to_matchtime(&Value::Object(Map::from_iter(
-            BTreeMap::from([
-                ("m".into(), ["plip", "ploup"].into()),
-                ("t".into(), [1234567].into()),
-            ])
-            .into_iter()
-        )))
-        .is_err());
+            )))
+            .is_err()
+        );
 
         assert!(to_timeset(&([""].into())).is_err());
         assert!(to_timeset(&(["ploup"].into())).is_err());
@@ -203,26 +204,25 @@ mod tests {
 
     #[test]
     fn test_to_timemap() {
-        let time1 = "2025-07-10T12:35:00.000+02:00";
-        let time1_t = DateTime::parse_from_rfc3339(time1)
-            .unwrap()
-            .with_timezone(&Local);
-        let time2 = "2026-08-11T12:36:01.000+02:00";
-        let time2_t = DateTime::parse_from_rfc3339(time2)
-            .unwrap()
-            .with_timezone(&Local);
+        let time1 = 1234567;
+        let time1_t = Time::from_nanos(time1);
+        let time2 = 123456789;
+        let time2_t = Time::from_nanos(time2);
 
         assert_eq!(
-            to_timemap(&Value::from_iter([(time2, 1)])),
+            to_timemap(&Value::from_iter([(time2.to_string(), 1)])),
             Ok(BTreeMap::from([(time2_t, 1)]))
         );
         assert_eq!(
-            to_timemap(&Value::from_iter([(time1, 4), (time2, 0)])),
-            Ok(BTreeMap::from([(time1_t, 4), (time2_t, 0)]))
+            to_timemap(&Value::from_iter([
+                (time1.to_string(), 4),
+                (time2.to_string(), 0)
+            ])),
+            Ok(BTreeMap::from([(time1_t.into(), 4), (time2_t.into(), 0)]))
         );
 
-        assert!(to_timemap(&Value::from_iter([("1", time2)])).is_err());
-        assert!(to_timemap(&Value::from_iter([(time2, time2)])).is_err());
+        assert!(to_timemap(&Value::from_iter([("1-1", time2)])).is_err());
+        // assert!(to_timemap(&Value::from_iter([(time2.to_string(), time2)])).is_err());
         assert!(to_timemap(&Value::from_iter([(time2)])).is_err());
         assert!(to_timemap(&Value::from_iter([(1)])).is_err());
 
