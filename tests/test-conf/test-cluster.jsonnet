@@ -20,7 +20,7 @@
 
   streams: {
     s0: {
-      cmd: ['bash', '-c', 'for i in $(seq 4); do echo $i; sleep 0.1; done; sleep 1.2'],
+      cmd: ['bash', '-c', 'sleep 1; for i in $(seq 4); do echo $i; sleep 0.1; done'],
       filters: {
         f0: {
           regex: ['^<num>$'],
@@ -31,6 +31,14 @@
                 send: 'NODE a0 <num>',
                 to: 's1',
               },
+            },
+            b0: {
+              type: 'cluster_send',
+              options: {
+                send: 'NODE b0 <num>',
+                to: 's1',
+              },
+              after: '1s',
             },
           },
         },
