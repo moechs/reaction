@@ -140,15 +140,7 @@ impl ActionInit {
     ) {
         while let Ok(Some(m)) = self.rx.recv().await {
             eprintln!("DEBUG action: received a message to send to connections");
-            let line = if m.match_.is_empty() {
-                self.send.clone()
-            } else {
-                (0..(m.match_.len()))
-                    .zip(&self.patterns)
-                    .fold(self.send.clone(), |acc, (i, pattern)| {
-                        acc.replace(pattern, &m.match_[i])
-                    })
-            };
+            let line = self.send.line(m.match_);
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
             if self.self_
                 && let Err(err) = own_stream_tx.send((line.clone(), now.clone())).await

@@ -7,7 +7,7 @@ use std::{
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
-    main_loop, shutdown::ShutdownController, time::parse_duration,
+    line::PatternLine, main_loop, shutdown::ShutdownController, time::parse_duration,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -90,12 +90,10 @@ struct ActionOptions {
     self_: bool,
 }
 
-#[derive(Serialize, Deserialize)]
 struct ActionInit {
     name: String,
-    send: String,
+    send: PatternLine,
     self_: bool,
-    patterns: Vec<String>,
     rx: mpsc::Receiver<Exec>,
 }
 
@@ -195,9 +193,8 @@ impl PluginInfo for Plugin {
 
         let init_action = ActionInit {
             name: format!("{}.{}.{}", stream_name, filter_name, action_name),
-            send: options.send,
+            send: PatternLine::new(options.send, patterns),
             self_: options.self_,
-            patterns,
             rx,
         };
 
