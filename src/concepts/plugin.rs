@@ -95,7 +95,6 @@ impl Plugin {
 
         // Create plugin working directory (also state directory)
         let plugin_working_directory = format!("{state_directory}/plugin_data/{}", self.name);
-        dbg!(&plugin_working_directory);
         fs::create_dir_all(&plugin_working_directory).await?;
 
         let mut command = if self_uid.is_some_and(|self_uid| self_uid == 0) {
