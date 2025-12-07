@@ -8,7 +8,7 @@ use std::{
 use futures::future::join_all;
 use iroh::{
     Endpoint, PublicKey,
-    endpoint::{Connection, TransportConfig, VarInt},
+    endpoint::{ConnectOptions, Connection, TransportConfig},
 };
 use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
@@ -20,19 +20,26 @@ pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 
 pub type UtcLine = Arc<(String, Duration)>;
 
-pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
+pub fn transport_config() -> TransportConfig {
     // FIXME higher timeouts and keep alive
     let mut transport = TransportConfig::default();
     transport
-        .max_idle_timeout(Some(VarInt::from_u32(2).into()))
+        .max_idle_timeout(Some(Duration::from_millis(2000).try_into().unwrap()))
         .keep_alive_interval(Some(Duration::from_millis(200)));
+    transport
+}
 
+pub fn connect_config() -> ConnectOptions {
+    ConnectOptions::new().with_transport_config(transport_config().into())
+}
+
+pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
     let mut builder = Endpoint::builder()
         .secret_key(stream.secret_key.clone())
         .alpns(ALPN.iter().map(|slice| slice.to_vec()).collect())
         .relay_mode(iroh::RelayMode::Disabled)
         .clear_discovery()
-        .transport_config(transport);
+        .transport_config(transport_config());
 
     if let Some(ip) = stream.bind_ipv4 {
         builder = builder.bind_addr_v4(SocketAddrV4::new(ip, stream.listen_port));

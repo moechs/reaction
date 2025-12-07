@@ -103,8 +103,10 @@ impl EndpointManager {
         match self.connections_tx.get(&remote_id) {
             None => {
                 eprintln!(
-                    "WARN cluster {}: incoming connection from node '{remote_id}', ip: {} is not in our list, refusing incoming connection.",
-                    self.cluster_name, remote_address
+                    "WARN cluster {}: incoming connection from node '{}', ip: {} is not in our list, refusing incoming connection.",
+                    self.cluster_name,
+                    remote_id.show(),
+                    remote_address
                 );
                 eprintln!(
                     "INFO cluster {}: {}, {}",

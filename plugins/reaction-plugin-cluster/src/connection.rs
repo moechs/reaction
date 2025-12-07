@@ -19,7 +19,7 @@ use tokio::{
 };
 
 use crate::{
-    cluster::{ALPN, UtcLine},
+    cluster::{ALPN, UtcLine, connect_config},
     key::Show,
 };
 
@@ -513,23 +513,31 @@ fn try_connect(
             while keep_trying {
                 eprintln!("DEBUG cluster {cluster_name}: node {node_id}: trying to connect...");
                 let connect = tokio::select! {
-                    conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
+                    // conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
+                    conn = endpoint.connect_with_opts(remote.clone(), ALPN[0], connect_config()) => Some(conn),
                     _ = order_stop.recv() => None,
                 };
                 if let Some(connect) = connect {
                     match connect {
-                        Ok(connection) => {
-                            eprintln!(
-                                "DEBUG cluster {cluster_name}: node {node_id}: created connection"
-                            );
-                            if let Err(err) = connection_tx.send(connection).await {
+                        Ok(connecting) => match connecting.await {
+                            Ok(connection) => {
                                 eprintln!(
-                                    "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
+                                    "DEBUG cluster {cluster_name}: node {node_id}: created connection"
                                 );
-                                order_start.close();
+                                if let Err(err) = connection_tx.send(connection).await {
+                                    eprintln!(
+                                        "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
+                                    );
+                                    order_start.close();
+                                }
+                                keep_trying = false;
                             }
-                            keep_trying = false;
-                        }
+                            Err(err) => {
+                                eprintln!(
+                                    "WARN cluster {cluster_name}: node {node_id}: while trying to connect: {err}"
+                                );
+                            }
+                        },
                         Err(err) => {
                             eprintln!(
                                 "WARN cluster {cluster_name}: node {node_id}: while trying to connect: {err}"
