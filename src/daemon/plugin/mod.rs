@@ -148,13 +148,13 @@ async fn handle_stderr(stderr: ChildStderr, plugin_name: String, shutdown: Shutd
                 // sad: I can't factorize this because the tracing::event! macro
                 // requires its log level to be a constant.
                 if line.starts_with("DEBUG ") {
-                    tracing::debug!("plugin {plugin_name}: {}", line.split_at(5).1)
+                    tracing::debug!("plugin {plugin_name}: {}", line.split_at(6).1)
                 } else if line.starts_with("INFO ") {
-                    tracing::info!("plugin {plugin_name}: {}", line.split_at(4).1)
+                    tracing::info!("plugin {plugin_name}: {}", line.split_at(5).1)
                 } else if line.starts_with("WARN ") {
-                    tracing::warn!("plugin {plugin_name}: {}", line.split_at(4).1)
+                    tracing::warn!("plugin {plugin_name}: {}", line.split_at(5).1)
                 } else if line.starts_with("ERROR ") {
-                    tracing::error!("plugin {plugin_name}: {}", line.split_at(5).1)
+                    tracing::error!("plugin {plugin_name}: {}", line.split_at(6).1)
                 } else {
                     // If there is no log level, we suppose it's an error (may be a panic or something)
                     tracing::error!("plugin {plugin_name}: {}", line)
