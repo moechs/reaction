@@ -197,11 +197,7 @@ impl VirtualAction {
     async fn serve(&mut self) {
         while let Ok(Some(exec)) = self.rx.recv().await {
             let line = self.send.line(exec.match_);
-            let result = match self.to.tx.send((line, exec.time)).await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(format!("{err}")),
-            };
-            exec.result.send(result).unwrap();
+            self.to.tx.send((line, exec.time)).await.unwrap();
         }
     }
 }

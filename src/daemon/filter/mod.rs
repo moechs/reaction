@@ -416,28 +416,16 @@ fn exec_now(
                 );
 
                 // Sending action
-                let (response_tx, response_rx) = remoc::rch::oneshot::channel();
                 if let Err(err) = action_impl
                     .tx
                     .send(reaction_plugin::Exec {
                         match_: m,
-                        result: response_tx,
                         time: t.into(),
                     })
                     .await
                 {
                     error!("{action}: communication with plugin failed: {err}");
                     return;
-                }
-
-                // Receiving response
-                match response_rx.await {
-                    Ok(Ok(())) => (),
-                    Ok(Err(err)) => error!(
-                        "{action}: run {}: {err}",
-                        action.action_type.clone().unwrap_or_default(),
-                    ),
-                    Err(err) => error!("{action}: communication with plugin failed: {err}"),
                 }
             }
             None => {

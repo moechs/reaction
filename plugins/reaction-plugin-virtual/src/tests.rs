@@ -1,7 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reaction_plugin::{Exec, PluginInfo, Value};
-use remoc::rch::oneshot;
 use serde_json::json;
 
 use crate::Plugin;
@@ -179,14 +178,12 @@ async fn run_simple() {
     assert!(plugin.finish_setup().await.is_ok());
 
     for m in ["test1", "test2", "test3", "  a   a a aa a a"] {
-        let (tx, rx) = oneshot::channel();
         let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         assert!(
             action
                 .tx
                 .send(Exec {
                     match_: vec![m.into()],
-                    result: tx,
                     time,
                 })
                 .await
@@ -196,7 +193,6 @@ async fn run_simple() {
             stream.stream.recv().await.unwrap().unwrap(),
             (format!("message {m}"), time),
         );
-        assert!(rx.await.is_ok());
     }
 }
 
@@ -237,13 +233,11 @@ async fn run_two_actions() {
 
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-    let (tx, rx1) = oneshot::channel();
     assert!(
         action1
             .tx
             .send(Exec {
                 match_: vec!["aa".into(), "bb".into()],
-                result: tx,
                 time,
             })
             .await
@@ -254,13 +248,11 @@ async fn run_two_actions() {
         ("send aa".into(), time),
     );
 
-    let (tx, rx2) = oneshot::channel();
     assert!(
         action2
             .tx
             .send(Exec {
                 match_: vec!["aa".into(), "bb".into()],
-                result: tx,
                 time,
             })
             .await
@@ -270,7 +262,4 @@ async fn run_two_actions() {
         stream.stream.recv().await.unwrap().unwrap(),
         ("bb send".into(), time),
     );
-
-    assert!(rx1.await.is_ok());
-    assert!(rx2.await.is_ok());
 }

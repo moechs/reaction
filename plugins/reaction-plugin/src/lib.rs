@@ -293,7 +293,6 @@ pub struct ActionImpl {
 #[derive(Serialize, Deserialize)]
 pub struct Exec {
     pub match_: Vec<String>,
-    pub result: rch::oneshot::Sender<Result<(), String>>,
     pub time: Duration,
 }
 

@@ -141,10 +141,6 @@ impl ActionInit {
                     eprintln!("ERROR while queueing message to be sent to cluster nodes: {err}");
                 };
             }
-
-            if let Err(err) = m.result.send(Ok(())) {
-                eprintln!("ERROR while responding to reaction action: {err}");
-            }
         }
     }
 }
