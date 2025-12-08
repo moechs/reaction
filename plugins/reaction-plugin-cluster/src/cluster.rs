@@ -7,8 +7,8 @@ use std::{
 
 use futures::future::join_all;
 use iroh::{
-    Endpoint, PublicKey,
-    endpoint::{ConnectOptions, Connection, TransportConfig},
+    Endpoint,
+    endpoint::{ConnectOptions, TransportConfig},
 };
 use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
@@ -84,21 +84,27 @@ pub fn cluster_tasks(
 
     let endpoint = Arc::new(endpoint);
 
-    let (connection_endpoint2connection_txs, mut connection_endpoint2connection_rxs): (
-        BTreeMap<PublicKey, tokioMpsc::Sender<Connection>>,
-        Vec<(
-            PublicKey,
-            tokioMpsc::Sender<Connection>,
-            tokioMpsc::Receiver<Connection>,
-        )>,
-    ) = stream
-        .nodes
-        .keys()
-        .map(|pk| {
-            let (tx, rx) = tokioMpsc::channel(1);
-            ((pk.clone(), tx.clone()), (pk.clone(), tx, rx))
-        })
-        .unzip();
+    let mut connection_endpoint2connection_txs = BTreeMap::new();
+
+    // Spawn connection managers
+    while let Some((pk, endpoint_addr)) = stream.nodes.pop_first() {
+        let cluster_name = stream.name.clone();
+        let endpoint = endpoint.clone();
+        let message_action2connection_rx = message_action2connection_rxs.pop().unwrap();
+        let stream_tx = stream.tx.clone();
+        let shutdown = shutdown.clone();
+        let (connection_manager, connection_endpoint2connection_tx) = ConnectionManager::new(
+            cluster_name,
+            endpoint_addr,
+            endpoint,
+            stream.message_timeout,
+            message_action2connection_rx,
+            stream_tx,
+            shutdown,
+        );
+        tokio::spawn(async move { connection_manager.task().await });
+        connection_endpoint2connection_txs.insert(pk, connection_endpoint2connection_tx);
+    }
 
     // Spawn connection accepter
     EndpointManager::new(
@@ -107,33 +113,6 @@ pub fn cluster_tasks(
         connection_endpoint2connection_txs,
         shutdown.clone(),
     );
-
-    // Spawn connection managers
-    while let Some((pk, connection_endpoint2connection_tx, connection_endpoint2connection_rx)) =
-        connection_endpoint2connection_rxs.pop()
-    {
-        let cluster_name = stream.name.clone();
-        let endpoint_addr = stream.nodes.remove(&pk).unwrap();
-        let endpoint = endpoint.clone();
-        let message_action2connection_rx = message_action2connection_rxs.pop().unwrap();
-        let stream_tx = stream.tx.clone();
-        let shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            ConnectionManager::new(
-                cluster_name,
-                endpoint_addr,
-                endpoint,
-                connection_endpoint2connection_tx,
-                connection_endpoint2connection_rx,
-                stream.message_timeout,
-                message_action2connection_rx,
-                stream_tx,
-                shutdown,
-            )
-            .task()
-            .await
-        });
-    }
 
     eprintln!("DEBUG cluster tasks finished running");
 }

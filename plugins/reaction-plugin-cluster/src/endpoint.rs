@@ -1,14 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use iroh::{
-    Endpoint, PublicKey,
-    endpoint::{Connection, Incoming},
-};
+use iroh::{Endpoint, PublicKey, endpoint::Incoming};
 use reaction_plugin::shutdown::ShutdownController;
 use tokio::sync::mpsc;
 
-use crate::key::Show;
+use crate::{connection::ConnOrConn, key::Show};
 
 enum Break {
     Yes,
@@ -21,7 +18,7 @@ pub struct EndpointManager {
     /// Cluster's name (for logging)
     cluster_name: String,
     /// Connection sender to the Connection Managers
-    connections_tx: BTreeMap<PublicKey, mpsc::Sender<Connection>>,
+    connections_tx: BTreeMap<PublicKey, mpsc::Sender<ConnOrConn>>,
     /// shutdown
     shutdown: ShutdownController,
 }
@@ -30,7 +27,7 @@ impl EndpointManager {
     pub fn new(
         endpoint: Arc<Endpoint>,
         cluster_name: String,
-        connections_tx: BTreeMap<PublicKey, mpsc::Sender<Connection>>,
+        connections_tx: BTreeMap<PublicKey, mpsc::Sender<ConnOrConn>>,
         shutdown: ShutdownController,
     ) {
         tokio::spawn(async move {
@@ -117,7 +114,7 @@ impl EndpointManager {
                 return Break::No;
             }
             Some(tx) => {
-                if let Err(_) = tx.send(connection).await {
+                if let Err(_) = tx.send(ConnOrConn::Connection(connection)).await {
                     eprintln!(
                         "DEBUG cluster {}: EndpointManager: quitting because ConnectionManager has quit",
                         self.cluster_name,
