@@ -142,7 +142,6 @@ impl ActionInit {
                 eprintln!("ERROR while queueing message to be sent to own cluster stream: {err}");
             }
 
-            // TODO to_utc
             let line = (Arc::new(line), now);
             for result in join_all(nodes_tx.iter().map(|tx| tx.send(line.clone()))).await {
                 if let Err(err) = result {

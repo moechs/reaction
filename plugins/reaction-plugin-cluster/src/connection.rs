@@ -29,8 +29,7 @@ const CLOSE_RECV: (u32, &[u8]) = (1, b"error receiving from your stream");
 const CLOSE_CLOSED: (u32, &[u8]) = (2, b"you closed your stream");
 const CLOSE_SEND: (u32, &[u8]) = (3, b"could not send a message to your channel so I quit");
 
-type RemoteLine = (String, Time);
-type MaybeRemoteLine = Result<Option<RemoteLine>, IoError>;
+type MaybeRemoteLine = Result<Option<(String, Time)>, IoError>;
 
 enum Event {
     LocalMessageReceived(Option<UtcLine>),
@@ -70,7 +69,10 @@ impl OwnConnection {
         }
     }
 
-    /// Send a line to peer
+    /// Send a line to peer.
+    ///
+    /// Time is a std::time::Duration since UNIX_EPOCH, which is defined as UTC
+    /// So it's safe to use between nodes using different timezones
     async fn send_line(&mut self, line: &String, time: &Time) -> Result<(), std::io::Error> {
         self.line_tx.write_u64(time.as_secs()).await?;
         self.line_tx.write_u32(time.subsec_nanos()).await?;
@@ -82,7 +84,7 @@ impl OwnConnection {
 
     /// Cancel-safe function that returns next line from peer
     /// Returns None if we don't have all data yet.
-    async fn recv_line(&mut self) -> Result<Option<RemoteLine>, std::io::Error> {
+    async fn recv_line(&mut self) -> MaybeRemoteLine {
         if self.next_time_secs.is_none() {
             self.next_time_secs = Some(self.line_rx.read_u64().await?);
         }
@@ -387,11 +389,9 @@ impl ConnectionManager {
                 self.close_connection(CLOSE_CLOSED).await;
             }
             Ok(Some(line)) => {
-                // TODO from_utc
-                let local_time = line.1;
                 if let Err(err) = self
                     .own_cluster_tx
-                    .send((line.0.clone(), local_time.into()))
+                    .send((line.0.clone(), line.1.into()))
                     .await
                 {
                     eprintln!(
@@ -428,7 +428,6 @@ impl ConnectionManager {
             }
             Some(message) => match &mut self.connection {
                 Some(connection) => {
-                    // TODO to_utc
                     if let Err(err) = connection.send_line(&message.0, &message.1).await {
                         eprintln!(
                             "INFO cluster {}: connection with node {} failed: {err}",
