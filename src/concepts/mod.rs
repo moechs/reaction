@@ -4,7 +4,6 @@ mod filter;
 mod pattern;
 mod plugin;
 mod stream;
-mod time;
 
 use std::fmt::Debug;
 
@@ -17,7 +16,7 @@ pub use filter::{Duplicate, Filter};
 pub use pattern::{Pattern, PatternType};
 pub use plugin::Plugin;
 pub use stream::Stream;
-pub use time::{Time, now};
+pub use treedb::time::{Time, now};
 
 pub type Match = Vec<String>;
 

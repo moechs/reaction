@@ -1,12 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{
-    concepts::{Filter, Match, MatchTime, Time},
-    treedb::{
-        Database, Tree,
-        helpers::{to_match, to_matchtime, to_time, to_timemap, to_u64},
-    },
-};
+use serde_json::Value;
+use treedb::{Database, Tree, helpers::*};
+
+use crate::concepts::{Filter, Match, MatchTime, Time};
 
 pub fn filter_ordered_times_db_name(filter: &Filter) -> String {
     format!(
@@ -241,17 +238,29 @@ impl State {
     }
 }
 
+/// Tries to convert a [`Value`] into a [`MatchTime`]
+pub fn to_matchtime(val: &Value) -> Result<MatchTime, String> {
+    let map = val.as_object().ok_or("not an object")?;
+    Ok(MatchTime {
+        m: to_match(map.get("m").ok_or("no m in object")?)?,
+        t: to_time(map.get("t").ok_or("no t in object")?)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
 
-    use serde_json::json;
+    use serde_json::{Map, Value, json};
 
     use crate::{
-        concepts::{Action, Duplicate, Filter, Pattern, Time, filter_tests::ok_filter, now},
-        daemon::filter::state::State,
+        concepts::{
+            Action, Duplicate, Filter, MatchTime, Pattern, Time, filter_tests::ok_filter, now,
+        },
         tests::TempDatabase,
     };
+
+    use super::{State, to_matchtime};
 
     // Tests `new`, `clear_past_matches` and `load_matches_from_ordered_times`
     #[tokio::test]
@@ -592,5 +601,55 @@ mod tests {
         // Remove them
         state.remove_trigger(&one).await;
         assert!(state.triggers.tree().is_empty());
+    }
+
+    #[test]
+    fn test_to_matchtime() {
+        assert_eq!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([
+                    ("m".into(), ["plip", "ploup"].into()),
+                    ("t".into(), "12345678".into()),
+                ])
+                .into_iter()
+            ))),
+            Ok(MatchTime {
+                m: vec!["plip".into(), "ploup".into()],
+                t: Time::from_nanos(12345678),
+            })
+        );
+
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("m".into(), ["plip", "ploup"].into()),]).into_iter()
+            )))
+            .is_err()
+        );
+
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("t".into(), 12345678.into()),]).into_iter()
+            )))
+            .is_err()
+        );
+
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([("m".into(), "ploup".into()), ("t".into(), 12345678.into()),])
+                    .into_iter()
+            )))
+            .is_err()
+        );
+
+        assert!(
+            to_matchtime(&Value::Object(Map::from_iter(
+                BTreeMap::from([
+                    ("m".into(), ["plip", "ploup"].into()),
+                    ("t".into(), [1234567].into()),
+                ])
+                .into_iter()
+            )))
+            .is_err()
+        );
     }
 }

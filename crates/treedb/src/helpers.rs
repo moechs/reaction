@@ -6,7 +6,7 @@ use std::{
 use chrono::DateTime;
 use serde_json::Value;
 
-use crate::concepts::{Match, MatchTime, Time};
+use crate::time::Time;
 
 /// Tries to convert a [`Value`] into a [`String`]
 pub fn to_string(val: &Value) -> Result<String, String> {
@@ -50,22 +50,13 @@ pub fn to_time(val: &Value) -> Result<Time, String> {
     string_to_time(val.as_str().ok_or("not a string number")?)
 }
 
-/// Tries to convert a [`Value`] into a [`Match`]
-pub fn to_match(val: &Value) -> Result<Match, String> {
+/// Tries to convert a [`Value`] into a [`Vec<String>`]
+pub fn to_match(val: &Value) -> Result<Vec<String>, String> {
     val.as_array()
         .ok_or("not an array")?
         .iter()
         .map(to_string)
         .collect()
-}
-
-/// Tries to convert a [`Value`] into a [`MatchTime`]
-pub fn to_matchtime(val: &Value) -> Result<MatchTime, String> {
-    let map = val.as_object().ok_or("not an object")?;
-    Ok(MatchTime {
-        m: to_match(map.get("m").ok_or("no m in object")?)?,
-        t: to_time(map.get("t").ok_or("no t in object")?)?,
-    })
 }
 
 /// Tries to convert a [`Value`] into a [`BTreeSet<Time>`]
@@ -89,8 +80,6 @@ pub fn to_timemap(val: &Value) -> Result<BTreeMap<Time, u64>, String> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-
-    use serde_json::Map;
 
     use super::*;
 
@@ -157,62 +146,6 @@ mod tests {
             ]))
         );
         assert!(to_timeset(&[Value::from("plip"), Value::from(10)].into()).is_err());
-
-        assert!(to_timeset(&([""].into())).is_err());
-        assert!(to_timeset(&(["ploup"].into())).is_err());
-        assert!(to_timeset(&(true.into())).is_err());
-        assert!(to_timeset(&(8.into())).is_err());
-        assert!(to_timeset(&(None::<String>.into())).is_err());
-    }
-
-    #[test]
-    fn test_to_matchtime() {
-        assert_eq!(
-            to_matchtime(&Value::Object(Map::from_iter(
-                BTreeMap::from([
-                    ("m".into(), ["plip", "ploup"].into()),
-                    ("t".into(), "12345678".into()),
-                ])
-                .into_iter()
-            ))),
-            Ok(MatchTime {
-                m: vec!["plip".into(), "ploup".into()],
-                t: Time::from_nanos(12345678),
-            })
-        );
-
-        assert!(
-            to_matchtime(&Value::Object(Map::from_iter(
-                BTreeMap::from([("m".into(), ["plip", "ploup"].into()),]).into_iter()
-            )))
-            .is_err()
-        );
-
-        assert!(
-            to_matchtime(&Value::Object(Map::from_iter(
-                BTreeMap::from([("t".into(), 12345678.into()),]).into_iter()
-            )))
-            .is_err()
-        );
-
-        assert!(
-            to_matchtime(&Value::Object(Map::from_iter(
-                BTreeMap::from([("m".into(), "ploup".into()), ("t".into(), 12345678.into()),])
-                    .into_iter()
-            )))
-            .is_err()
-        );
-
-        assert!(
-            to_matchtime(&Value::Object(Map::from_iter(
-                BTreeMap::from([
-                    ("m".into(), ["plip", "ploup"].into()),
-                    ("t".into(), [1234567].into()),
-                ])
-                .into_iter()
-            )))
-            .is_err()
-        );
 
         assert!(to_timeset(&([""].into())).is_err());
         assert!(to_timeset(&(["ploup"].into())).is_err());

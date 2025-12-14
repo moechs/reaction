@@ -9,7 +9,7 @@ use std::{
 
 use tempfile::TempDir;
 
-use crate::treedb::{Database, LoadedDB};
+use treedb::{Database, LoadedDB};
 
 pub struct Fixture {
     path: PathBuf,

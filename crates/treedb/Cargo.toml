@@ -1,0 +1,23 @@
+[package]
+name = "treedb"
+version = "1.0.0"
+edition = "2024"
+
+[features]
+test = []
+
+[dependencies]
+chrono.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio.features = ["rt-multi-thread", "macros", "io-util", "time", "fs", "tracing"]
+tokio-util.workspace = true
+tokio-util.features = ["rt"]
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+

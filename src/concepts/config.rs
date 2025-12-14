@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{BTreeMap, btree_map::Entry},
     fs::File,
     io,
     path::Path,
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use super::{merge_attrs, Pattern, Plugin, Stream};
+use super::{Pattern, Plugin, Stream, merge_attrs};
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -55,7 +55,10 @@ impl Config {
                     e.insert(pattern);
                 }
                 Entry::Occupied(e) => {
-                    return Err(format!("pattern {} is already defined. pattern definitions can't be spread accross multiple files.", e.key()));
+                    return Err(format!(
+                        "pattern {} is already defined. pattern definitions can't be spread accross multiple files.",
+                        e.key()
+                    ));
                 }
             }
         }
@@ -328,7 +331,7 @@ enum ConfigError {
 mod jsonnet {
     use std::path::Path;
 
-    use jrsonnet_evaluator::{error::LocError, EvaluationState, FileImportResolver};
+    use jrsonnet_evaluator::{EvaluationState, FileImportResolver, error::LocError};
 
     use super::ConfigError;
 

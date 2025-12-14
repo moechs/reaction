@@ -2841,6 +2841,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "treedb",
 ]
 
 [[package]]
@@ -3960,6 +3961,21 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "treedb"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

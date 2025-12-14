@@ -81,6 +81,10 @@ impl ShutdownToken {
         }
     }
 
+    pub fn split(self) -> (CancellationToken, TaskTrackerToken) {
+        (self.shutdown_notifyer, self._task_tracker_token)
+    }
+
     /// Returns a future that will resolve only when a shutdown request happened.
     pub fn wait(&self) -> WaitForCancellationFuture<'_> {
         self.shutdown_notifyer.cancelled()

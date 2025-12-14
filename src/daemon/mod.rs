@@ -16,11 +16,9 @@ use tokio::{
     sync::Semaphore,
 };
 use tracing::{debug, error, info};
+use treedb::Database;
 
-use crate::{
-    concepts::{Config, now},
-    treedb::Database,
-};
+use crate::concepts::{Config, now};
 use filter::FilterManager;
 pub use filter::React;
 use plugin::Plugins;
@@ -116,7 +114,9 @@ async fn daemon_start(
     let mut plugins = Plugins::new(config, shutdown.clone()).await?;
 
     // Open Database
-    *db = Some(Database::open(config, shutdown.clone()).await?);
+    let (cancellation, task_tracker) = shutdown.clone().split();
+    let path = PathBuf::from(config.state_directory.clone());
+    *db = Some(Database::open(&path, cancellation, task_tracker).await?);
 
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency

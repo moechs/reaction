@@ -17,7 +17,6 @@ use std::{
     time::Duration,
 };
 
-use reaction_plugin::shutdown::ShutdownToken;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
@@ -25,16 +24,16 @@ use tokio::{
     sync::{mpsc, oneshot},
     time::{MissedTickBehavior, interval},
 };
-
-use crate::concepts::{Config, Time, now};
-
-pub mod helpers;
+use tokio_util::{sync::CancellationToken, task::task_tracker::TaskTrackerToken};
 
 // Database
 
 use raw::{ReadDB, WriteDB};
+use time::{Time, now};
 
+pub mod helpers;
 mod raw;
+pub mod time;
 
 /// Any order the Database can receive
 enum Order {
@@ -63,13 +62,11 @@ pub type LoadedDB = HashMap<String, LoadedTree>;
 const DB_NAME: &str = "reaction.db";
 const DB_NEW_NAME: &str = "reaction.new.db";
 
-impl Config {
-    fn path_of(&self, name: &str) -> PathBuf {
-        if self.state_directory.is_empty() {
-            name.into()
-        } else {
-            PathBuf::from(&self.state_directory).join(name)
-        }
+fn path_of(state_directory: &Path, name: &str) -> PathBuf {
+    if state_directory.as_os_str().is_empty() {
+        name.into()
+    } else {
+        PathBuf::from(state_directory).join(name)
     }
 }
 
@@ -90,9 +87,13 @@ impl Database {
     /// to have the Database properly quit.
     ///
     /// You can wait for [`Self::quit`] returned channel to know how it went.
-    pub async fn open(config: &Config, shutdown: ShutdownToken) -> Result<Database, IoError> {
-        let (manager, entry_tx) = DatabaseManager::open(config).await?;
-        let error_rx = manager.manager(shutdown);
+    pub async fn open(
+        path_directory: &Path,
+        cancellation_token: CancellationToken,
+        task_tracker_token: TaskTrackerToken,
+    ) -> Result<Database, IoError> {
+        let (manager, entry_tx) = DatabaseManager::open(path_directory).await?;
+        let error_rx = manager.manager(cancellation_token, task_tracker_token);
         Ok(Self {
             entry_tx: Some(entry_tx),
             error_rx,
@@ -133,9 +134,11 @@ struct DatabaseManager {
 }
 
 impl DatabaseManager {
-    pub async fn open(config: &Config) -> Result<(DatabaseManager, mpsc::Sender<Order>), IoError> {
-        let path = config.path_of(DB_NAME);
-        let new_path = config.path_of(DB_NEW_NAME);
+    pub async fn open(
+        path_directory: &Path,
+    ) -> Result<(DatabaseManager, mpsc::Sender<Order>), IoError> {
+        let path = path_of(path_directory, DB_NAME);
+        let new_path = path_of(path_directory, DB_NEW_NAME);
 
         let (write_db, loaded_db) = rotate_db(&path, &new_path, true).await?;
 
@@ -156,7 +159,11 @@ impl DatabaseManager {
         ))
     }
 
-    pub fn manager(mut self, shutdown: ShutdownToken) -> oneshot::Receiver<Result<(), String>> {
+    pub fn manager(
+        mut self,
+        cancellation_token: CancellationToken,
+        _task_tracker_token: TaskTrackerToken,
+    ) -> oneshot::Receiver<Result<(), String>> {
         let (error_tx, error_rx) = oneshot::channel();
         tokio::spawn(async move {
             let mut interval = interval(self.flush_every);
@@ -168,17 +175,17 @@ impl DatabaseManager {
                 tokio::select! {
                     order = self.entry_rx.recv() => {
                         if let Err(err) = self.handle_order(order).await {
-                            shutdown.ask_shutdown();
+                            cancellation_token.cancel();
                             break err;
                         }
                     }
                     _ = interval.tick() => {
                         if let Err(err) = self.flush().await {
-                            shutdown.ask_shutdown();
+                            cancellation_token.cancel();
                             break Some(err);
                         }
                     }
-                    _ = shutdown.wait() => break None
+                    _ = cancellation_token.cancelled() => break None
                 };
             };
 
@@ -467,6 +474,35 @@ impl<K: KeyType, V: ValueType> Tree<K, V> {
             self.tree.remove(&key)
         }
     }
+
+    #[cfg(any(test, feature = "test"))]
+    pub fn tree(&self) -> &BTreeMap<K, V> {
+        &self.tree
+    }
+}
+
+#[cfg(any(test, feature = "test"))]
+impl DatabaseManager {
+    pub fn set_loaded_db(&mut self, loaded_db: LoadedDB) {
+        self.loaded_db = loaded_db;
+    }
+}
+
+#[cfg(any(test, feature = "test"))]
+impl Database {
+    pub async fn from_dir(dir_path: &Path, loaded_db: Option<LoadedDB>) -> Result<Self, IoError> {
+        use tokio_util::task::TaskTracker;
+
+        let (mut manager, entry_tx) = DatabaseManager::open(dir_path).await?;
+        if let Some(loaded_db) = loaded_db {
+            manager.set_loaded_db(loaded_db)
+        }
+        let error_rx = manager.manager(CancellationToken::new(), TaskTracker::new().token());
+        Ok(Self {
+            entry_tx: Some(entry_tx),
+            error_rx,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -474,75 +510,14 @@ mod tests {
 
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
-        io::Error as IoError,
-        path::Path,
         time::Duration,
     };
 
-    use reaction_plugin::shutdown::ShutdownController;
     use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
-    use tokio::fs::{File, write};
+    use tokio::fs::File;
 
-    use crate::concepts::{Config, Time, now};
-
-    use super::{
-        DB_NAME, Database, DatabaseManager, Entry, KeyType, LoadedDB, Tree, ValueType, helpers::*,
-        raw::WriteDB, rotate_db,
-    };
-
-    impl DatabaseManager {
-        pub fn set_loaded_db(&mut self, loaded_db: LoadedDB) {
-            self.loaded_db = loaded_db;
-        }
-    }
-
-    impl Database {
-        pub async fn from_dir(
-            dir_path: &Path,
-            loaded_db: Option<LoadedDB>,
-        ) -> Result<Self, IoError> {
-            let config_path = dir_path.join("reaction.jsonnet");
-            write(
-                &config_path,
-                format!(
-                    "
-        {{
-            state_directory: {dir_path:?},
-            patterns: {{ pattern: {{ regex: \"prout\" }} }},
-            streams: {{ dummy: {{
-                    cmd: [\"dummy\"],
-                    filters: {{ dummy: {{
-                            regex: [\"dummy\"],
-                            actions: {{ dummy: {{
-                                cmd: [\"dummy\"]
-                            }} }}
-                    }} }}
-            }} }}
-        }}
-        "
-                ),
-            )
-            .await?;
-
-            let config = Config::from_path(&config_path).unwrap();
-            let (mut manager, entry_tx) = DatabaseManager::open(&config).await?;
-            if let Some(loaded_db) = loaded_db {
-                manager.set_loaded_db(loaded_db)
-            }
-            let error_rx = manager.manager(ShutdownController::new().token());
-            Ok(Self {
-                entry_tx: Some(entry_tx),
-                error_rx,
-            })
-        }
-    }
-
-    impl<K: KeyType, V: ValueType> Tree<K, V> {
-        pub fn tree(&self) -> &BTreeMap<K, V> {
-            &self.tree
-        }
-    }
+    use super::{DB_NAME, Database, Entry, Time, helpers::*, now, raw::WriteDB, rotate_db};
 
     #[tokio::test]
     async fn test_rotate_db() {

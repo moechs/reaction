@@ -13,7 +13,7 @@ use tokio::{
 };
 use tracing::error;
 
-use crate::concepts::Time;
+use crate::time::Time;
 
 use super::{Entry, LoadedDB};
 
@@ -265,11 +265,9 @@ mod tests {
     use tokio::fs::{File, read, write};
 
     use crate::{
-        concepts::{Time, now},
-        treedb::{
-            Entry,
-            raw::{DB_TREE_ID, DatabaseError, ReadDB, WriteDB},
-        },
+        Entry,
+        raw::{DB_TREE_ID, DatabaseError, ReadDB, WriteDB},
+        time::{Time, now},
     };
 
     #[tokio::test]

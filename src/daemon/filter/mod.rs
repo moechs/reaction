@@ -15,8 +15,8 @@ use crate::{
     concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
     daemon::plugin::Plugins,
     protocol::{Order, PatternStatus},
-    treedb::Database,
 };
+use treedb::Database;
 
 use state::State;
 
