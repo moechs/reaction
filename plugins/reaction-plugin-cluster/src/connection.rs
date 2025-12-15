@@ -1,10 +1,4 @@
-use std::{
-    cmp::max,
-    collections::VecDeque,
-    io::Error as IoError,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{cmp::max, io::Error as IoError, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use iroh::{
@@ -18,6 +12,11 @@ use tokio::{
     sync::mpsc,
     time::sleep,
 };
+use treedb::{
+    Database, Tree,
+    helpers::{to_string, to_time},
+    time::{Time, now},
+};
 
 use crate::{
     cluster::{ALPN, UtcLine, connect_config},
@@ -26,18 +25,17 @@ use crate::{
 
 const PROTOCOL_VERSION: u32 = 1;
 
-type RemoteLine = (String, Duration);
+const CLOSE_RECV: (u32, &[u8]) = (1, b"error receiving from your stream");
+const CLOSE_CLOSED: (u32, &[u8]) = (2, b"you closed your stream");
+const CLOSE_SEND: (u32, &[u8]) = (3, b"could not send a message to your channel so I quit");
+
+type RemoteLine = (String, Time);
 type MaybeRemoteLine = Result<Option<RemoteLine>, IoError>;
 
 enum Event {
     LocalMessageReceived(Option<UtcLine>),
     RemoteMessageReceived(MaybeRemoteLine),
     ConnectionReceived(Option<ConnOrConn>),
-}
-
-enum Insert {
-    Front,
-    Back,
 }
 
 pub struct OwnConnection {
@@ -47,7 +45,8 @@ pub struct OwnConnection {
     line_tx: BufWriter<SendStream>,
     line_rx: BufReader<RecvStream>,
 
-    next_time: Option<Duration>,
+    next_time_secs: Option<u64>,
+    next_time_nanos: Option<u32>,
     next_len: Option<usize>,
     next_line: Option<Vec<u8>>,
 }
@@ -64,17 +63,19 @@ impl OwnConnection {
             id,
             line_tx,
             line_rx,
-            next_time: None,
+            next_time_secs: None,
+            next_time_nanos: None,
             next_len: None,
             next_line: None,
         }
     }
 
     /// Send a line to peer
-    async fn send_line(&mut self, line: RemoteLine) -> Result<(), std::io::Error> {
-        self.line_tx.write_u64(line.1.as_micros() as u64).await?;
-        self.line_tx.write_u32(line.0.len() as u32).await?;
-        self.line_tx.write_all(line.0.as_bytes()).await?;
+    async fn send_line(&mut self, line: &String, time: &Time) -> Result<(), std::io::Error> {
+        self.line_tx.write_u64(time.as_secs()).await?;
+        self.line_tx.write_u32(time.subsec_nanos()).await?;
+        self.line_tx.write_u32(line.len() as u32).await?;
+        self.line_tx.write_all(line.as_bytes()).await?;
         self.line_tx.flush().await?;
         Ok(())
     }
@@ -82,10 +83,12 @@ impl OwnConnection {
     /// Cancel-safe function that returns next line from peer
     /// Returns None if we don't have all data yet.
     async fn recv_line(&mut self) -> Result<Option<RemoteLine>, std::io::Error> {
-        if self.next_time.is_none() {
-            self.next_time = Some(Duration::from_micros(self.line_rx.read_u64().await?));
+        if self.next_time_secs.is_none() {
+            self.next_time_secs = Some(self.line_rx.read_u64().await?);
         }
-        // Ok we have next_time.is_some()
+        if self.next_time_nanos.is_none() {
+            self.next_time_nanos = Some(self.line_rx.read_u32().await?);
+        }
         if self.next_len.is_none() {
             self.next_len = Some(self.line_rx.read_u32().await? as usize);
         }
@@ -117,7 +120,11 @@ impl OwnConnection {
             let line = String::try_from(self.next_line.take().unwrap()).map_err(|err| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string())
             })?;
-            Ok(Some((line, self.next_time.take().unwrap())))
+            let time = Time::new(
+                self.next_time_secs.take().unwrap(),
+                self.next_time_nanos.take().unwrap(),
+            );
+            Ok(Some((line, time)))
         } else {
             // Ok we don't have a full line, will be next time!
             Ok(None)
@@ -154,7 +161,7 @@ pub struct ConnectionManager {
     /// Message we receive from actions
     message_rx: mpsc::Receiver<UtcLine>,
     /// Our queue of messages to send
-    message_queue: VecDeque<UtcLine>,
+    message_queue: Tree<Time, Arc<String>>,
 
     /// Messages we send from remote nodes to our own stream
     own_cluster_tx: remoc::rch::mpsc::Sender<Line>,
@@ -164,16 +171,26 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(
+    pub async fn new(
         cluster_name: String,
         remote: EndpointAddr,
         endpoint: Arc<Endpoint>,
         message_timeout: Duration,
         message_rx: mpsc::Receiver<UtcLine>,
         own_cluster_tx: remoc::rch::mpsc::Sender<Line>,
+        db: &mut Database,
         shutdown: ShutdownController,
-    ) -> (Self, mpsc::Sender<ConnOrConn>) {
+    ) -> Result<(Self, mpsc::Sender<ConnOrConn>), String> {
         let node_id = remote.id.show();
+
+        let message_queue = db
+            .open_tree(
+                format!("message_queue_{}_{}", endpoint.id().show(), node_id),
+                message_timeout,
+                |(key, value)| Ok((to_time(&key)?, Arc::new(to_string(&value)?))),
+            )
+            .await?;
+
         let (connection_tx, connection_rx) = mpsc::channel(1);
         let (ask_connection, order_start) = mpsc::channel(1);
         try_connect(
@@ -184,7 +201,7 @@ impl ConnectionManager {
             connection_tx.clone(),
             order_start,
         );
-        (
+        Ok((
             Self {
                 cluster_name,
                 node_id,
@@ -195,12 +212,12 @@ impl ConnectionManager {
                 last_connection_id: 0,
                 message_timeout,
                 message_rx,
-                message_queue: VecDeque::default(),
+                message_queue,
                 own_cluster_tx,
                 shutdown,
             },
             connection_tx,
-        )
+        ))
     }
 
     /// Main loop
@@ -246,7 +263,7 @@ impl ConnectionManager {
                 self.handle_connection(connection).await;
             }
             Event::LocalMessageReceived(utc_line) => {
-                self.handle_local_message(utc_line, Insert::Back).await;
+                self.handle_local_message(utc_line).await;
             }
             Event::RemoteMessageReceived(message) => {
                 self.handle_remote_message(message).await;
@@ -255,24 +272,41 @@ impl ConnectionManager {
     }
 
     async fn send_queue_messages(&mut self) {
-        while self.connection.is_some()
-            && let Some(message) = self.message_queue.pop_front()
+        while let Some(connection) = &mut self.connection
+            && let Some((time, line)) = self
+                .message_queue
+                .first_key_value()
+                .map(|(k, v)| (k.clone(), v.clone()))
         {
-            self.handle_local_message(Some(message), Insert::Front)
-                .await;
+            if let Err(err) = connection.send_line(&line, &time).await {
+                eprintln!(
+                    "INFO cluster {}: connection with node {} failed: {err}",
+                    self.cluster_name, self.node_id,
+                );
+                self.close_connection(CLOSE_SEND).await;
+            } else {
+                self.message_queue.remove(&time).await;
+                eprintln!(
+                    "DEBUG cluster {}: node {}: sent a local message to remote: {}",
+                    self.cluster_name, self.node_id, line
+                );
+            }
         }
     }
 
     async fn drop_timeout_messages(&mut self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let now = now();
         let mut count = 0;
-        while self
-            .message_queue
-            .front()
-            .is_some_and(|element| element.1 + self.message_timeout < now)
-        {
-            self.message_queue.pop_front();
-            count += 1;
+        loop {
+            // We have a next key and it reached timeout
+            if let Some(next_key) = self.message_queue.first_key_value().map(|kv| kv.0.clone())
+                && next_key + self.message_timeout < now
+            {
+                self.message_queue.remove(&next_key).await;
+                count += 1;
+            } else {
+                break;
+            }
         }
         if count > 0 {
             eprintln!(
@@ -343,20 +377,23 @@ impl ConnectionManager {
                     "WARN cluster {}: node {}: connection {}: error receiving remote message: {err}",
                     self.cluster_name, self.node_id, self.last_connection_id
                 );
-                self.close_connection(1, b"error receiving from your stream")
-                    .await;
+                self.close_connection(CLOSE_RECV).await;
             }
             Ok(None) => {
                 eprintln!(
                     "WARN cluster {}: node {} closed its stream",
                     self.cluster_name, self.node_id,
                 );
-                self.close_connection(1, b"you closed your stream").await;
+                self.close_connection(CLOSE_CLOSED).await;
             }
             Ok(Some(line)) => {
                 // TODO from_utc
                 let local_time = line.1;
-                if let Err(err) = self.own_cluster_tx.send((line.0.clone(), local_time)).await {
+                if let Err(err) = self
+                    .own_cluster_tx
+                    .send((line.0.clone(), local_time.into()))
+                    .await
+                {
                     eprintln!(
                         "ERROR cluster {}: could not send message to reaction stream: {err}",
                         self.cluster_name
@@ -376,7 +413,7 @@ impl ConnectionManager {
         }
     }
 
-    async fn handle_local_message(&mut self, message: Option<UtcLine>, insert: Insert) {
+    async fn handle_local_message(&mut self, message: Option<UtcLine>) {
         eprintln!(
             "DEBUG cluster {}: node {}: received a local message",
             self.cluster_name, self.node_id,
@@ -392,17 +429,13 @@ impl ConnectionManager {
             Some(message) => match &mut self.connection {
                 Some(connection) => {
                     // TODO to_utc
-                    if let Err(err) = connection.send_line((message.0.clone(), message.1)).await {
+                    if let Err(err) = connection.send_line(&message.0, &message.1).await {
                         eprintln!(
                             "INFO cluster {}: connection with node {} failed: {err}",
                             self.cluster_name, self.node_id,
                         );
-                        self.message_queue.push_back(message);
-                        self.close_connection(
-                            0,
-                            b"could not send a message to your channel so I quit",
-                        )
-                        .await;
+                        self.message_queue.insert(message.1, message.0).await;
+                        self.close_connection(CLOSE_SEND).await;
                     } else {
                         eprintln!(
                             "DEBUG cluster {}: node {}: sent a local message to remote: {}",
@@ -415,19 +448,17 @@ impl ConnectionManager {
                         "DEBUG cluster {}: node {}: no connection, saving local message to send later: {}",
                         self.cluster_name, self.node_id, message.0
                     );
-                    if let Insert::Front = insert {
-                        self.message_queue.push_front(message);
-                    } else {
-                        self.message_queue.push_back(message);
-                    }
+                    self.message_queue.insert(message.1, message.0).await;
                 }
             },
         }
     }
 
-    async fn close_connection(&mut self, code: u32, reason: &[u8]) {
+    async fn close_connection(&mut self, code: (u32, &[u8])) {
         if let Some(connection) = self.connection.take() {
-            connection.connection.close(VarInt::from_u32(code), reason);
+            connection
+                .connection
+                .close(VarInt::from_u32(code.0), code.1);
         }
         self.ask_connection().await;
     }

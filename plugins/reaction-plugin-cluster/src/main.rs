@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -11,16 +12,14 @@ use reaction_plugin::{
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
+use treedb::Database;
+
+use crate::key::Show;
 
 mod cluster;
 mod connection;
 mod endpoint;
 mod key;
-
-use crate::{
-    cluster::{bind, cluster_tasks},
-    key::{Show, key_b64_to_bytes, secret_key},
-};
 
 #[tokio::main]
 async fn main() {
@@ -125,7 +124,7 @@ impl PluginInfo for Plugin {
             .map_err(|err| format!("invalid message_timeout: {err}"))?;
 
         for node in options.nodes.into_iter() {
-            let bytes = key_b64_to_bytes(&node.public_key)
+            let bytes = key::key_b64_to_bytes(&node.public_key)
                 .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
 
             let public_key = PublicKey::from_bytes(&bytes)
@@ -144,7 +143,7 @@ impl PluginInfo for Plugin {
             );
         }
 
-        let secret_key = secret_key(".", &stream_name).await?;
+        let secret_key = key::secret_key(".", &stream_name).await?;
         eprintln!(
             "INFO public key of this node for cluster {stream_name}: {}",
             secret_key.public().show()
@@ -207,14 +206,24 @@ impl PluginInfo for Plugin {
     }
 
     async fn finish_setup(&mut self) -> RemoteResult<()> {
+        let mut db = {
+            let path = PathBuf::from(".");
+            let (cancellation_token, task_tracker_token) = self.cluster_shutdown.token().split();
+            Database::open(&path, cancellation_token, task_tracker_token)
+                .await
+                .map_err(|err| format!("Can't open database: {err}"))?
+        };
+
         while let Some((stream_name, stream)) = self.streams.pop_first() {
-            let endpoint = bind(&stream).await?;
-            cluster_tasks(
+            let endpoint = cluster::bind(&stream).await?;
+            cluster::cluster_tasks(
                 endpoint,
                 stream,
                 self.actions.remove(&stream_name).unwrap_or_default(),
+                &mut db,
                 self.cluster_shutdown.clone(),
-            );
+            )
+            .await?;
         }
         // Check there is no action left
         if !self.actions.is_empty() {

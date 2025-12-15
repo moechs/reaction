@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     net::{SocketAddrV4, SocketAddrV6},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use futures::future::join_all;
@@ -13,12 +13,16 @@ use iroh::{
 use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
 use tokio::sync::mpsc as tokioMpsc;
+use treedb::{
+    Database,
+    time::{Time, now},
+};
 
 use crate::{ActionInit, StreamInit, connection::ConnectionManager, endpoint::EndpointManager};
 
 pub const ALPN: [&[u8]; 1] = ["reaction_cluster_1".as_bytes()];
 
-pub type UtcLine = Arc<(String, Duration)>;
+pub type UtcLine = (Arc<String>, Time);
 
 pub fn transport_config() -> TransportConfig {
     // FIXME higher timeouts and keep alive
@@ -56,12 +60,13 @@ pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
     })
 }
 
-pub fn cluster_tasks(
+pub async fn cluster_tasks(
     endpoint: Endpoint,
     mut stream: StreamInit,
     mut actions: Vec<ActionInit>,
+    db: &mut Database,
     shutdown: ShutdownController,
-) {
+) -> Result<(), String> {
     eprintln!("DEBUG cluster tasks starts running");
 
     let (message_action2connection_txs, mut message_action2connection_rxs): (
@@ -100,8 +105,10 @@ pub fn cluster_tasks(
             stream.message_timeout,
             message_action2connection_rx,
             stream_tx,
+            db,
             shutdown,
-        );
+        )
+        .await?;
         tokio::spawn(async move { connection_manager.task().await });
         connection_endpoint2connection_txs.insert(pk, connection_endpoint2connection_tx);
     }
@@ -115,6 +122,7 @@ pub fn cluster_tasks(
     );
 
     eprintln!("DEBUG cluster tasks finished running");
+    Ok(())
 }
 
 impl ActionInit {
@@ -127,15 +135,15 @@ impl ActionInit {
         while let Ok(Some(m)) = self.rx.recv().await {
             eprintln!("DEBUG action: received a message to send to connections");
             let line = self.send.line(m.match_);
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            let now = now();
             if self.self_
-                && let Err(err) = own_stream_tx.send((line.clone(), now.clone())).await
+                && let Err(err) = own_stream_tx.send((line.clone(), now.into())).await
             {
                 eprintln!("ERROR while queueing message to be sent to own cluster stream: {err}");
             }
 
             // TODO to_utc
-            let line = Arc::new((line, now));
+            let line = (Arc::new(line), now);
             for result in join_all(nodes_tx.iter().map(|tx| tx.send(line.clone()))).await {
                 if let Err(err) = result {
                     eprintln!("ERROR while queueing message to be sent to cluster nodes: {err}");
