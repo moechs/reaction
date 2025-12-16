@@ -156,7 +156,7 @@ async fn simple() {
 
     config_with_cmd(
         config_path,
-        "for i in 12 24 36 56 67; do echo here is $i; sleep 0.01; done",
+        "sleep 0.02; for i in 12 24 36 56 67; do echo here is $i; sleep 0.01; done",
     );
 
     file_with_contents(out_path, "");
