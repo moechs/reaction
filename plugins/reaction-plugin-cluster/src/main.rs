@@ -21,6 +21,9 @@ mod connection;
 mod endpoint;
 mod key;
 
+#[cfg(test)]
+mod tests;
+
 #[tokio::main]
 async fn main() {
     let plugin = Plugin::default();
@@ -63,6 +66,7 @@ fn ipv6_unspecified() -> Option<Ipv6Addr> {
 #[derive(Serialize, Deserialize)]
 struct NodeOption {
     public_key: String,
+    #[serde(default)]
     addresses: Vec<SocketAddr>,
 }
 
@@ -123,6 +127,16 @@ impl PluginInfo for Plugin {
         let message_timeout = parse_duration(&options.message_timeout)
             .map_err(|err| format!("invalid message_timeout: {err}"))?;
 
+        if options.bind_ipv4.is_none() && options.bind_ipv6.is_none() {
+            Err(
+                "At least one of bind_ipv4 and bind_ipv6 must be enabled. Unset at least one of them or set at least one of them to an IP.",
+            )?;
+        }
+
+        if options.nodes.is_empty() {
+            Err("At least one remote node has to be configured for a cluster")?;
+        }
+
         for node in options.nodes.into_iter() {
             let bytes = key::key_b64_to_bytes(&node.public_key)
                 .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
@@ -182,7 +196,7 @@ impl PluginInfo for Plugin {
         patterns: Vec<String>,
     ) -> RemoteResult<ActionImpl> {
         if &action_type != "cluster_send" {
-            return Err("This plugin can't handle other action types than cluster".into());
+            return Err("This plugin can't handle other action types than 'cluster_send'".into());
         }
 
         let options: ActionOptions = serde_json::from_value(config.into())

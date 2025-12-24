@@ -145,6 +145,9 @@ async fn conf_send() {
     assert!(plugin.finish_setup().await.is_err());
 }
 
+// Let's allow empty streams for now.
+// I guess it can be useful to have manual only actions.
+//
 // #[tokio::test]
 // async fn conf_empty_stream() {
 //     let mut plugin = Plugin::default();
