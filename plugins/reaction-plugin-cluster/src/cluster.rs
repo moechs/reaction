@@ -13,10 +13,7 @@ use iroh::{
 use reaction_plugin::{Line, shutdown::ShutdownController};
 use remoc::rch::mpsc as remocMpsc;
 use tokio::sync::mpsc as tokioMpsc;
-use treedb::{
-    Database,
-    time::{Time, now},
-};
+use treedb::{Database, time::Time};
 
 use crate::{ActionInit, StreamInit, connection::ConnectionManager, endpoint::EndpointManager};
 
@@ -135,14 +132,13 @@ impl ActionInit {
         while let Ok(Some(m)) = self.rx.recv().await {
             eprintln!("DEBUG action: received a message to send to connections");
             let line = self.send.line(m.match_);
-            let now = now();
             if self.self_
-                && let Err(err) = own_stream_tx.send((line.clone(), now.into())).await
+                && let Err(err) = own_stream_tx.send((line.clone(), m.time)).await
             {
                 eprintln!("ERROR while queueing message to be sent to own cluster stream: {err}");
             }
 
-            let line = (Arc::new(line), now);
+            let line = (Arc::new(line), m.time.into());
             for result in join_all(nodes_tx.iter().map(|tx| tx.send(line.clone()))).await {
                 if let Err(err) = result {
                     eprintln!("ERROR while queueing message to be sent to cluster nodes: {err}");
