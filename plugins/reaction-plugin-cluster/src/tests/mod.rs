@@ -4,6 +4,7 @@ use serde_json::json;
 
 mod conf;
 mod e2e;
+mod self_;
 
 const SECRET_KEY_A: &str = "g7U1LPq2cgGSyk6CH_v1QpoXowSFKVQ8IcFljd_ZKGw=";
 const PUBLIC_KEY_A: &str = "HhVh7ghqpXM9375HZ82OOeB504HBSS25wgug-1vUggY=";
