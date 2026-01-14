@@ -147,11 +147,16 @@ pub struct ConnectionManager {
     cluster_name: String,
     /// The remote node we're communicating with (for logging)
     node_id: String,
+    /// Remote
+    remote: EndpointAddr,
+    /// Endpoint
+    endpoint: Arc<Endpoint>,
 
-    /// Ask for a connection
-    ask_connection: mpsc::Sender<mpsc::Receiver<()>>,
+    /// Cancel asking for a connection
     cancel_ask_connection: Option<mpsc::Sender<()>>,
-    /// The EndpointManager sending us a connection (whether we asked for it or not)
+    /// Create a delegated task to send ourselves a connection
+    connection_tx: mpsc::Sender<ConnOrConn>,
+    /// The EndpointManager or our delegated task sending us a connection (whether we asked for it or not)
     connection_rx: mpsc::Receiver<ConnOrConn>,
     /// Our own connection (when we have one)
     connection: Option<OwnConnection>,
@@ -194,22 +199,15 @@ impl ConnectionManager {
             .await?;
 
         let (connection_tx, connection_rx) = mpsc::channel(1);
-        let (ask_connection, order_start) = mpsc::channel(1);
-        try_connect(
-            cluster_name.clone(),
-            remote.clone(),
-            endpoint.clone(),
-            0,
-            connection_tx.clone(),
-            order_start,
-        );
         Ok((
             Self {
                 cluster_name,
                 node_id,
+                remote,
+                endpoint,
                 connection: None,
-                ask_connection,
                 cancel_ask_connection: None,
+                connection_tx: connection_tx.clone(),
                 connection_rx,
                 last_connection_id: 0,
                 message_timeout,
@@ -224,7 +222,7 @@ impl ConnectionManager {
 
     /// Main loop
     pub async fn task(mut self) {
-        self.ask_connection().await;
+        self.ask_connection();
         loop {
             let have_connection = self.connection.is_some();
             let maybe_conn_rx = self
@@ -353,7 +351,14 @@ impl ConnectionManager {
 
                 match connection {
                     ConnOrConn::Connection(connection) => {
-                        match open_channels(connection, last_connection_id).await {
+                        match open_channels(
+                            connection,
+                            last_connection_id,
+                            &self.cluster_name,
+                            &self.node_id,
+                        )
+                        .await
+                        {
                             Ok(own_connection) => insert_connection(own_connection),
                             Err(err) => {
                                 eprintln!(
@@ -361,7 +366,7 @@ impl ConnectionManager {
                                     self.cluster_name, self.node_id,
                                 );
                                 if self.connection.is_none() {
-                                    self.ask_connection().await;
+                                    self.ask_connection();
                                 }
                             }
                         }
@@ -459,21 +464,21 @@ impl ConnectionManager {
                 .connection
                 .close(VarInt::from_u32(code.0), code.1);
         }
-        self.ask_connection().await;
+        self.ask_connection();
     }
 
-    async fn ask_connection(&mut self) {
+    fn ask_connection(&mut self) {
         // if self.node_id.starts_with('H') {
         let (tx, rx) = mpsc::channel(1);
         self.cancel_ask_connection = Some(tx);
-        if let Err(err) = self.ask_connection.send(rx).await {
-            eprintln!(
-                "ERROR cluster {}: node {}: quitting because our connection initiater quitted: {}",
-                self.cluster_name, self.node_id, err
-            );
-            self.quit();
-        }
-        // }
+        try_connect(
+            self.cluster_name.clone(),
+            self.remote.clone(),
+            self.endpoint.clone(),
+            self.last_connection_id,
+            self.connection_tx.clone(),
+            rx,
+        );
     }
 
     fn quit(&mut self) {
@@ -486,21 +491,35 @@ impl ConnectionManager {
 async fn open_channels(
     connection: Connection,
     last_connexion_id: u64,
+    cluster_name: &str,
+    node_id: &str,
 ) -> Result<OwnConnection, IoError> {
-    eprintln!("DEBUG opening uni channel");
+    eprintln!(
+        "DEBUG cluster {}: node {}: opening uni channel",
+        cluster_name, node_id
+    );
     let mut output = BufWriter::new(connection.open_uni().await?);
 
     let our_id = random_range(last_connexion_id + 1..last_connexion_id + 1_000_000);
 
-    eprintln!("DEBUG sending handshake in uni channel");
+    eprintln!(
+        "DEBUG cluster {}: node {}: sending handshake in uni channel",
+        cluster_name, node_id
+    );
     output.write_u32(PROTOCOL_VERSION).await?;
     output.write_u64(our_id).await?;
     output.flush().await?;
 
-    eprintln!("DEBUG accepting uni channel");
+    eprintln!(
+        "DEBUG cluster {}: node {}: accepting uni channel",
+        cluster_name, node_id
+    );
     let mut input = BufReader::new(connection.accept_uni().await?);
 
-    eprintln!("DEBUG reading handshake from uni channel");
+    eprintln!(
+        "DEBUG cluster {}: node {}: reading handshake from uni channel",
+        cluster_name, node_id
+    );
     let their_version = input.read_u32().await?;
 
     if their_version != PROTOCOL_VERSION {
@@ -519,7 +538,8 @@ async fn open_channels(
     // else
     let chosen_id = max(our_id, their_id);
     eprintln!(
-        "DEBUG version handshake complete: last id: {last_connexion_id}, our id: {our_id}, their id: {their_id}: chosen id: {chosen_id}"
+        "DEBUG cluster {}: node {}: version handshake complete: last id: {last_connexion_id}, our id: {our_id}, their id: {their_id}: chosen id: {chosen_id}",
+        cluster_name, node_id
     );
     Ok(OwnConnection::new(connection, chosen_id, output, input))
 }
@@ -528,14 +548,19 @@ async fn false_recv() -> MaybeRemoteLine {
     Ok(None)
 }
 
-const START_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
+const START_TIMEOUT: Duration = Duration::from_millis(500);
+const MAX_TIMEOUT: Duration = Duration::from_hours(1);
 const TIMEOUT_FACTOR: f64 = 1.5;
+
+fn with_random(d: Duration) -> Duration {
+    let max_delta = d.as_micros() as f32 * 0.2;
+    d + Duration::from_micros(rand::random_range(0.0..max_delta) as u64)
+}
 
 // Compute the next wait Duration.
 // We're multiplying the Duration by [`TIMEOUT_FACTOR`] and cap it to [`MAX_TIMEOUT`].
 fn next_delta(delta: Option<Duration>) -> Duration {
-    match delta {
+    with_random(match delta {
         None => START_TIMEOUT,
         Some(delta) => {
             // Multiply timeout by TIMEOUT_FACTOR
@@ -547,6 +572,18 @@ fn next_delta(delta: Option<Duration>) -> Duration {
                 delta
             }
         }
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn test_with_random() {
+    for d in [
+        123, 1234, 12345, 123456, 1234567, 12345678, 123456789, 1234567890,
+    ] {
+        let rd = with_random(Duration::from_micros(d)).as_micros();
+        assert!(rd as f32 >= d as f32, "{rd} < {d}");
+        assert!(rd as f32 <= (d + 1) as f32 * 1.2, "{rd} > {d} * 1.2");
     }
 }
 
@@ -556,69 +593,74 @@ fn try_connect(
     endpoint: Arc<Endpoint>,
     last_connection_id: u64,
     connection_tx: mpsc::Sender<ConnOrConn>,
-    mut order_start: mpsc::Receiver<mpsc::Receiver<()>>,
+    mut order_stop: mpsc::Receiver<()>,
 ) {
     tokio::spawn(async move {
         let node_id = remote.id.show();
-        // Each time we receive and order
-        while let Some(mut order_stop) = order_start.recv().await {
-            // Until we have a connection or we're requested to stop
-            let mut keep_trying = true;
-            let mut delta = None;
+        // Until we have a connection or we're requested to stop
+        let mut keep_trying = true;
+        let mut delta = None;
 
-            while keep_trying {
-                if let Some(delta) = delta {
-                    keep_trying = tokio::select! {
-                        _ = sleep(delta) => true,
-                        _ = order_stop.recv() => false,
-                    };
-                }
-                if keep_trying {
-                    eprintln!("DEBUG cluster {cluster_name}: node {node_id}: trying to connect...");
-                    let connect = tokio::select! {
-                        // conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
-                        conn = endpoint.connect_with_opts(remote.clone(), ALPN[0], connect_config()) => Some(conn),
-                        _ = order_stop.recv() => None,
-                    };
-                    if let Some(connect) = connect {
-                        let res = match connect {
-                            Ok(connecting) => match connecting.await {
-                                Ok(connection) => {
-                                    eprintln!(
-                                        "DEBUG cluster {cluster_name}: node {node_id}: created connection"
-                                    );
-                                    match open_channels(connection, last_connection_id).await {
-                                        Ok(own_connection) => {
-                                            if let Err(err) = connection_tx
-                                                .send(ConnOrConn::OwnConnection(own_connection))
-                                                .await
-                                            {
-                                                eprintln!(
-                                                    "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
-                                                );
-                                                order_start.close();
-                                            }
-                                            // successfully opened connection
-                                            keep_trying = false;
-                                            Ok(())
+        while keep_trying {
+            delta = Some(next_delta(delta));
+
+            keep_trying = tokio::select! {
+                _ = sleep(delta.unwrap_or_default()) => true,
+                _ = order_stop.recv() => false,
+            };
+            if keep_trying {
+                eprintln!("DEBUG cluster {cluster_name}: node {node_id}: trying to connect...");
+                let connect = tokio::select! {
+                    // conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
+                    conn = endpoint.connect_with_opts(remote.clone(), ALPN[0], connect_config()) => Some(conn),
+                    _ = order_stop.recv() => None,
+                };
+                if let Some(connect) = connect {
+                    let res = match connect {
+                        Ok(connecting) => match connecting.await {
+                            Ok(connection) => {
+                                eprintln!(
+                                    "DEBUG cluster {cluster_name}: node {node_id}: created connection"
+                                );
+                                match open_channels(
+                                    connection,
+                                    last_connection_id,
+                                    &cluster_name,
+                                    &node_id,
+                                )
+                                .await
+                                {
+                                    Ok(own_connection) => {
+                                        if let Err(err) = connection_tx
+                                            .send(ConnOrConn::OwnConnection(own_connection))
+                                            .await
+                                        {
+                                            eprintln!(
+                                                "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
+                                            );
                                         }
-                                        Err(err) => Err(err.to_string()),
+                                        // successfully opened connection
+                                        keep_trying = false;
+                                        Ok(())
                                     }
+                                    Err(err) => Err(err.to_string()),
                                 }
-                                Err(err) => Err(err.to_string()),
-                            },
+                            }
                             Err(err) => Err(err.to_string()),
-                        };
-                        if let Err(err) = res {
-                            eprintln!(
-                                "WARN cluster {cluster_name}: node {node_id}: while trying to connect: {err}"
-                            );
-                        }
-                    } else {
-                        // received stop order
-                        keep_trying = false;
+                        },
+                        Err(err) => Err(err.to_string()),
+                    };
+                    if let Err(err) = res {
+                        eprintln!(
+                            "WARN cluster {cluster_name}: node {node_id}: while trying to connect: {err}"
+                        );
                     }
-                    delta = Some(next_delta(delta));
+                } else {
+                    // received stop order
+                    eprintln!(
+                        "DEBUG cluster {cluster_name}: node {node_id}: stop to try connecting to node be cause we received a connection from it"
+                    );
+                    keep_trying = false;
                 }
             }
         }
