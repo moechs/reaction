@@ -7,7 +7,7 @@ use tokio::{
     io::AsyncWriteExt,
 };
 
-fn secret_key_path(dir: &str, cluster_name: &str) -> String {
+pub fn secret_key_path(dir: &str, cluster_name: &str) -> String {
     format!("{dir}/secret_key_{cluster_name}.txt")
 }
 
