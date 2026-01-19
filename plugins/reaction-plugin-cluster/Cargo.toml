@@ -16,7 +16,7 @@ tokio.features = ["rt-multi-thread"]
 treedb.workspace = true
 
 data-encoding = "2.9.0"
-iroh = { version = "0.94.0", default-features = false }
+iroh = { version = "0.95.1", default-features = false }
 rand = "0.9.2"
 
 [dev-dependencies]

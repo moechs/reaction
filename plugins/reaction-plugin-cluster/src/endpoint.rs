@@ -86,16 +86,7 @@ impl EndpointManager {
             }
         };
 
-        let remote_id = match connection.remote_id() {
-            Ok(id) => id,
-            Err(err) => {
-                eprintln!(
-                    "ERROR cluster {}: could not retrieve peer's id: {err}",
-                    self.cluster_name
-                );
-                return Break::No;
-            }
-        };
+        let remote_id = connection.remote_id();
 
         match self.connections_tx.get(&remote_id) {
             None => {
