@@ -6,7 +6,7 @@ use serde_json::json;
 use tokio::time::timeout;
 use treedb::time::now;
 
-use crate::Plugin;
+use crate::{Plugin, tests::insert_secret_key};
 
 use super::{TEST_MUTEX, stream_ok_port};
 
@@ -14,7 +14,8 @@ use super::{TEST_MUTEX, stream_ok_port};
 async fn run_with_self() {
     let _lock = TEST_MUTEX.lock();
     let dir = TempDir::new().unwrap();
-    set_current_dir(dir).unwrap();
+    set_current_dir(&dir).unwrap();
+    insert_secret_key().await;
 
     for self_ in [true, false] {
         let mut plugin = Plugin::default();

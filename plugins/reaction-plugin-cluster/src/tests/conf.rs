@@ -1,7 +1,10 @@
+use std::env::set_current_dir;
+
+use assert_fs::TempDir;
 use reaction_plugin::PluginInfo;
 use serde_json::json;
 
-use crate::Plugin;
+use crate::{Plugin, tests::insert_secret_key};
 
 use super::{PUBLIC_KEY_A, TEST_MUTEX, stream_ok, stream_ok_port};
 
@@ -195,6 +198,9 @@ async fn conf_action() {
 #[tokio::test]
 async fn conf_send() {
     let _lock = TEST_MUTEX.lock();
+    let dir = TempDir::new().unwrap();
+    set_current_dir(&dir).unwrap();
+    insert_secret_key().await;
 
     // No action is ok
     let mut plugin = Plugin::default();

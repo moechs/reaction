@@ -1,6 +1,7 @@
 use std::sync::{LazyLock, Mutex};
 
 use serde_json::json;
+use tokio::fs::write;
 
 mod conf;
 mod e2e;
@@ -27,4 +28,13 @@ fn stream_ok_port(port: u16) -> serde_json::Value {
 
 fn stream_ok() -> serde_json::Value {
     stream_ok_port(2048)
+}
+
+async fn insert_secret_key() {
+    write(
+        "./secret_key_stream.txt",
+        b"pBPcJ32bt4xGZIGZDLDtj0eedg7p5DENjAwA-wM-1vk=",
+    )
+    .await
+    .unwrap();
 }
