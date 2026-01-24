@@ -83,6 +83,7 @@ members = [
 	"crates/treedb",
 	"plugins/reaction-plugin",
 	"plugins/reaction-plugin-cluster",
+	"plugins/reaction-plugin-ipset",
 	"plugins/reaction-plugin-virtual"
 ]
 

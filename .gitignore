@@ -21,3 +21,4 @@ import-rust-db/target
 reaction-plugin/target
 /local
 .ccls-cache
+.direnv
