@@ -1,3 +1,4 @@
+# This shell.nix for NixOS users is only needed when building reaction-plugin-ipset
 with import <nixpkgs> {};
 pkgs.mkShell {
   name = "libipset";
