@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, fmt::Display, net::Ipv4Addr, process::Command, thread};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    net::Ipv4Addr,
+    process::Command,
+    thread,
+};
 
 use ipset::{
     Session,
@@ -6,7 +12,7 @@ use ipset::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub enum Version {
     IPv4,
     IPv6,
@@ -20,25 +26,28 @@ impl Display for Version {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SetOptions {
     pub name: String,
     pub version: Version,
     pub timeout: Option<u32>,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SetChain {
     pub set: String,
     pub chain: String,
     pub target: String,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Order {
     CreateSet(SetOptions),
     DestroySet(String),
     InsertSet(SetChain),
     RemoveSet(SetChain),
-    Insert(String, String),
-    Remove(String, String),
+    Add(String, String),
+    Del(String, String),
 }
 
 #[derive(Clone)]
@@ -101,7 +110,14 @@ struct Set {
 
 #[derive(Default)]
 struct IPsetManager {
+    // IPset sessions
     sessions: BTreeMap<String, Set>,
+    // All set-wise commands already run, to ignore duplicates.
+    // Duplicates are the natural cause of multiple actions
+    // (eg. add action and del action) manipulating the same sets.
+    //
+    // It's fine because no order should be run twice during the runtime of the plugin.
+    journal: BTreeSet<Order>,
 }
 
 impl IPsetManager {
@@ -118,12 +134,24 @@ impl IPsetManager {
     }
 
     fn handle_order(&mut self, order: Order) -> Result<(), String> {
+        // We only journal set-wise orders
+        // We skip the order if already run.
+        match order {
+            Order::Add(_, _) | Order::Del(_, _) => (),
+            _ => {
+                if !self.journal.insert(order.clone()) {
+                    return Ok(());
+                }
+            }
+        };
+
         match order {
             Order::CreateSet(SetOptions {
                 name,
                 version,
                 timeout,
             }) => {
+                println!("INFO creating {version} set {name}");
                 let mut session: Session<HashNet> = Session::new(name.clone());
                 session
                     .create(|builder| {
@@ -140,6 +168,7 @@ impl IPsetManager {
             }
             Order::DestroySet(set) => {
                 if let Some(mut session) = self.sessions.remove(&set) {
+                    println!("INFO destroying {} set {set}", session.version);
                     session
                         .session
                         .destroy()
@@ -147,20 +176,19 @@ impl IPsetManager {
                 }
             }
 
-            Order::InsertSet(options) => insert_remove_set(options, true)?,
-            Order::RemoveSet(options) => insert_remove_set(options, false)?,
+            Order::InsertSet(options) => self.insert_remove_set(options, true)?,
+            Order::RemoveSet(options) => self.insert_remove_set(options, false)?,
 
-            Order::Insert(set, ip) => self.insert_remove_ip(set, ip, true)?,
-            Order::Remove(set, ip) => self.insert_remove_ip(set, ip, false)?,
+            Order::Add(set, ip) => self.insert_remove_ip(set, ip, true)?,
+            Order::Del(set, ip) => self.insert_remove_ip(set, ip, false)?,
         };
         Ok(())
     }
 
     fn insert_remove_ip(&mut self, set: String, ip: String, insert: bool) -> Result<(), String> {
-        let session = self
-            .sessions
-            .get_mut(&set)
-            .ok_or(format!("No set managed by us with this name: {set}"))?;
+        let session = self.sessions.get_mut(&set).ok_or(format!(
+            "No set handled by us with this name: {set}. This likely is a bug."
+        ))?;
 
         let mut net_data = NetDataType::new(Ipv4Addr::LOCALHOST, 0);
         net_data
@@ -184,12 +212,19 @@ impl IPsetManager {
             target: action,
         } = options;
 
-        let command = match self
+        let version = self
             .sessions
             .get(&set)
             .ok_or(format!("No set managed by us with this name: {set}"))?
-            .version
-        {
+            .version;
+
+        if insert {
+            println!("INFO inserting {version} set {set} in chain {chain}");
+        } else {
+            println!("INFO removing {version} set {set} from chain {chain}");
+        }
+
+        let command = match version {
             Version::IPv4 => "iptables",
             Version::IPv6 => "ip6tables",
         };

@@ -2,41 +2,56 @@ use std::u32;
 
 use reaction_plugin::{Exec, shutdown::ShutdownToken, time::parse_duration};
 use remoc::rch::mpsc as remocMpsc;
-use serde::{Deserialize, Serialize, de::Deserializer, de::Error};
+use serde::{Deserialize, Serialize};
 
 use crate::ipset::{IpSet, Order, SetChain, SetOptions, Version};
+
+#[derive(Default, Serialize, Deserialize)]
 pub enum IpVersion {
+    #[serde(alias = "4")]
     V4,
+    #[serde(alias = "6")]
     V6,
+    #[serde(alias = "46")]
+    #[default]
     V46,
 }
-impl<'de> Deserialize<'de> for IpVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        match Option::<u8>::deserialize(deserializer)? {
-            None => Ok(IpVersion::V46),
-            Some(version) => match version {
-                4 => Ok(IpVersion::V4),
-                6 => Ok(IpVersion::V6),
-                46 => Ok(IpVersion::V46),
-                _ => Err(D::Error::custom("version must be one of 4, 6 or 46")),
-            },
-        }
-    }
-}
-impl Serialize for IpVersion {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_u8(match self {
-            IpVersion::V4 => 4,
-            IpVersion::V6 => 6,
-            IpVersion::V46 => 46,
-        })
-    }
+// impl<'de> Deserialize<'de> for IpVersion {
+//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         match Option::<u8>::deserialize(deserializer)? {
+//             None => Ok(IpVersion::V46),
+//             Some(version) => match version {
+//                 4 => Ok(IpVersion::V4),
+//                 6 => Ok(IpVersion::V6),
+//                 46 => Ok(IpVersion::V46),
+//                 _ => Err(D::Error::custom("version must be one of 4, 6 or 46")),
+//             },
+//         }
+//     }
+// }
+// impl Serialize for IpVersion {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         serializer.serialize_u8(match self {
+//             IpVersion::V4 => 4,
+//             IpVersion::V6 => 6,
+//             IpVersion::V46 => 46,
+//         })
+//     }
+// }
+
+#[derive(Default, Serialize, Deserialize)]
+pub enum AddDel {
+    #[default]
+    #[serde(alias = "add")]
+    Add,
+    #[serde(alias = "del")]
+    Del,
 }
 
 // FIXME block configs that have different set options for the same name
@@ -56,6 +71,7 @@ pub struct ActionOptions {
     /// If `4`: creates an IPv4 set with this name
     /// If `6`: creates an IPv6 set with this name
     /// If `46`: creates an IPv4 set with its name suffixed by 'v4' AND an IPv6 set with its name suffixed by 'v6'
+    #[serde(default)]
     version: IpVersion,
     /// Chains where the IP set should be inserted.
     /// Defaults to `["INPUT", "FORWARD"]`
@@ -69,7 +85,9 @@ pub struct ActionOptions {
     // Defaults to DROP, but can also be ACCEPT, RETURN or any user-defined chain
     #[serde(default = "serde_drop")]
     target: String,
-    // TODO add `add`//`remove` option
+    // Whether the action is to "add" or "del" the ip from the set
+    #[serde(default)]
+    action: AddDel,
 }
 
 fn serde_ip() -> String {
@@ -93,6 +111,7 @@ pub struct Action {
     chains: Vec<String>,
     timeout: Option<u32>,
     target: String,
+    action: AddDel,
 }
 
 impl Action {
@@ -108,6 +127,7 @@ impl Action {
             rx,
             shutdown,
             ip_index,
+            action: options.action,
             target: options.target,
             chains: options.chains,
             timeout: if let Some(timeout) = options.timeout {
@@ -144,7 +164,6 @@ impl Action {
             (&self.ipv6_set, Version::IPv6),
         ] {
             if let Some(set) = set {
-                println!("INFO creating {version} set {set}");
                 // create set
                 self.ipset
                     .order(Order::CreateSet(SetOptions {
@@ -155,7 +174,6 @@ impl Action {
                     .await?;
                 // insert set in chains
                 for chain in &self.chains {
-                    println!("INFO inserting {version} set {set} in chain {chain}");
                     self.ipset
                         .order(Order::InsertSet(SetChain {
                             set: set.clone(),
@@ -176,7 +194,6 @@ impl Action {
         ] {
             if let Some(set) = set {
                 for chain in &self.chains {
-                    println!("INFO removing {version} set {set} from chain {chain}");
                     if let Err(err) = self
                         .ipset
                         .order(Order::RemoveSet(SetChain {
@@ -191,7 +208,6 @@ impl Action {
                         );
                     }
                 }
-                println!("INFO destroying {version} set {set}");
                 if let Err(err) = self.ipset.order(Order::DestroySet(set.clone())).await {
                     println!("ERROR while destroying {version} set {set}: {err}");
                 }
@@ -251,8 +267,13 @@ impl Action {
                 }
             }
         };
-        // add ip to set
-        self.ipset.order(Order::Insert(set.clone(), ip)).await?;
+        // add/remove ip to set
+        self.ipset
+            .order(match self.action {
+                AddDel::Add => Order::Add(set.clone(), ip),
+                AddDel::Del => Order::Del(set.clone(), ip),
+            })
+            .await?;
         Ok(())
     }
 }

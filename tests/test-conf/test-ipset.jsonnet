@@ -29,41 +29,20 @@
               type: 'ipset',
               options: {
                 set: 'reactiontest',
-                pattern: 'ip',
-                version: 46,
-                chains: ['INPUT', 'FORWARD'],
+                // pattern: 'ip',
+                // version: 46,
+                // chains: ['INPUT', 'FORWARD'],
+                // target: 'DROP',
+                // action: 'add',
               },
             },
-            b0: {
-              type: 'cluster_send',
-              options: {
-                send: 'NODE b0 <num>',
-                to: 's1',
-              },
-              after: '1s',
-            },
-          },
-        },
-      },
-    },
-    s1: {
-      type: 'cluster',
-      options: {
-        listen_port: 1234,
-        bind_ipv4: '127.0.0.1',
-        bind_ipv6: null,
-        message_timeout: '30s',
-        nodes: [{
-          public_key: 'PUBLIC_KEY',
-          addresses: ['127.0.0.1:4321'],
-        }],
-      },
-      filters: {
-        f1: {
-          regex: ['^<all>$'],
-          actions: {
             a1: {
-              cmd: ['sh', '-c', 'echo <all> >>./log'],
+              after: '10s',
+              type: 'ipset',
+              options: {
+                set: 'reactiontest',
+                action: 'del',
+              },
             },
           },
         },
