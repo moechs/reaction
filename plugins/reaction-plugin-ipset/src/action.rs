@@ -219,13 +219,13 @@ impl Set {
                         }))
                         .await
                     {
-                        println!(
+                        eprintln!(
                             "ERROR while removing {version} set {set} from chain {chain}: {err}"
                         );
                     }
                 }
                 if let Err(err) = ipset.order(Order::DestroySet(set.clone())).await {
-                    println!("ERROR while destroying {version} set {set}: {err}");
+                    eprintln!("ERROR while destroying {version} set {set}: {err}");
                 }
             }
         }
@@ -294,18 +294,19 @@ impl Action {
                 Some(Ok(None)) => break,
                 // error from channel
                 Some(Err(err)) => {
-                    println!("ERROR {err}");
+                    eprintln!("ERROR {err}");
                     break;
                 }
                 // ok
                 Some(Ok(Some(exec))) => {
                     if let Err(err) = self.handle_exec(exec).await {
-                        println!("ERROR {err}");
+                        eprintln!("ERROR {err}");
                         break;
                     }
                 }
             }
         }
+        eprintln!("DEBUG Asking for shutdown");
         self.shutdown.ask_shutdown();
     }
 
