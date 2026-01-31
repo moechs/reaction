@@ -9,7 +9,7 @@
   },
 
   plugins: {
-    cluster: {
+    ipset: {
       path: './target/debug/reaction-plugin-ipset',
       check_root: false,
       systemd_options: {

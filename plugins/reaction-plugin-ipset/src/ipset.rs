@@ -1,10 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Display,
-    net::Ipv4Addr,
-    process::Command,
-    thread,
-};
+use std::{collections::BTreeMap, fmt::Display, net::Ipv4Addr, process::Command, thread};
 
 use ipset::{
     Session,
@@ -27,7 +21,7 @@ impl Display for Version {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct SetOptions {
+pub struct CreateSet {
     pub name: String,
     pub version: Version,
     pub timeout: Option<u32>,
@@ -42,7 +36,7 @@ pub struct SetChain {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Order {
-    CreateSet(SetOptions),
+    CreateSet(CreateSet),
     DestroySet(String),
     InsertSet(SetChain),
     RemoveSet(SetChain),
@@ -112,12 +106,6 @@ struct Set {
 struct IPsetManager {
     // IPset sessions
     sessions: BTreeMap<String, Set>,
-    // All set-wise commands already run, to ignore duplicates.
-    // Duplicates are the natural cause of multiple actions
-    // (eg. add action and del action) manipulating the same sets.
-    //
-    // It's fine because no order should be run twice during the runtime of the plugin.
-    journal: BTreeSet<Order>,
 }
 
 impl IPsetManager {
@@ -134,19 +122,8 @@ impl IPsetManager {
     }
 
     fn handle_order(&mut self, order: Order) -> Result<(), String> {
-        // We only journal set-wise orders
-        // We skip the order if already run.
         match order {
-            Order::Add(_, _) | Order::Del(_, _) => (),
-            _ => {
-                if !self.journal.insert(order.clone()) {
-                    return Ok(());
-                }
-            }
-        };
-
-        match order {
-            Order::CreateSet(SetOptions {
+            Order::CreateSet(CreateSet {
                 name,
                 version,
                 timeout,
