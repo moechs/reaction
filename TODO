@@ -1,4 +1,3 @@
 Test what happens when a Filter's pattern Set changes (I think it's shitty)
 DB: add tests on stress testing (lines should always be in order)
 conf: merge filters
-plugins: pipe stderr too and wrap errors in logs. fix errors?

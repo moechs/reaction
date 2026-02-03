@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use futures::FutureExt;
-use tokio::{process::Child, time::sleep};
+use tokio::{process::Child, time::timeout};
 use tracing::{error, warn};
 
 pub async fn kill_child(mut child: Child, context: String, grace_time_sec: u64) {
@@ -15,14 +14,11 @@ pub async fn kill_child(mut child: Child, context: String, grace_time_sec: u64) 
         // but we still need to reclaim it with Child::wait
         let _ = nix::sys::signal::kill(pid, nix::sys::signal::SIGTERM);
 
-        futures::select! {
-            _ = child.wait().fuse() => {
-                return;
-            },
-            _ = sleep(Duration::from_secs(grace_time_sec)).fuse() => {},
+        if let Ok(_) = timeout(Duration::from_secs(grace_time_sec), child.wait()).await {
+            return;
         }
     } else {
-        warn!("could not get PID of child process for {}", context);
+        warn!("could not get PID of child process for {context}");
         // still try to use tokio API to kill and reclaim the child process
     }
 
@@ -33,12 +29,23 @@ pub async fn kill_child(mut child: Child, context: String, grace_time_sec: u64) 
 
     // as before, the only expected error is that the child process already terminated
     // but we still need to reclaim it if that's the case.
+    warn!("process for {context} didn't exit {grace_time_sec}s after SIGTERM, sending SIGKILL");
     let _ = child.start_kill();
 
-    futures::select! {
-        _ = child.wait().fuse() => {}
-        _ = sleep(Duration::from_secs(STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC)).fuse() => {
-            error!("child process of {} did not terminate", context);
-        }
+    match timeout(
+        Duration::from_secs(STREAM_PROCESS_KILL_WAIT_TIMEOUT_SEC),
+        child.wait(),
+    )
+    .await
+    {
+        Ok(_) => {}
+        Err(_) => match child.id() {
+            Some(id) => {
+                error!("child process of {context} did not terminate. PID: {id}");
+            }
+            None => {
+                error!("child process of {context} did not terminate");
+            }
+        },
     }
 }
