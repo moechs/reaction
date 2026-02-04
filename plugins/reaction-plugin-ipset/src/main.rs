@@ -124,7 +124,7 @@ impl PluginInfo for Plugin {
 
         // Launch all actions
         while let Some(action) = self.actions.pop() {
-            tokio::spawn(async move { action.serve() });
+            tokio::spawn(async move { action.serve().await });
         }
         self.actions = Default::default();
 
