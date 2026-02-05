@@ -306,8 +306,8 @@ impl Action {
                 }
             }
         }
-        eprintln!("DEBUG Asking for shutdown");
-        self.shutdown.ask_shutdown();
+        // eprintln!("DEBUG Asking for shutdown");
+        // self.shutdown.ask_shutdown();
     }
 
     async fn handle_exec(&mut self, mut exec: Exec) -> Result<(), String> {
