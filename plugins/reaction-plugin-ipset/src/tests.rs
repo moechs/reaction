@@ -1,268 +1,224 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use reaction_plugin::{Exec, PluginInfo, Value};
+use reaction_plugin::{PluginInfo, Value};
 use serde_json::json;
 
 use crate::Plugin;
 
 #[tokio::test]
 async fn conf_stream() {
-    // Invalid type
+    // No stream is supported by ipset
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "virtu".into(), Value::Null)
-            .await
-            .is_err()
-    );
-
-    assert!(
-        Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), Value::Null)
-            .await
-            .is_ok()
-    );
-    eprintln!(
-        "err: {:?}",
-        Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), json!({}).into())
-            .await
-    );
-    assert!(
-        Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), json!({}).into())
-            .await
-            .is_ok()
-    );
-
-    // Invalid conf: must be empty
-    assert!(
-        Plugin::default()
-            .stream_impl(
-                "stream".into(),
-                "virtual".into(),
-                json!({"key": "value" }).into()
-            )
+            .stream_impl("stream".into(), "ipset".into(), Value::Null)
             .await
             .is_err()
     );
 }
 
 #[tokio::test]
-async fn conf_action() {
-    let valid_conf = json!({ "send": "message", "to": "stream" });
+async fn conf_action_standalone() {
+    let p = vec!["name".into(), "ip".into(), "ip2".into()];
+    let p_noip = vec!["name".into(), "ip2".into()];
 
-    let missing_send_conf = json!({ "to": "stream" });
-    let missing_to_conf = json!({ "send": "stream" });
-    let extra_attr_conf = json!({ "send": "message", "send2": "message", "to": "stream" });
-
-    let patterns = Vec::default();
-
-    // Invalid type
-    assert!(
-        Plugin::default()
+    for (is_ok, conf, patterns) in [
+        // minimal set
+        (true, json!({ "set": "test" }), &p),
+        // missing set key
+        (false, json!({}), &p),
+        (false, json!({ "version": 4 }), &p),
+        // unknown key
+        (false, json!({ "set": "test", "unknown": "yes" }), &p),
+        (false, json!({ "set": "test", "ip_index": 1 }), &p),
+        (false, json!({ "set": "test", "timeout_u32": 1 }), &p),
+        // pattern //
+        (true, json!({ "set": "test" }), &p),
+        (true, json!({ "set": "test", "pattern": "ip" }), &p),
+        (true, json!({ "set": "test", "pattern": "ip2" }), &p),
+        (true, json!({ "set": "test", "pattern": "ip2" }), &p_noip),
+        // unknown pattern "ip"
+        (false, json!({ "set": "test" }), &p_noip),
+        (false, json!({ "set": "test", "pattern": "ip" }), &p_noip),
+        // unknown pattern
+        (false, json!({ "set": "test", "pattern": "unknown" }), &p),
+        (false, json!({ "set": "test", "pattern": "uwu" }), &p_noip),
+        // bad type
+        (false, json!({ "set": "test", "pattern": 0 }), &p_noip),
+        (false, json!({ "set": "test", "pattern": true }), &p_noip),
+        // action //
+        (true, json!({ "set": "test", "action": "add" }), &p),
+        (true, json!({ "set": "test", "action": "del" }), &p),
+        // unknown action
+        (false, json!({ "set": "test", "action": "create" }), &p),
+        (false, json!({ "set": "test", "action": "insert" }), &p),
+        (false, json!({ "set": "test", "action": "delete" }), &p),
+        (false, json!({ "set": "test", "action": "destroy" }), &p),
+        // bad type
+        (false, json!({ "set": "test", "action": true }), &p),
+        (false, json!({ "set": "test", "action": 1 }), &p),
+        // ip version //
+        // ok
+        (true, json!({ "set": "test", "version": "4" }), &p),
+        (true, json!({ "set": "test", "version": "6" }), &p),
+        (true, json!({ "set": "test", "version": "46" }), &p),
+        // unknown version
+        (false, json!({ "set": "test", "version": 4 }), &p),
+        (false, json!({ "set": "test", "version": 6 }), &p),
+        (false, json!({ "set": "test", "version": 46 }), &p),
+        (false, json!({ "set": "test", "version": "5" }), &p),
+        // bad type
+        (false, json!({ "set": "test", "version": true }), &p),
+        // chains //
+        // everything is fine really
+        (true, json!({ "set": "test", "chains": [] }), &p),
+        (true, json!({ "set": "test", "chains": ["INPUT"] }), &p),
+        (true, json!({ "set": "test", "chains": ["FORWARD"] }), &p),
+        (
+            true,
+            json!({ "set": "test", "chains": ["custom_chain"] }),
+            &p,
+        ),
+        (
+            true,
+            json!({ "set": "test", "chains": ["INPUT", "FORWARD"] }),
+            &p,
+        ),
+        (
+            true,
+            json!({
+                "set": "test",
+                "chains": ["INPUT", "FORWARD", "my_iptables_chain"]
+            }),
+            &p,
+        ),
+        // timeout //
+        (true, json!({ "set": "test", "timeout": "1m" }), &p),
+        (true, json!({ "set": "test", "timeout": "3 days" }), &p),
+        // bad
+        (false, json!({ "set": "test", "timeout": "3 dayz"}), &p),
+        (false, json!({ "set": "test", "timeout": 12 }), &p),
+        // target //
+        // anything is fine too
+        (true, json!({ "set": "test", "target": "DROP" }), &p),
+        (true, json!({ "set": "test", "target": "ACCEPT" }), &p),
+        (true, json!({ "set": "test", "target": "RETURN" }), &p),
+        (true, json!({ "set": "test", "target": "custom_chain" }), &p),
+        // bad
+        (false, json!({ "set": "test", "target": 11 }), &p),
+        (false, json!({ "set": "test", "target": ["DROP"] }), &p),
+    ] {
+        let res = Plugin::default()
             .action_impl(
                 "stream".into(),
                 "filter".into(),
                 "action".into(),
-                "virtu".into(),
-                Value::Null,
-                patterns.clone()
+                "ipset".into(),
+                conf.clone().into(),
+                patterns.clone(),
             )
-            .await
-            .is_err()
-    );
-    assert!(
-        Plugin::default()
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "virtual".into(),
-                valid_conf.into(),
-                patterns.clone()
-            )
-            .await
-            .is_ok()
-    );
+            .await;
 
-    for conf in [missing_send_conf, missing_to_conf, extra_attr_conf] {
         assert!(
-            Plugin::default()
-                .action_impl(
-                    "stream".into(),
-                    "filter".into(),
-                    "action".into(),
-                    "virtual".into(),
-                    conf.clone().into(),
-                    patterns.clone()
-                )
-                .await
-                .is_err(),
-            "conf: {:?}",
-            conf
+            res.is_ok() == is_ok,
+            "conf: {:?}, must be ok: {is_ok}, result: {:?}",
+            conf,
+            // empty Result::Ok because ActionImpl is not Debug
+            res.map(|_| ())
         );
     }
 }
 
+// TODO
 #[tokio::test]
-async fn conf_send() {
-    // Valid to: option
+async fn conf_action_merge() {
     let mut plugin = Plugin::default();
-    plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    plugin
+
+    // First set is ok
+    let res = plugin
         .action_impl(
             "stream".into(),
             "filter".into(),
             "action".into(),
-            "virtual".into(),
-            json!({ "send": "message", "to": "stream" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_ok());
-
-    // Invalid to: option
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "message", "to": "stream1" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_err());
-}
-
-// Let's allow empty streams for now.
-// I guess it can be useful to have manual only actions.
-//
-// #[tokio::test]
-// async fn conf_empty_stream() {
-//     let mut plugin = Plugin::default();
-//     plugin
-//         .stream_impl("stream".into(), "virtual".into(), Value::Null)
-//         .await
-//         .unwrap();
-//     assert!(plugin.finish_setup().await.is_err());
-// }
-
-#[tokio::test]
-async fn run_simple() {
-    let mut plugin = Plugin::default();
-    let mut stream = plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    assert!(!stream.standalone);
-
-    let action = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "message <test>", "to": "stream" }).into(),
-            vec!["test".into()],
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_ok());
-
-    for m in ["test1", "test2", "test3", "  a   a a aa a a"] {
-        let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        assert!(
-            action
-                .tx
-                .send(Exec {
-                    match_: vec![m.into()],
-                    time,
-                })
-                .await
-                .is_ok()
-        );
-        assert_eq!(
-            stream.stream.recv().await.unwrap().unwrap(),
-            (format!("message {m}"), time),
-        );
-    }
-}
-
-#[tokio::test]
-async fn run_two_actions() {
-    let mut plugin = Plugin::default();
-    let mut stream = plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    assert!(!stream.standalone);
-
-    let action1 = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "send <a>", "to": "stream" }).into(),
-            vec!["a".into(), "b".into()],
-        )
-        .await
-        .unwrap();
-
-    let action2 = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "<b> send", "to": "stream" }).into(),
-            vec!["a".into(), "b".into()],
-        )
-        .await
-        .unwrap();
-
-    assert!(plugin.finish_setup().await.is_ok());
-
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-
-    assert!(
-        action1
-            .tx
-            .send(Exec {
-                match_: vec!["aa".into(), "bb".into()],
-                time,
+            "ipset".into(),
+            json!({
+                "set": "test",
+                "target": "DROP",
+                "chains": ["INPUT"],
+                "action": "add",
             })
-            .await
-            .is_ok(),
-    );
-    assert_eq!(
-        stream.stream.recv().await.unwrap().unwrap(),
-        ("send aa".into(), time),
-    );
+            .into(),
+            vec!["ip".into()],
+        )
+        .await;
+    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
 
-    assert!(
-        action2
-            .tx
-            .send(Exec {
-                match_: vec!["aa".into(), "bb".into()],
-                time,
+    // Another set without conflict is ok
+    let res = plugin
+        .action_impl(
+            "stream".into(),
+            "filter".into(),
+            "action".into(),
+            "ipset".into(),
+            json!({
+                "set": "test",
+                "target": "DROP",
+                "version": "46",
+                "action": "add",
             })
-            .await
-            .is_ok(),
-    );
-    assert_eq!(
-        stream.stream.recv().await.unwrap().unwrap(),
-        ("bb send".into(), time),
-    );
+            .into(),
+            vec!["ip".into()],
+        )
+        .await;
+    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+
+    // Another set without conflict is ok
+    let res = plugin
+        .action_impl(
+            "stream".into(),
+            "filter".into(),
+            "action".into(),
+            "ipset".into(),
+            json!({
+                "set": "test",
+                "action": "del",
+            })
+            .into(),
+            vec!["ip".into()],
+        )
+        .await;
+    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+
+    // Unrelated set is ok
+    let res = plugin
+        .action_impl(
+            "stream".into(),
+            "filter".into(),
+            "action2".into(),
+            "ipset".into(),
+            json!({
+                "set": "test1",
+                "target": "target1",
+                "version": "6",
+            })
+            .into(),
+            vec!["ip".into()],
+        )
+        .await;
+    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+
+    // Another set with conflict is not ok
+    let res = plugin
+        .action_impl(
+            "stream".into(),
+            "filter".into(),
+            "action".into(),
+            "ipset".into(),
+            json!({
+                "set": "test",
+                "target": "target2",
+                "action": "del",
+            })
+            .into(),
+            vec!["ip".into()],
+        )
+        .await;
+    assert!(res.is_err(), "res: {:?}", res.map(|_| ()));
 }

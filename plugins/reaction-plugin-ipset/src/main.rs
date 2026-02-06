@@ -138,6 +138,8 @@ impl PluginInfo for Plugin {
     }
 }
 
+impl Plugin {}
+
 async fn destroy_sets_at_shutdown(mut ipset: IpSet, sets: Vec<Set>, shutdown: ShutdownToken) {
     shutdown.wait().await;
     for set in sets {

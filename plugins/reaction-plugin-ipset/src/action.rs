@@ -8,11 +8,11 @@ use crate::ipset::{CreateSet, IpSet, Order, SetChain, Version};
 
 #[derive(Default, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum IpVersion {
-    #[serde(alias = "4")]
+    #[serde(rename = "4")]
     V4,
-    #[serde(alias = "6")]
+    #[serde(rename = "6")]
     V6,
-    #[serde(alias = "46")]
+    #[serde(rename = "46")]
     #[default]
     V46,
 }
@@ -80,7 +80,7 @@ impl ActionOptions {
 }
 
 /// Merged set options
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default, Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct SetOptions {
     /// The IP type.
     /// Defaults to `46`.
@@ -97,6 +97,7 @@ pub struct SetOptions {
     chains: Option<Vec<String>>,
     // Optional timeout, letting linux/netfilter handle set removal instead of reaction
     // Note that `reaction show` and `reaction flush` won't work if set instead of an `after` action
+    // Same syntax as after and retryperiod in reaction.
     /// *Merged set-wise*.
     #[serde(skip_serializing_if = "Option::is_none")]
     timeout: Option<String>,
@@ -341,5 +342,83 @@ impl Action {
             })
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::action::{IpVersion, SetOptions};
+
+    #[tokio::test]
+    async fn set_options_merge() {
+        let s1 = SetOptions {
+            version: None,
+            chains: None,
+            timeout: None,
+            timeout_u32: None,
+            target: None,
+        };
+        let s2 = SetOptions {
+            version: Some(IpVersion::V4),
+            chains: Some(vec!["INPUT".into()]),
+            timeout: Some("3h".into()),
+            timeout_u32: Some(3 * 3600),
+            target: Some("DROP".into()),
+        };
+        assert_ne!(s1, s2);
+        assert_eq!(s1, SetOptions::default());
+
+        {
+            // s2 can be merged in s1
+            let mut s1 = s1.clone();
+            assert!(s1.merge(&s2).is_ok());
+            assert_eq!(s1, s2);
+        }
+
+        {
+            // s1 can be merged in s2
+            let mut s2 = s2.clone();
+            assert!(s2.merge(&s1).is_ok());
+        }
+
+        {
+            // s1 can be merged in itself
+            let mut s3 = s1.clone();
+            assert!(s3.merge(&s1).is_ok());
+            assert_eq!(s1, s3);
+        }
+
+        {
+            // s2 can be merged in itself
+            let mut s3 = s2.clone();
+            assert!(s3.merge(&s2).is_ok());
+            assert_eq!(s2, s3);
+        }
+
+        for s3 in [
+            SetOptions {
+                version: Some(IpVersion::V6),
+                ..Default::default()
+            },
+            SetOptions {
+                chains: Some(vec!["damn".into()]),
+                ..Default::default()
+            },
+            SetOptions {
+                timeout: Some("30min".into()),
+                ..Default::default()
+            },
+            SetOptions {
+                target: Some("log-refuse".into()),
+                ..Default::default()
+            },
+        ] {
+            // none with some is ok
+            assert!(s3.clone().merge(&s1).is_ok(), "s3: {s3:?}");
+            assert!(s1.clone().merge(&s3).is_ok(), "s3: {s3:?}");
+            // different some is ko
+            assert!(s3.clone().merge(&s2).is_err(), "s3: {s3:?}");
+            assert!(s2.clone().merge(&s3).is_err(), "s3: {s3:?}");
+        }
     }
 }
