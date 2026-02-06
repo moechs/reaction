@@ -128,7 +128,7 @@ impl IPsetManager {
                 version,
                 timeout,
             }) => {
-                eprintln!("INFO creating {version} set {name}");
+                eprintln!("INFO creating  {version} set {name}");
                 let mut session: Session<HashNet> = Session::new(name.clone());
                 session
                     .create(|builder| {
@@ -198,7 +198,7 @@ impl IPsetManager {
         if insert {
             eprintln!("INFO inserting {version} set {set} in chain {chain}");
         } else {
-            eprintln!("INFO removing {version} set {set} from chain {chain}");
+            eprintln!("INFO removing   {version} set {set} from chain {chain}");
         }
 
         let command = match version {
