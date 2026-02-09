@@ -152,19 +152,19 @@ async fn daemon_start(
         (state, stream_managers)
     };
 
-    // Finish plugin setup
-    plugins.finish_setup().await?;
-    plugins.manager();
-
     // Open socket and run task
     let socket = Socket::open(socket).await?;
     socket.manager(config, state, shutdown.clone());
 
-    // reaction won't abort on startup anymore, we can run start commands
+    // all core systems started, we can run start commands
     *config_started = true;
     if !config.start() {
         return Err("a start command failed, exiting.".into());
     }
+
+    // Finish plugin setup
+    plugins.finish_setup().await?;
+    plugins.manager();
 
     // Start Stream managers
     let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {
