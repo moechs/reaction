@@ -187,10 +187,9 @@ pub struct Hello {
 
 impl Hello {
     pub fn new() -> Hello {
-        let mut version = env!("CARGO_PKG_VERSION").split(".");
         Hello {
-            version_major: version.next().unwrap().parse().unwrap(),
-            version_minor: version.next().unwrap().parse().unwrap(),
+            version_major: env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+            version_minor: env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
         }
     }
 
