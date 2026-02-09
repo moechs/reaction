@@ -1,4 +1,17 @@
-use std::{collections::BTreeMap, io::Error, os::linux::fs::MetadataExt, process::Stdio};
+use std::{collections::BTreeMap, io::Error, process::Stdio};
+
+#[cfg(target_os = "linux")]
+use std::os::linux::fs::MetadataExt;
+#[cfg(target_os = "freebsd")]
+use std::os::freebsd::fs::MetadataExt;
+#[cfg(target_os = "openbsd")]
+use std::os::openbsd::fs::MetadataExt;
+#[cfg(target_os = "netbsd")]
+use std::os::netbsd::fs::MetadataExt;
+#[cfg(target_os = "solaris")]
+use std::os::solaris::fs::MetadataExt;
+#[cfg(target_os = "illumos")]
+use std::os::illumos::fs::MetadataExt;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
