@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use reaction_plugin::{Exec, PluginInfo, Value};
+use reaction_plugin::{ActionConfig, Exec, PluginInfo, StreamConfig, Value};
 use serde_json::json;
 
 use crate::Plugin;
@@ -10,26 +10,42 @@ async fn conf_stream() {
     // Invalid type
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "virtu".into(), Value::Null)
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtu".into(),
+                    config: Value::Null
+                }],
+                vec![]
+            )
             .await
             .is_err()
     );
 
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), Value::Null)
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtual".into(),
+                    config: Value::Null
+                }],
+                vec![]
+            )
             .await
             .is_ok()
     );
-    eprintln!(
-        "err: {:?}",
-        Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), json!({}).into())
-            .await
-    );
+
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "virtual".into(), json!({}).into())
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtual".into(),
+                    config: json!({}).into(),
+                }],
+                vec![]
+            )
             .await
             .is_ok()
     );
@@ -37,10 +53,13 @@ async fn conf_stream() {
     // Invalid conf: must be empty
     assert!(
         Plugin::default()
-            .stream_impl(
-                "stream".into(),
-                "virtual".into(),
-                json!({"key": "value" }).into()
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtual".into(),
+                    config: json!({"key": "value" }).into(),
+                }],
+                vec![]
             )
             .await
             .is_err()
@@ -49,6 +68,12 @@ async fn conf_stream() {
 
 #[tokio::test]
 async fn conf_action() {
+    let streams = vec![StreamConfig {
+        stream_name: "stream".into(),
+        stream_type: "virtual".into(),
+        config: Value::Null,
+    }];
+
     let valid_conf = json!({ "send": "message", "to": "stream" });
 
     let missing_send_conf = json!({ "to": "stream" });
@@ -60,26 +85,32 @@ async fn conf_action() {
     // Invalid type
     assert!(
         Plugin::default()
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "virtu".into(),
-                Value::Null,
-                patterns.clone()
+            .load_config(
+                streams.clone(),
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtu".into(),
+                    config: Value::Null,
+                    patterns: patterns.clone(),
+                }]
             )
             .await
             .is_err()
     );
     assert!(
         Plugin::default()
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "virtual".into(),
-                valid_conf.into(),
-                patterns.clone()
+            .load_config(
+                streams.clone(),
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtual".into(),
+                    config: valid_conf.into(),
+                    patterns: patterns.clone()
+                }]
             )
             .await
             .is_ok()
@@ -88,13 +119,16 @@ async fn conf_action() {
     for conf in [missing_send_conf, missing_to_conf, extra_attr_conf] {
         assert!(
             Plugin::default()
-                .action_impl(
-                    "stream".into(),
-                    "filter".into(),
-                    "action".into(),
-                    "virtual".into(),
-                    conf.clone().into(),
-                    patterns.clone()
+                .load_config(
+                    streams.clone(),
+                    vec![ActionConfig {
+                        stream_name: "stream".into(),
+                        filter_name: "filter".into(),
+                        action_name: "action".into(),
+                        action_type: "virtual".into(),
+                        config: conf.clone().into(),
+                        patterns: patterns.clone()
+                    }]
                 )
                 .await
                 .is_err(),
@@ -107,42 +141,48 @@ async fn conf_action() {
 #[tokio::test]
 async fn conf_send() {
     // Valid to: option
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "message", "to": "stream" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_ok());
+    assert!(
+        Plugin::default()
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtual".into(),
+                    config: Value::Null,
+                }],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtual".into(),
+                    config: json!({ "send": "message", "to": "stream" }).into(),
+                    patterns: vec![],
+                }]
+            )
+            .await
+            .is_ok(),
+    );
 
     // Invalid to: option
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "message", "to": "stream1" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_err());
+    assert!(
+        Plugin::default()
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "virtual".into(),
+                    config: Value::Null,
+                }],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtual".into(),
+                    config: json!({ "send": "message", "to": "stream1" }).into(),
+                    patterns: vec![],
+                }]
+            )
+            .await
+            .is_err(),
+    );
 }
 
 // Let's allow empty streams for now.
@@ -150,35 +190,46 @@ async fn conf_send() {
 //
 // #[tokio::test]
 // async fn conf_empty_stream() {
-//     let mut plugin = Plugin::default();
-//     plugin
-//         .stream_impl("stream".into(), "virtual".into(), Value::Null)
-//         .await
-//         .unwrap();
-//     assert!(plugin.finish_setup().await.is_err());
+//     assert!(
+//         Plugin::default()
+//             .load_config(
+//                 vec![StreamConfig {
+//                     stream_name: "stream".into(),
+//                     stream_type: "virtual".into(),
+//                     config: Value::Null,
+//                 }],
+//                 vec![],
+//             )
+//             .await
+//             .is_err(),
+//     );
 // }
 
 #[tokio::test]
 async fn run_simple() {
     let mut plugin = Plugin::default();
-    let mut stream = plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
-        .await
-        .unwrap();
-    assert!(!stream.standalone);
-
-    let action = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "message <test>", "to": "stream" }).into(),
-            vec!["test".into()],
+    let (mut streams, mut actions) = plugin
+        .load_config(
+            vec![StreamConfig {
+                stream_name: "stream".into(),
+                stream_type: "virtual".into(),
+                config: Value::Null,
+            }],
+            vec![ActionConfig {
+                stream_name: "stream".into(),
+                filter_name: "filter".into(),
+                action_name: "action".into(),
+                action_type: "virtual".into(),
+                config: json!({ "send": "message <test>", "to": "stream" }).into(),
+                patterns: vec!["test".into()],
+            }],
         )
         .await
         .unwrap();
-    assert!(plugin.finish_setup().await.is_ok());
+
+    let mut stream = streams.pop().unwrap();
+    let action = actions.pop().unwrap();
+    assert!(!stream.standalone);
 
     for m in ["test1", "test2", "test3", "  a   a a aa a a"] {
         let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -202,37 +253,40 @@ async fn run_simple() {
 #[tokio::test]
 async fn run_two_actions() {
     let mut plugin = Plugin::default();
-    let mut stream = plugin
-        .stream_impl("stream".into(), "virtual".into(), Value::Null)
+    let (mut streams, mut actions) = plugin
+        .load_config(
+            vec![StreamConfig {
+                stream_name: "stream".into(),
+                stream_type: "virtual".into(),
+                config: Value::Null,
+            }],
+            vec![
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtual".into(),
+                    config: json!({ "send": "send <a>", "to": "stream" }).into(),
+                    patterns: vec!["a".into(), "b".into()],
+                },
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "virtual".into(),
+                    config: json!({ "send": "<b> send", "to": "stream" }).into(),
+                    patterns: vec!["a".into(), "b".into()],
+                },
+            ],
+        )
         .await
         .unwrap();
+
+    let mut stream = streams.pop().unwrap();
     assert!(!stream.standalone);
 
-    let action1 = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "send <a>", "to": "stream" }).into(),
-            vec!["a".into(), "b".into()],
-        )
-        .await
-        .unwrap();
-
-    let action2 = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "virtual".into(),
-            json!({ "send": "<b> send", "to": "stream" }).into(),
-            vec!["a".into(), "b".into()],
-        )
-        .await
-        .unwrap();
-
-    assert!(plugin.finish_setup().await.is_ok());
+    let action2 = actions.pop().unwrap();
+    let action1 = actions.pop().unwrap();
 
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
-    line::PatternLine,
+    ActionConfig, ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamConfig,
+    StreamImpl, Value, line::PatternLine,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -17,10 +17,7 @@ async fn main() {
 }
 
 #[derive(Default)]
-struct Plugin {
-    streams: BTreeMap<String, VirtualStream>,
-    actions_init: Vec<VirtualActionInit>,
-}
+struct Plugin {}
 
 impl PluginInfo for Plugin {
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError> {
@@ -31,75 +28,69 @@ impl PluginInfo for Plugin {
         })
     }
 
-    async fn stream_impl(
+    async fn load_config(
         &mut self,
-        stream_name: String,
-        stream_type: String,
-        config: Value,
-    ) -> RemoteResult<StreamImpl> {
-        if stream_type != "virtual" {
-            return Err("This plugin can't handle other stream types than virtual".into());
-        }
+        streams: Vec<StreamConfig>,
+        actions: Vec<ActionConfig>,
+    ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
+        let mut ret_streams = Vec::with_capacity(streams.len());
+        let mut ret_actions = Vec::with_capacity(actions.len());
 
-        let (virtual_stream, receiver) = VirtualStream::new(config)?;
+        let mut local_streams = BTreeMap::new();
 
-        if let Some(_) = self.streams.insert(stream_name, virtual_stream) {
-            return Err("this virtual stream has already been initialized".into());
-        }
-
-        Ok(StreamImpl {
-            stream: receiver,
-            standalone: false,
-        })
-    }
-
-    async fn action_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        action_type: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> RemoteResult<ActionImpl> {
-        if &action_type != "virtual" {
-            return Err("This plugin can't handle other action types than virtual".into());
-        }
-
-        let (virtual_action_init, tx) =
-            VirtualActionInit::new(stream_name, filter_name, action_name, config, patterns)?;
-
-        self.actions_init.push(virtual_action_init);
-        Ok(ActionImpl { tx })
-    }
-
-    async fn finish_setup(&mut self) -> RemoteResult<()> {
-        while let Some(action_init) = self.actions_init.pop() {
-            match self.streams.get(&action_init.to) {
-                Some(virtual_stream) => {
-                    let virtual_stream = virtual_stream.clone();
-                    tokio::spawn(async move {
-                        VirtualAction::from(action_init, virtual_stream)
-                            .serve()
-                            .await
-                    });
-                }
-                None => {
-                    return Err(format!(
-                        "action {}.{}.{}: send \"{}\" matches no stream name",
-                        action_init.stream_name,
-                        action_init.filter_name,
-                        action_init.action_name,
-                        action_init.to
-                    )
-                    .into());
-                }
+        for StreamConfig {
+            stream_name,
+            stream_type,
+            config,
+        } in streams
+        {
+            if stream_type != "virtual" {
+                return Err("This plugin can't handle other stream types than virtual".into());
             }
-        }
-        // Free containers
-        self.streams = Default::default();
-        self.actions_init = Default::default();
 
+            let (virtual_stream, receiver) = VirtualStream::new(config)?;
+
+            if let Some(_) = local_streams.insert(stream_name, virtual_stream) {
+                return Err("this virtual stream has already been initialized".into());
+            }
+
+            ret_streams.push(StreamImpl {
+                stream: receiver,
+                standalone: false,
+            });
+        }
+
+        for ActionConfig {
+            stream_name,
+            filter_name,
+            action_name,
+            action_type,
+            config,
+            patterns,
+        } in actions
+        {
+            if &action_type != "virtual" {
+                return Err("This plugin can't handle other action types than virtual".into());
+            }
+
+            let (mut virtual_action, tx) = VirtualAction::new(
+                stream_name,
+                filter_name,
+                action_name,
+                config,
+                patterns,
+                &local_streams,
+            )?;
+
+            tokio::spawn(async move { virtual_action.serve().await });
+
+            ret_actions.push(ActionImpl { tx });
+        }
+
+        Ok((ret_streams, ret_actions))
+    }
+
+    async fn start(&mut self) -> RemoteResult<()> {
         Ok(())
     }
 
@@ -140,44 +131,6 @@ struct ActionOptions {
     to: String,
 }
 
-struct VirtualActionInit {
-    stream_name: String,
-    filter_name: String,
-    action_name: String,
-    rx: mpsc::Receiver<Exec>,
-    patterns: Vec<String>,
-    send: String,
-    to: String,
-}
-
-impl VirtualActionInit {
-    fn new(
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> Result<(Self, mpsc::Sender<Exec>), String> {
-        let options: ActionOptions = serde_json::from_value(config.into()).map_err(|err| {
-            format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
-        })?;
-
-        let (tx, rx) = mpsc::channel(1);
-        Ok((
-            Self {
-                stream_name,
-                filter_name,
-                action_name,
-                rx,
-                patterns,
-                send: options.send,
-                to: options.to,
-            },
-            tx,
-        ))
-    }
-}
-
 struct VirtualAction {
     rx: mpsc::Receiver<Exec>,
     send: PatternLine,
@@ -185,13 +138,36 @@ struct VirtualAction {
 }
 
 impl VirtualAction {
-    fn from(action_init: VirtualActionInit, to: VirtualStream) -> VirtualAction {
-        let send = PatternLine::new(action_init.send, action_init.patterns);
-        VirtualAction {
-            rx: action_init.rx,
-            send,
-            to,
-        }
+    fn new(
+        stream_name: String,
+        filter_name: String,
+        action_name: String,
+        config: Value,
+        patterns: Vec<String>,
+        streams: &BTreeMap<String, VirtualStream>,
+    ) -> Result<(Self, mpsc::Sender<Exec>), String> {
+        let options: ActionOptions = serde_json::from_value(config.into()).map_err(|err| {
+            format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
+        })?;
+
+        let send = PatternLine::new(options.send, patterns);
+
+        let stream = streams.get(&options.to).ok_or_else(|| {
+            format!(
+                "action {}.{}.{}: send \"{}\" matches no stream name",
+                stream_name, filter_name, action_name, options.to
+            )
+        })?;
+
+        let (tx, rx) = mpsc::channel(1);
+        Ok((
+            Self {
+                rx,
+                send: send,
+                to: stream.clone(),
+            },
+            tx,
+        ))
     }
 
     async fn serve(&mut self) {
