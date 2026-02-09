@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
-    ActionImpl, Hello, Manifest, PluginInfo, RemoteError, RemoteResult, StreamImpl, Value,
+    ActionConfig, ActionImpl, Hello, Manifest, PluginInfo, RemoteError, RemoteResult, StreamConfig,
+    StreamImpl,
     shutdown::{ShutdownController, ShutdownToken},
 };
 use remoc::rtc;
@@ -26,7 +27,6 @@ async fn main() {
 #[derive(Default)]
 struct Plugin {
     ipset: IpSet,
-    set_options: BTreeMap<String, SetOptions>,
     sets: Vec<Set>,
     actions: Vec<Action>,
     shutdown: ShutdownController,
@@ -41,64 +41,69 @@ impl PluginInfo for Plugin {
         })
     }
 
-    async fn stream_impl(
+    async fn load_config(
         &mut self,
-        _stream_name: String,
-        _stream_type: String,
-        _config: Value,
-    ) -> RemoteResult<StreamImpl> {
-        Err("This plugin can't handle any stream type".into())
-    }
-
-    async fn action_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        action_type: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> RemoteResult<ActionImpl> {
-        if &action_type != "ipset" {
-            return Err("This plugin can't handle other action types than ipset".into());
+        streams: Vec<StreamConfig>,
+        actions: Vec<ActionConfig>,
+    ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
+        if !streams.is_empty() {
+            return Err("This plugin can't handle any stream type".into());
         }
 
-        let mut options: ActionOptions = serde_json::from_value(config.into()).map_err(|err| {
+        let mut ret_actions = Vec::with_capacity(actions.len());
+        let mut set_options: BTreeMap<String, SetOptions> = BTreeMap::new();
+
+        for ActionConfig {
+            stream_name,
+            filter_name,
+            action_name,
+            action_type,
+            config,
+            patterns,
+        } in actions
+        {
+            if &action_type != "ipset" {
+                return Err("This plugin can't handle other action types than ipset".into());
+            }
+
+            let mut options: ActionOptions = serde_json::from_value(config.into()).map_err(|err| {
             format!("invalid options for action {stream_name}.{filter_name}.{action_name}: {err}")
         })?;
 
-        options.set_ip_index(patterns).map_err(|_|
+            options.set_ip_index(patterns).map_err(|_|
                 format!(
                     "No pattern with name {} in filter {stream_name}.{filter_name}. Try setting the option `pattern` to your pattern name of type 'ip'",
                     &options.pattern
                 )
         )?;
 
-        // Merge option
-        self.set_options
-            .entry(options.set.clone())
-            .or_default()
-            .merge(&options.set_options)
-            .map_err(|err| format!("ipset {}: {err}", options.set))?;
+            // Merge option
+            set_options
+                .entry(options.set.clone())
+                .or_default()
+                .merge(&options.set_options)
+                .map_err(|err| format!("ipset {}: {err}", options.set))?;
 
-        let (tx, rx) = remoc::rch::mpsc::channel(1);
-        self.actions.push(Action::new(
-            self.ipset.clone(),
-            self.shutdown.token(),
-            rx,
-            options,
-        )?);
+            let (tx, rx) = remoc::rch::mpsc::channel(1);
+            self.actions.push(Action::new(
+                self.ipset.clone(),
+                self.shutdown.token(),
+                rx,
+                options,
+            )?);
 
-        Ok(ActionImpl { tx })
-    }
+            ret_actions.push(ActionImpl { tx });
+        }
 
-    async fn finish_setup(&mut self) -> RemoteResult<()> {
         // Init all sets
-        while let Some((name, options)) = self.set_options.pop_first() {
+        while let Some((name, options)) = set_options.pop_first() {
             self.sets.push(Set::from(name, options));
         }
-        self.set_options = Default::default();
 
+        Ok((vec![], ret_actions))
+    }
+
+    async fn start(&mut self) -> RemoteResult<()> {
         let mut first_error = None;
         for (i, set) in self.sets.iter().enumerate() {
             // Retain if error
@@ -137,8 +142,6 @@ impl PluginInfo for Plugin {
         Ok(())
     }
 }
-
-impl Plugin {}
 
 async fn destroy_sets_at_shutdown(mut ipset: IpSet, sets: Vec<Set>, shutdown: ShutdownToken) {
     shutdown.wait().await;

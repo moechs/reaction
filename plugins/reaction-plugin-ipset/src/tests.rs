@@ -1,4 +1,4 @@
-use reaction_plugin::{PluginInfo, Value};
+use reaction_plugin::{ActionConfig, PluginInfo, StreamConfig, Value};
 use serde_json::json;
 
 use crate::Plugin;
@@ -8,10 +8,20 @@ async fn conf_stream() {
     // No stream is supported by ipset
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "ipset".into(), Value::Null)
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "ipset".into(),
+                    config: Value::Null
+                }],
+                vec![]
+            )
             .await
             .is_err()
     );
+
+    // Nothing is ok
+    assert!(Plugin::default().load_config(vec![], vec![]).await.is_ok());
 }
 
 #[tokio::test]
@@ -106,13 +116,16 @@ async fn conf_action_standalone() {
         (false, json!({ "set": "test", "target": ["DROP"] }), &p),
     ] {
         let res = Plugin::default()
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "ipset".into(),
-                conf.clone().into(),
-                patterns.clone(),
+            .load_config(
+                vec![],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "ipset".into(),
+                    config: conf.clone().into(),
+                    patterns: patterns.clone(),
+                }],
             )
             .await;
 
@@ -131,93 +144,105 @@ async fn conf_action_standalone() {
 async fn conf_action_merge() {
     let mut plugin = Plugin::default();
 
-    // First set is ok
-    let res = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "ipset".into(),
-            json!({
-                "set": "test",
-                "target": "DROP",
-                "chains": ["INPUT"],
-                "action": "add",
-            })
-            .into(),
-            vec!["ip".into()],
-        )
-        .await;
-    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+    let set1 = ActionConfig {
+        stream_name: "stream".into(),
+        filter_name: "filter".into(),
+        action_name: "action1".into(),
+        action_type: "ipset".into(),
+        config: json!({
+            "set": "test",
+            "target": "DROP",
+            "chains": ["INPUT"],
+            "action": "add",
+        })
+        .into(),
+        patterns: vec!["ip".into()],
+    };
 
-    // Another set without conflict is ok
-    let res = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "ipset".into(),
-            json!({
-                "set": "test",
-                "target": "DROP",
-                "version": "46",
-                "action": "add",
-            })
-            .into(),
-            vec!["ip".into()],
-        )
-        .await;
-    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+    let set2 = ActionConfig {
+        stream_name: "stream".into(),
+        filter_name: "filter".into(),
+        action_name: "action2".into(),
+        action_type: "ipset".into(),
+        config: json!({
+            "set": "test",
+            "target": "DROP",
+            "version": "46",
+            "action": "add",
+        })
+        .into(),
+        patterns: vec!["ip".into()],
+    };
 
-    // Another set without conflict is ok
-    let res = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "ipset".into(),
-            json!({
-                "set": "test",
-                "action": "del",
-            })
-            .into(),
-            vec!["ip".into()],
-        )
-        .await;
-    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+    let set3 = ActionConfig {
+        stream_name: "stream".into(),
+        filter_name: "filter".into(),
+        action_name: "action2".into(),
+        action_type: "ipset".into(),
+        config: json!({
+            "set": "test",
+            "action": "del",
+        })
+        .into(),
+        patterns: vec!["ip".into()],
+    };
 
-    // Unrelated set is ok
     let res = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action2".into(),
-            "ipset".into(),
-            json!({
-                "set": "test1",
-                "target": "target1",
-                "version": "6",
-            })
-            .into(),
-            vec!["ip".into()],
+        .load_config(
+            vec![],
+            vec![
+                // First set
+                set1.clone(),
+                // Same set, adding options, no conflict
+                set2.clone(),
+                // Same set, no new options, no conflict
+                set3.clone(),
+                // Unrelated set, so no conflict
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action3".into(),
+                    action_type: "ipset".into(),
+                    config: json!({
+                        "set": "test2",
+                        "target": "target1",
+                        "version": "6",
+                    })
+                    .into(),
+                    patterns: vec!["ip".into()],
+                },
+            ],
         )
         .await;
+
     assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
 
     // Another set with conflict is not ok
     let res = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "ipset".into(),
-            json!({
-                "set": "test",
-                "target": "target2",
-                "action": "del",
-            })
-            .into(),
-            vec!["ip".into()],
+        .load_config(
+            vec![],
+            vec![
+                // First set
+                set1,
+                // Same set, adding options, no conflict
+                set2,
+                // Same set, no new options, no conflict
+                set3,
+                // Another set with conflict
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action3".into(),
+                    action_type: "ipset".into(),
+                    config: json!({
+                        "set": "test",
+                        "target": "target2",
+                        "action": "del",
+                    })
+                    .into(),
+                    patterns: vec!["ip".into()],
+                },
+            ],
         )
         .await;
     assert!(res.is_err(), "res: {:?}", res.map(|_| ()));
