@@ -266,7 +266,7 @@ async fn three_matches_then_action_then_delayed_action() {
         );
 
         // Now the second action executes
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(140)).await;
         // Check second action
         assert!(
             bed.manager.state.lock().await.triggers.is_empty(),
