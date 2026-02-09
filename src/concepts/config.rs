@@ -49,6 +49,20 @@ fn dot() -> String {
 
 impl Config {
     fn merge(&mut self, mut other: Config) -> Result<(), String> {
+        for (key, plugin) in other.plugins.into_iter() {
+            match self.plugins.entry(key) {
+                Entry::Vacant(e) => {
+                    e.insert(plugin);
+                }
+                Entry::Occupied(e) => {
+                    return Err(format!(
+                        "plugin {} is already defined. plugin definitions can't be spread accross multiple files.",
+                        e.key()
+                    ));
+                }
+            }
+        }
+
         for (key, pattern) in other.patterns.into_iter() {
             match self.patterns.entry(key) {
                 Entry::Vacant(e) => {
