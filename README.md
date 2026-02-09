@@ -4,7 +4,7 @@ A daemon that scans program outputs for repeated patterns, and takes action.
 
 A common usage is to scan ssh and webserver logs, and to ban hosts that cause multiple authentication errors.
 
-🚧 This program hasn't received external security audit. However, it already works well on my servers 🚧
+🚧 This program hasn't received external security audit yet. However, it already works well on many servers 🚧
 
 ## Rationale
 
