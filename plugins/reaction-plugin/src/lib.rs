@@ -123,36 +123,42 @@ pub trait PluginInfo {
     /// Return the manifest of the plugin.
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError>;
 
-    /// Return one stream of a given type.
-    /// Errors if the type does not exist or if config is invalid.
-    async fn stream_impl(
+    /// Load all plugin stream and action configurations,
+    /// Errors if config is invalid.
+    ///
+    /// The plugin should not start running mutable commands here:
+    /// It should be ok to quit without cleanup for now.
+    async fn load_config(
         &mut self,
-        stream_name: String,
-        stream_type: String,
-        config: Value,
-    ) -> RemoteResult<StreamImpl>;
+        streams: Vec<StreamConfig>,
+        actions: Vec<ActionConfig>,
+    ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)>;
 
-    /// Return one action of a given type.
-    /// Errors if the type does not exist or if config is invalid.
-    async fn action_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        action_type: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> RemoteResult<ActionImpl>;
-
-    /// Notify the plugin that setup is finished, permitting a last occasion to report an error
-    /// (For example if a stream wants a companion action but it hasn't been initialized)
+    /// Notify the plugin that setup is finished, permitting a last occasion to report an error that'll make reaction exit.
     /// All initialization (opening remote connections, starting streams, etc) should happen here.
-    async fn finish_setup(&mut self) -> RemoteResult<()>;
+    async fn start(&mut self) -> RemoteResult<()>;
 
     /// Notify the plugin that reaction is quitting and that the plugin should quit too.
     /// A few seconds later, the plugin will receive SIGTERM.
     /// A few seconds later, the plugin will receive SIGKILL.
     async fn close(mut self) -> RemoteResult<()>;
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StreamConfig {
+    pub stream_name: String,
+    pub stream_type: String,
+    pub config: Value,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ActionConfig {
+    pub stream_name: String,
+    pub filter_name: String,
+    pub action_name: String,
+    pub action_type: String,
+    pub config: Value,
+    pub patterns: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
