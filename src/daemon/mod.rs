@@ -163,7 +163,7 @@ async fn daemon_start(
     }
 
     // Finish plugin setup
-    plugins.finish_setup().await?;
+    plugins.start().await?;
     plugins.manager();
 
     // Start Stream managers

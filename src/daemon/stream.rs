@@ -72,12 +72,13 @@ impl StreamManager {
         let stream_plugin = if stream.is_plugin() {
             Some(
                 plugins
-                    .init_stream_impl(
-                        stream.name.clone(),
-                        stream.stream_type.clone().unwrap(),
-                        stream.options.clone(),
-                    )
-                    .await?,
+                    .get_stream_impl(stream.name.clone())
+                    .ok_or_else(|| {
+                        format!(
+                            "stream {} doesn't load a plugin. this is a bug!",
+                            stream.name
+                        )
+                    })?,
             )
         } else {
             None

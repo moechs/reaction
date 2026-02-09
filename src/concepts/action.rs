@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc, time::Duration};
 
-use reaction_plugin::time::parse_duration;
+use reaction_plugin::{ActionConfig, time::parse_duration};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
@@ -153,6 +153,24 @@ impl Action {
         let mut cmd = Command::new(&computed_command[0]);
         cmd.args(&computed_command[1..]);
         cmd
+    }
+
+    pub fn to_action_config(&self) -> Result<ActionConfig, String> {
+        Ok(ActionConfig {
+            stream_name: self.stream_name.clone(),
+            filter_name: self.filter_name.clone(),
+            action_name: self.name.clone(),
+            action_type: self
+                .action_type
+                .clone()
+                .ok_or_else(|| format!("action {} doesn't load a plugin. this is a bug!", self))?,
+            config: self.options.clone().into(),
+            patterns: self
+                .patterns
+                .iter()
+                .map(|pattern| pattern.name.clone())
+                .collect(),
+        })
     }
 }
 

@@ -9,7 +9,7 @@ use chrono::TimeZone;
 use reaction_plugin::{ActionImpl, shutdown::ShutdownToken};
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::{
     concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
@@ -65,24 +65,9 @@ impl FilterManager {
         for (action_name, action) in filter.actions.iter().filter(|action| action.1.is_plugin()) {
             action_plugins.insert(
                 action_name,
-                plugins
-                    .init_action_impl(
-                        action.stream_name.clone(),
-                        action.filter_name.clone(),
-                        action.name.clone(),
-                        action.action_type.clone().unwrap(),
-                        action.options.clone(),
-                        action
-                            .patterns
-                            .iter()
-                            .map(|pattern| pattern.name.clone())
-                            .collect(),
-                    )
-                    .await?,
-            );
-            debug!(
-                "successfully intialized action {}.{}.{}",
-                action.stream_name, action.filter_name, action.name
+                plugins.get_action_impl(action.to_string()).ok_or_else(|| {
+                    format!("action {action} doesn't load a plugin. this is a bug!")
+                })?,
             );
         }
         let this = Self {

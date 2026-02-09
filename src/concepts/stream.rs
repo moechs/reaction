@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 
+use reaction_plugin::StreamConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -87,6 +88,16 @@ impl Stream {
         }
 
         Ok(())
+    }
+
+    pub fn to_stream_config(&self) -> Result<StreamConfig, String> {
+        Ok(StreamConfig {
+            stream_name: self.name.clone(),
+            stream_type: self.stream_type.clone().ok_or_else(|| {
+                format!("stream {} doesn't load a plugin. this is a bug!", self.name)
+            })?,
+            config: self.options.clone().into(),
+        })
     }
 }
 

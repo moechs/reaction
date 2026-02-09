@@ -7,9 +7,10 @@ use std::{
 };
 
 use futures::{StreamExt, future::join_all};
-use reaction_plugin::{ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamImpl};
+use reaction_plugin::{
+    ActionConfig, ActionImpl, Hello, PluginInfo, PluginInfoClient, StreamConfig, StreamImpl,
+};
 use remoc::Connect;
-use serde_json::Value;
 use tokio::{
     process::{Child, ChildStderr},
     time::timeout,
@@ -17,7 +18,7 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    concepts::{Config, Plugin},
+    concepts::{Action, Config, Plugin, Stream},
     daemon::{ShutdownToken, stream::reader_to_stream, utils::kill_child},
 };
 
@@ -198,9 +199,18 @@ async fn handle_stderr(stderr: ChildStderr, plugin_name: String) {
 
 #[derive(Default)]
 pub struct Plugins {
+    /// Loaded plugins
     plugins: BTreeMap<String, PluginManager>,
-    streams: BTreeMap<String, String>,
-    actions: BTreeMap<String, String>,
+    /// stream_type to plugin name
+    stream_to_plugin: BTreeMap<String, String>,
+    /// action_type to plugin name
+    action_to_plugin: BTreeMap<String, String>,
+    /// plugin name to config list
+    plugin_to_confs: BTreeMap<String, (Vec<&'static Stream>, Vec<&'static Action>)>,
+    /// stream name to impl
+    stream_to_impl: BTreeMap<String, StreamImpl>,
+    /// action name to impl
+    action_to_impl: BTreeMap<String, ActionImpl>,
 }
 
 impl Plugins {
@@ -213,6 +223,10 @@ impl Plugins {
                 .await
                 .map_err(|err| format!("plugin {name}: {err}]"))?;
         }
+
+        this.aggregate_plugin_configs(config)?;
+
+        this.load_plugin_configs().await?;
 
         Ok(this)
     }
@@ -227,7 +241,7 @@ impl Plugins {
         let manager = PluginManager::new(plugin, state_directory, shutdown).await?;
 
         for stream in &manager.streams {
-            if let Some(name) = self.streams.insert(stream.clone(), name.clone()) {
+            if let Some(name) = self.stream_to_plugin.insert(stream.clone(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a stream with type name '{stream}'",
                 ));
@@ -235,7 +249,7 @@ impl Plugins {
         }
 
         for action in &manager.actions {
-            if let Some(name) = self.actions.insert(action.clone(), name.clone()) {
+            if let Some(name) = self.action_to_plugin.insert(action.clone(), name.clone()) {
                 return Err(format!(
                     "plugin {name} already exposed a action with type name '{action}'",
                 ));
@@ -246,77 +260,95 @@ impl Plugins {
         Ok(())
     }
 
-    pub async fn init_stream_impl(
-        &mut self,
-        stream_name: String,
-        stream_type: String,
-        config: Value,
-    ) -> Result<StreamImpl, String> {
-        let plugin_name = match self.streams.get(&stream_type) {
-            Some(name) => name,
-            None => {
-                display_plugin_exposed_types(&self.streams, "stream");
-                return Err(format!(
-                    "No plugin provided the stream type '{stream_type}'"
-                ));
+    fn aggregate_plugin_configs(&mut self, config: &'static Config) -> Result<(), String> {
+        for stream in config.streams.values() {
+            if stream.is_plugin()
+                && let Some(stream_type) = &stream.stream_type
+            {
+                let plugin_name = self.stream_to_plugin.get(stream_type).ok_or_else(|| {
+                    display_plugin_exposed_types(&self.stream_to_plugin, "stream", stream_type)
+                })?;
+                let (streams, _) = self
+                    .plugin_to_confs
+                    .entry(plugin_name.to_owned())
+                    .or_default();
+                streams.push(stream);
             }
-        };
 
-        let plugin = self.plugins.get_mut(plugin_name).unwrap();
+            for action in stream
+                .filters
+                .values()
+                .flat_map(|filter| filter.actions.values())
+            {
+                if action.is_plugin()
+                    && let Some(action_type) = &action.action_type
+                {
+                    let plugin_name = self.action_to_plugin.get(action_type).ok_or_else(|| {
+                        display_plugin_exposed_types(&self.action_to_plugin, "action", action_type)
+                    })?;
+                    let (_, actions) = self
+                        .plugin_to_confs
+                        .entry(plugin_name.to_owned())
+                        .or_default();
+                    actions.push(action);
+                }
+            }
+        }
+        Ok(())
+    }
 
-        plugin
-            .stream_impl(stream_name.clone(), stream_type, config.into())
-            .await
-            .map_err(|err| {
-                format!(
-                    "plugin error while initializing stream {stream_name}: {}",
-                    err.to_string().replace('\n', " ")
+    async fn load_plugin_configs(&mut self) -> Result<(), String> {
+        let plugin_to_confs = std::mem::take(&mut self.plugin_to_confs);
+        for (plugin_name, (streams, actions)) in plugin_to_confs {
+            let plugin = self
+                .plugins
+                .get_mut(&plugin_name)
+                .ok_or_else(|| format!("could not find plugin {plugin_name}. this is a bug!"))?;
+
+            let stream_names: Vec<String> =
+                streams.iter().map(|stream| stream.name.clone()).collect();
+            let action_names: Vec<String> =
+                actions.iter().map(|action| action.to_string()).collect();
+
+            let (stream_impls, action_impls) = plugin
+                .load_config(
+                    streams
+                        .into_iter()
+                        .map(Stream::to_stream_config)
+                        .collect::<Result<Vec<StreamConfig>, String>>()?,
+                    actions
+                        .into_iter()
+                        .map(Action::to_action_config)
+                        .collect::<Result<Vec<ActionConfig>, String>>()?,
                 )
-            })
+                .await
+                .map_err(|err| {
+                    format!("plugin {plugin_name} is not happy with your config: {err}")
+                })?;
+
+            self.stream_to_impl
+                .extend(stream_names.into_iter().zip(stream_impls));
+            self.action_to_impl
+                .extend(action_names.into_iter().zip(action_impls));
+        }
+
+        Ok(())
     }
 
-    pub async fn init_action_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        action_type: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> Result<ActionImpl, String> {
-        let plugin_name = match self.actions.get(&action_type) {
-            Some(name) => name,
-            None => {
-                display_plugin_exposed_types(&self.actions, "action");
-                return Err(format!(
-                    "No plugin provided the action type '{action_type}'"
-                ));
-            }
-        };
-
-        let plugin = self.plugins.get_mut(plugin_name).unwrap();
-
-        plugin
-            .action_impl(
-                stream_name.clone(),
-                filter_name.clone(),
-                action_name.clone(),
-                action_type,
-                config.into(),
-                patterns,
-            )
-            .await
-            .map_err(|err| format!("plugin error while initializing action {stream_name}.{filter_name}.{action_name}: {}",
-                    err.to_string().replace('\n', " ")
-            ))
+    pub fn get_stream_impl(&mut self, stream_name: String) -> Option<StreamImpl> {
+        self.stream_to_impl.remove(&stream_name)
     }
 
-    pub async fn finish_setup(&mut self) -> Result<(), String> {
+    pub fn get_action_impl(&mut self, action_fullname: String) -> Option<ActionImpl> {
+        self.action_to_impl.remove(&action_fullname)
+    }
+
+    pub async fn start(&mut self) -> Result<(), String> {
         // Finish setup of all plugins
         join_all(
             self.plugins
                 .values_mut()
-                .map(|plugin_manager| plugin_manager.finish_setup()),
+                .map(|plugin_manager| plugin_manager.start()),
         )
         .await
         // Convert Vec<Result<Result>> into Result
@@ -342,7 +374,11 @@ impl Plugins {
     }
 }
 
-fn display_plugin_exposed_types(type_to_plugin: &BTreeMap<String, String>, name: &str) {
+fn display_plugin_exposed_types(
+    type_to_plugin: &BTreeMap<String, String>,
+    name: &str,
+    invalid: &str,
+) -> String {
     let mut plugin_to_types: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (type_, plugin) in type_to_plugin {
         plugin_to_types.entry(plugin).or_default().push(type_);
@@ -353,4 +389,5 @@ fn display_plugin_exposed_types(type_to_plugin: &BTreeMap<String, String>, name:
             types.join("', '")
         );
     }
+    format!("No plugin provides the {name} type: {invalid}")
 }
