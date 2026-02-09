@@ -136,6 +136,9 @@ local banFor(time) = {
 
 </details>
 
+It is recommended to setup reaction with [`nftables`](https://reaction.ppom.me/actions/nftables.html)
+or [`ipset` + `iptables`](https://reaction.ppom.me/actions/ipset.html), which are much more performant
+solutions than `iptables` alone.
 
 ### Database
 
