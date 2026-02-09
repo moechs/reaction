@@ -1,6 +1,6 @@
 use std::{error::Error, path::Path, process::Stdio, thread::sleep, time::Duration};
 
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_fs::prelude::*;
 use nix::sys::signal;
 use predicates::prelude::predicate;
@@ -14,7 +14,7 @@ fn actions_delayed_and_on_exit() -> Result<(), Box<dyn Error>> {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-after.jsonnet"))?;
 
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(Duration::from_secs(5));
@@ -46,7 +46,7 @@ fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-shutdown.jsonnet"))?;
 
-    let cmd = Command::cargo_bin("reaction")?;
+    let cmd = cargo_bin_cmd!("reaction");
     let mut cmd = std::process::Command::new(cmd.get_program());
     cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
@@ -103,7 +103,7 @@ fn non_utf8_is_stripped() -> Result<(), Box<dyn Error>> {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-binary-input.jsonnet"))?;
 
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(std::time::Duration::from_secs(1));
@@ -124,7 +124,7 @@ fn capture_streams_stderr() -> Result<(), Box<dyn Error>> {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-stream-stderr.jsonnet"))?;
 
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(std::time::Duration::from_secs(1));
@@ -149,7 +149,7 @@ fn manualy_trigger_filter() -> Result<(), Box<dyn Error>> {
         .write_file(Path::new("tests/test-conf/test-trigger.jsonnet"))?;
 
     // start daemon
-    let cmd = Command::cargo_bin("reaction")?;
+    let cmd = cargo_bin_cmd!("reaction");
     let program = cmd.get_program();
     let mut cmd = std::process::Command::new(program);
     cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
@@ -181,7 +181,7 @@ fn manualy_trigger_filter() -> Result<(), Box<dyn Error>> {
     let socket_path = socket.path().to_str().unwrap();
 
     // trigger event manually
-    let mut cmd_trigger = Command::cargo_bin("reaction")?;
+    let mut cmd_trigger = cargo_bin_cmd!("reaction");
     cmd_trigger.current_dir(tmp_dir.path());
     cmd_trigger.args(["trigger", "--socket", socket_path, "s1.f1", "num=95"]);
     cmd_trigger.timeout(Duration::from_secs(1));
@@ -221,7 +221,7 @@ fn filter_regex_match_eol() -> Result<(), Box<dyn Error>> {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-eol-match.jsonnet"))?;
 
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(std::time::Duration::from_secs(1));

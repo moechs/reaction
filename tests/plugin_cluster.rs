@@ -1,6 +1,6 @@
 use std::{fs::read_to_string, path::Path, thread, time::Duration};
 
-use assert_cmd::Command;
+use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use assert_fs::prelude::*;
 
 const SECRET_KEY_A: &str = "g7U1LPq2cgGSyk6CH_v1QpoXowSFKVQ8IcFljd_ZKGw=";
@@ -100,8 +100,7 @@ fn launch_node(config: String, my_secret: &'static str, expected_output: Vec<&'s
         .write_file(Path::new("./target/debug/reaction-plugin-cluster"))
         .unwrap();
 
-    let output = Command::cargo_bin("reaction")
-        .unwrap()
+    let output = cargo_bin_cmd!("reaction")
         .args([
             "start",
             "--socket",

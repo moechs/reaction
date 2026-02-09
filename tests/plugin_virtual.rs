@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use assert_cmd::Command;
+use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use assert_fs::prelude::*;
 use predicates::prelude::predicate;
 
@@ -23,8 +23,7 @@ fn plugin_virtual() {
         .write_file(Path::new("./target/debug/reaction-plugin-virtual"))
         .unwrap();
 
-    Command::cargo_bin("reaction")
-        .unwrap()
+    cargo_bin_cmd!("reaction")
         .args(["start", "--socket", "./s", "--config", "./config.jsonnet"])
         .current_dir(tmp_dir.path())
         .timeout(Duration::from_secs(5))

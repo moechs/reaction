@@ -1,10 +1,10 @@
 use std::error::Error;
 
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 
 #[test]
 fn load_conf_directory() -> Result<(), Box<dyn Error>> {
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args([
         "test-config",
         "--verbose",
@@ -70,7 +70,7 @@ streams:
 fn example_configs_are_equal() {
     let outputs = ["config/example.yml", "config/example.jsonnet"]
         .map(|config_path| {
-            let mut cmd = Command::cargo_bin("reaction").unwrap();
+            let mut cmd = cargo_bin_cmd!("reaction");
             cmd.args(["test-config", "--config", config_path]);
             cmd.assert().success().get_output().stdout.clone()
         })

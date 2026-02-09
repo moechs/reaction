@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_fs::{TempDir, prelude::*};
 use predicates::prelude::predicate;
 
@@ -80,8 +80,7 @@ fn run_reaction(tmp_dir: &TempDir) {
         .write_file(Path::new("tests/start_stop.jsonnet"))
         .unwrap();
 
-    Command::cargo_bin("reaction")
-        .unwrap()
+    cargo_bin_cmd!("reaction")
         .args(["start", "--socket", "./s", "--config", "./config.jsonnet"])
         .current_dir(tmp_dir.path())
         .timeout(Duration::from_secs(5))

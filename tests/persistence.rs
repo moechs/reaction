@@ -1,6 +1,6 @@
 use std::{error::Error, path::Path, time::Duration};
 
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_fs::prelude::*;
 use predicates::prelude::predicate;
 
@@ -13,7 +13,7 @@ fn resume_action() -> Result<(), Box<dyn Error>> {
         .write_file(Path::new("tests/test-conf/test-resume-action.jsonnet"))?;
 
     // first run
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(Duration::from_secs(5));
@@ -25,7 +25,7 @@ fn resume_action() -> Result<(), Box<dyn Error>> {
     tmp_dir.child("log").assert(&expected);
 
     // second run, expect to resume action
-    let mut cmd = Command::cargo_bin("reaction")?;
+    let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(Duration::from_secs(5));
