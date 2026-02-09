@@ -1,7 +1,7 @@
 use std::{env::set_current_dir, time::Duration};
 
 use assert_fs::TempDir;
-use reaction_plugin::{ActionImpl, Exec, PluginInfo, StreamImpl};
+use reaction_plugin::{ActionConfig, Exec, PluginInfo, StreamConfig};
 use serde_json::json;
 use tokio::{fs, time::timeout};
 use treedb::time::now;
@@ -98,11 +98,10 @@ const POOL: [TestNode; 15] = [
 ];
 
 async fn stream_action(
-    plugin: &mut Plugin,
     name: &str,
     index: usize,
     nodes: &[TestNode],
-) -> (StreamImpl, ActionImpl) {
+) -> (StreamConfig, ActionConfig) {
     let stream_name = format!("stream_{name}");
     let this_node = &nodes[index];
     let other_nodes: Vec<_> = nodes
@@ -120,37 +119,30 @@ async fn stream_action(
         .await
         .unwrap();
 
-    let stream = plugin
-        .stream_impl(
-            stream_name.clone(),
-            "cluster".into(),
-            json!({
+    (
+        StreamConfig {
+            stream_name: stream_name.clone(),
+            stream_type: "cluster".into(),
+            config: json!({
                 "message_timeout": "30s",
                 "listen_port": this_node.port,
                 "nodes": other_nodes,
             })
             .into(),
-        )
-        .await
-        .unwrap();
-
-    let action = plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "cluster_send".into(),
-            json!({
+        },
+        ActionConfig {
+            stream_name: "stream".into(),
+            filter_name: "filter".into(),
+            action_name: "action".into(),
+            action_type: "cluster_send".into(),
+            config: json!({
                 "send": format!("from {name}: <test>"),
                 "to": stream_name,
             })
             .into(),
-            vec!["test".into()],
-        )
-        .await
-        .unwrap();
-
-    (stream, action)
+            patterns: vec!["test".into()],
+        },
+    )
 }
 
 #[tokio::test]
@@ -162,19 +154,33 @@ async fn two_nodes_simultaneous_startup() {
 
         let ((mut stream_a, action_a), (mut stream_b, action_b)) = if separate_plugin {
             let mut plugin_a = Plugin::default();
-            let a = stream_action(&mut plugin_a, "a", 0, &POOL[0..2]).await;
-            plugin_a.finish_setup().await.unwrap();
+            let (sa, aa) = stream_action("a", 0, &POOL[0..2]).await;
+            let (mut streams_a, mut actions_a) =
+                plugin_a.load_config(vec![sa], vec![aa]).await.unwrap();
+            plugin_a.start().await.unwrap();
 
             let mut plugin_b = Plugin::default();
-            let b = stream_action(&mut plugin_b, "b", 1, &POOL[0..2]).await;
-            plugin_b.finish_setup().await.unwrap();
-            (a, b)
+            let (sb, ab) = stream_action("b", 1, &POOL[0..2]).await;
+            let (mut streams_b, mut actions_b) =
+                plugin_b.load_config(vec![sb], vec![ab]).await.unwrap();
+            plugin_b.start().await.unwrap();
+            (
+                (streams_a.remove(0), actions_a.remove(0)),
+                (streams_b.remove(0), actions_b.remove(0)),
+            )
         } else {
             let mut plugin = Plugin::default();
-            let a = stream_action(&mut plugin, "a", 0, &POOL[0..2]).await;
-            let b = stream_action(&mut plugin, "b", 1, &POOL[0..2]).await;
-            plugin.finish_setup().await.unwrap();
-            (a, b)
+            let a = stream_action("a", 0, &POOL[0..2]).await;
+            let b = stream_action("b", 1, &POOL[0..2]).await;
+            let (mut streams, mut actions) = plugin
+                .load_config(vec![a.0, b.0], vec![a.1, b.1])
+                .await
+                .unwrap();
+            plugin.start().await.unwrap();
+            (
+                (streams.remove(0), actions.remove(0)),
+                (streams.remove(1), actions.remove(1)),
+            )
         };
 
         for m in ["test1", "test2", "test3"] {
@@ -238,7 +244,6 @@ async fn n_nodes_simultaneous_startup() {
             let mut plugin = Plugin::default();
             let name = format!("n{i}");
             let (stream, action) = stream_action(
-                &mut plugin,
                 &name,
                 i,
                 &POOL[0..n]
@@ -252,10 +257,14 @@ async fn n_nodes_simultaneous_startup() {
                     .as_slice(),
             )
             .await;
-            plugin.finish_setup().await.unwrap();
+            let (mut stream, mut action) = plugin
+                .load_config(vec![stream], vec![action])
+                .await
+                .unwrap();
+            plugin.start().await.unwrap();
             plugins.push(plugin);
-            streams.push(stream);
-            actions.push((action, name));
+            streams.push(stream.pop().unwrap());
+            actions.push((action.pop().unwrap(), name));
         }
 
         for m in ["test1", "test2", "test3", "test4", "test5"] {

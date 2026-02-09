@@ -7,8 +7,8 @@ use std::{
 
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
-    ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamImpl, Value,
-    line::PatternLine, main_loop, shutdown::ShutdownController, time::parse_duration,
+    ActionConfig, ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamConfig,
+    StreamImpl, line::PatternLine, main_loop, shutdown::ShutdownController, time::parse_duration,
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -32,8 +32,7 @@ async fn main() {
 
 #[derive(Default)]
 struct Plugin {
-    streams: BTreeMap<String, StreamInit>,
-    actions: BTreeMap<String, Vec<ActionInit>>,
+    init: BTreeMap<String, (StreamInit, Vec<ActionInit>)>,
     cluster_shutdown: ShutdownController,
 }
 
@@ -108,118 +107,136 @@ impl PluginInfo for Plugin {
             actions: BTreeSet::from(["cluster_send".into()]),
         })
     }
-
-    async fn stream_impl(
+    async fn load_config(
         &mut self,
-        stream_name: String,
-        stream_type: String,
-        config: Value,
-    ) -> RemoteResult<StreamImpl> {
-        if &stream_type != "cluster" {
-            return Err("This plugin can't handle other stream types than cluster".into());
-        }
+        streams: Vec<StreamConfig>,
+        actions: Vec<ActionConfig>,
+    ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
+        let mut ret_streams = Vec::with_capacity(streams.len());
+        let mut ret_actions = Vec::with_capacity(actions.len());
 
-        let options: StreamOptions = serde_json::from_value(config.into())
-            .map_err(|err| format!("invalid options: {err}"))?;
+        for StreamConfig {
+            stream_name,
+            stream_type,
+            config,
+        } in streams
+        {
+            if &stream_type != "cluster" {
+                return Err("This plugin can't handle other stream types than cluster".into());
+            }
 
-        let mut nodes = BTreeMap::default();
+            let options: StreamOptions = serde_json::from_value(config.into())
+                .map_err(|err| format!("invalid options: {err}"))?;
 
-        let message_timeout = parse_duration(&options.message_timeout)
-            .map_err(|err| format!("invalid message_timeout: {err}"))?;
+            let mut nodes = BTreeMap::default();
 
-        if options.bind_ipv4.is_none() && options.bind_ipv6.is_none() {
-            Err(
-                "At least one of bind_ipv4 and bind_ipv6 must be enabled. Unset at least one of them or set at least one of them to an IP.",
-            )?;
-        }
+            let message_timeout = parse_duration(&options.message_timeout)
+                .map_err(|err| format!("invalid message_timeout: {err}"))?;
 
-        if options.nodes.is_empty() {
-            Err("At least one remote node has to be configured for a cluster")?;
-        }
+            if options.bind_ipv4.is_none() && options.bind_ipv6.is_none() {
+                Err(
+                    "At least one of bind_ipv4 and bind_ipv6 must be enabled. Unset at least one of them or set at least one of them to an IP.",
+                )?;
+            }
 
-        for node in options.nodes.into_iter() {
-            let bytes = key::key_b64_to_bytes(&node.public_key)
-                .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
+            if options.nodes.is_empty() {
+                Err("At least one remote node has to be configured for a cluster")?;
+            }
 
-            let public_key = PublicKey::from_bytes(&bytes)
-                .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
+            for node in options.nodes.into_iter() {
+                let bytes = key::key_b64_to_bytes(&node.public_key)
+                    .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
 
-            nodes.insert(
-                public_key,
-                EndpointAddr {
-                    id: public_key,
-                    addrs: node
-                        .addresses
-                        .into_iter()
-                        .map(|addr| TransportAddr::Ip(addr))
-                        .collect(),
-                },
+                let public_key = PublicKey::from_bytes(&bytes)
+                    .map_err(|err| format!("invalid public key {}: {err}", node.public_key))?;
+
+                nodes.insert(
+                    public_key,
+                    EndpointAddr {
+                        id: public_key,
+                        addrs: node
+                            .addresses
+                            .into_iter()
+                            .map(|addr| TransportAddr::Ip(addr))
+                            .collect(),
+                    },
+                );
+            }
+
+            let secret_key = key::secret_key(".", &stream_name).await?;
+            eprintln!(
+                "INFO public key of this node for cluster {stream_name}: {}",
+                secret_key.public().show()
             );
+
+            let (tx, rx) = mpsc::channel(1);
+
+            let stream = StreamInit {
+                name: stream_name.clone(),
+                listen_port: options.listen_port,
+                bind_ipv4: options.bind_ipv4,
+                bind_ipv6: options.bind_ipv6,
+                secret_key,
+                message_timeout,
+                nodes,
+                tx,
+            };
+
+            if let Some(_) = self.init.insert(stream_name, (stream, vec![])) {
+                return Err("this virtual stream has already been initialized".into());
+            }
+
+            ret_streams.push(StreamImpl {
+                stream: rx,
+                standalone: true,
+            })
         }
 
-        let secret_key = key::secret_key(".", &stream_name).await?;
-        eprintln!(
-            "INFO public key of this node for cluster {stream_name}: {}",
-            secret_key.public().show()
-        );
+        for ActionConfig {
+            stream_name,
+            filter_name,
+            action_name,
+            action_type,
+            config,
+            patterns,
+        } in actions
+        {
+            if &action_type != "cluster_send" {
+                return Err(
+                    "This plugin can't handle other action types than 'cluster_send'".into(),
+                );
+            }
 
-        let (tx, rx) = mpsc::channel(1);
+            let options: ActionOptions = serde_json::from_value(config.into())
+                .map_err(|err| format!("invalid options: {err}"))?;
 
-        let stream = StreamInit {
-            name: stream_name.clone(),
-            listen_port: options.listen_port,
-            bind_ipv4: options.bind_ipv4,
-            bind_ipv6: options.bind_ipv6,
-            secret_key,
-            message_timeout,
-            nodes,
-            tx,
-        };
+            let (tx, rx) = mpsc::channel(1);
 
-        if let Some(_) = self.streams.insert(stream_name, stream) {
-            return Err("this virtual stream has already been initialized".into());
+            let init_action = ActionInit {
+                name: format!("{}.{}.{}", stream_name, filter_name, action_name),
+                send: PatternLine::new(options.send, patterns),
+                self_: options.self_,
+                rx,
+            };
+
+            match self.init.get_mut(&options.to) {
+                Some((_, actions)) => actions.push(init_action),
+                None => {
+                    return Err(format!(
+                        "ERROR action '{}' sends 'to' unknown stream '{}'",
+                        init_action.name, options.to
+                    )
+                    .into());
+                }
+            }
+
+            ret_actions.push(ActionImpl { tx })
         }
 
-        Ok(StreamImpl {
-            stream: rx,
-            standalone: true,
-        })
+        Ok((ret_streams, ret_actions))
     }
 
-    async fn action_impl(
-        &mut self,
-        stream_name: String,
-        filter_name: String,
-        action_name: String,
-        action_type: String,
-        config: Value,
-        patterns: Vec<String>,
-    ) -> RemoteResult<ActionImpl> {
-        if &action_type != "cluster_send" {
-            return Err("This plugin can't handle other action types than 'cluster_send'".into());
-        }
-
-        let options: ActionOptions = serde_json::from_value(config.into())
-            .map_err(|err| format!("invalid options: {err}"))?;
-
-        let (tx, rx) = mpsc::channel(1);
-
-        let init_action = ActionInit {
-            name: format!("{}.{}.{}", stream_name, filter_name, action_name),
-            send: PatternLine::new(options.send, patterns),
-            self_: options.self_,
-            rx,
-        };
-
-        self.actions
-            .entry(options.to)
-            .or_default()
-            .push(init_action);
-
-        Ok(ActionImpl { tx })
-    }
-
-    async fn finish_setup(&mut self) -> RemoteResult<()> {
+    async fn start(&mut self) -> RemoteResult<()> {
         let mut db = {
             let path = PathBuf::from(".");
             let (cancellation_token, task_tracker_token) = self.cluster_shutdown.token().split();
@@ -228,33 +245,20 @@ impl PluginInfo for Plugin {
                 .map_err(|err| format!("Can't open database: {err}"))?
         };
 
-        while let Some((stream_name, stream)) = self.streams.pop_first() {
+        while let Some((_, (stream, actions))) = self.init.pop_first() {
             let endpoint = cluster::bind(&stream).await?;
             cluster::cluster_tasks(
                 endpoint,
                 stream,
-                self.actions.remove(&stream_name).unwrap_or_default(),
+                actions,
                 &mut db,
                 self.cluster_shutdown.clone(),
             )
             .await?;
         }
-        // Check there is no action left
-        if !self.actions.is_empty() {
-            for (to, actions) in &self.actions {
-                for action in actions {
-                    eprintln!(
-                        "ERROR action '{}' sends 'to' unknown stream '{}'",
-                        action.name, to
-                    );
-                }
-            }
-            return Err("at least one cluster_send action has unknown 'to'".into());
-        }
         // Free containers
-        self.actions = Default::default();
-        self.streams = Default::default();
-        eprintln!("DEBUG finished setup.");
+        self.init = Default::default();
+        eprintln!("DEBUG started");
 
         Ok(())
     }

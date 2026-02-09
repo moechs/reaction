@@ -1,7 +1,7 @@
 use std::{env::set_current_dir, time::Duration};
 
 use assert_fs::TempDir;
-use reaction_plugin::{Exec, PluginInfo};
+use reaction_plugin::{ActionConfig, Exec, PluginInfo, StreamConfig};
 use serde_json::json;
 use tokio::time::timeout;
 use treedb::time::now;
@@ -19,33 +19,34 @@ async fn run_with_self() {
 
     for self_ in [true, false] {
         let mut plugin = Plugin::default();
-        let mut stream = plugin
-            .stream_impl(
-                "stream".into(),
-                "cluster".into(),
-                stream_ok_port(2052).into(),
+        let (mut streams, mut actions) = plugin
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "cluster".into(),
+                    config: stream_ok_port(2052).into(),
+                }],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "cluster_send".into(),
+                    config: json!({
+                        "send": "message <test>",
+                        "to": "stream",
+                        "self": self_,
+                    })
+                    .into(),
+                    patterns: vec!["test".into()],
+                }],
             )
             .await
             .unwrap();
-        assert!(stream.standalone);
 
-        let action = plugin
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "cluster_send".into(),
-                json!({
-                    "send": "message <test>",
-                    "to": "stream",
-                    "self": self_,
-                })
-                .into(),
-                vec!["test".into()],
-            )
-            .await
-            .unwrap();
-        assert!(plugin.finish_setup().await.is_ok());
+        let mut stream = streams.pop().unwrap();
+        let action = actions.pop().unwrap();
+        assert!(stream.standalone);
+        assert!(plugin.start().await.is_ok());
 
         for m in ["test1", "test2", "test3", "  a   a a aa a a"] {
             let time = now().into();

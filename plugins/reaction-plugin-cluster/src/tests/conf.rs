@@ -1,12 +1,12 @@
 use std::env::set_current_dir;
 
 use assert_fs::TempDir;
-use reaction_plugin::PluginInfo;
+use reaction_plugin::{ActionConfig, PluginInfo, StreamConfig};
 use serde_json::json;
 
 use crate::{Plugin, tests::insert_secret_key};
 
-use super::{PUBLIC_KEY_A, TEST_MUTEX, stream_ok, stream_ok_port};
+use super::{PUBLIC_KEY_A, TEST_MUTEX, stream_ok};
 
 #[tokio::test]
 async fn conf_stream() {
@@ -18,7 +18,14 @@ async fn conf_stream() {
     // Invalid type
     assert!(
         Plugin::default()
-            .stream_impl("stream".into(), "clust".into(), stream_ok().into(),)
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "clust".into(),
+                    config: stream_ok().into(),
+                }],
+                vec![]
+            )
             .await
             .is_err()
     );
@@ -102,7 +109,14 @@ async fn conf_stream() {
     ] {
         assert!(is_ok(
             &Plugin::default()
-                .stream_impl("stream".into(), "cluster".into(), json.into())
+                .load_config(
+                    vec![StreamConfig {
+                        stream_name: "stream".into(),
+                        stream_type: "cluster".into(),
+                        config: json.into(),
+                    }],
+                    vec![]
+                )
                 .await
         ));
     }
@@ -115,17 +129,24 @@ async fn conf_action() {
     // Invalid type
     assert!(
         Plugin::default()
-            .action_impl(
-                "stream".into(),
-                "filter".into(),
-                "action".into(),
-                "cluster_sen".into(),
-                json!({
-                    "send": "<p1>",
-                    "to": "stream",
-                })
-                .into(),
-                patterns.clone(),
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "cluster".into(),
+                    config: stream_ok().into(),
+                }],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "cluster_sen".into(),
+                    config: json!({
+                        "send": "<p1>",
+                        "to": "stream",
+                    })
+                    .into(),
+                    patterns: patterns.clone(),
+                }]
             )
             .await
             .is_err()
@@ -134,64 +155,79 @@ async fn conf_action() {
     for (json, is_ok) in [
         (
             json!({
-                    "send": "<p1>",
-                    "to": "stream",
+                "send": "<p1>",
+                "to": "stream",
             }),
-            Result::is_ok as fn(&_) -> bool,
+            true,
         ),
         (
             json!({
-                    "send": "<p1>",
-                    "to": "stream",
-                    "self": true,
+                "send": "<p1>",
+                "to": "stream",
+                "self": true,
             }),
-            Result::is_ok,
+            true,
         ),
         (
             json!({
-                    "send": "<p1>",
-                    "to": "stream",
-                    "self": false,
+                "send": "<p1>",
+                "to": "stream",
+                "self": false,
             }),
-            Result::is_ok,
+            true,
         ),
         (
             // missing to
             json!({
-                    "send": "<p1>",
+                "send": "<p1>",
             }),
-            Result::is_err,
+            false,
         ),
         (
             // missing send
             json!({
-                    "to": "stream",
+                "to": "stream",
             }),
-            Result::is_err,
+            false,
         ),
         (
             // invalid self
             json!({
-                    "send": "<p1>",
-                    "to": "stream",
-                    "self": "true",
+                "send": "<p1>",
+                "to": "stream",
+                "self": "true",
             }),
-            Result::is_err,
+            false,
         ),
-        (json!({}), Result::is_err),
+        (
+            // missing conf
+            json!({}),
+            false,
+        ),
     ] {
-        assert!(is_ok(
-            &Plugin::default()
-                .action_impl(
-                    "stream".into(),
-                    "filter".into(),
-                    "action".into(),
-                    "cluster_send".into(),
-                    json.into(),
-                    patterns.clone(),
-                )
-                .await
-        ));
+        let ret = Plugin::default()
+            .load_config(
+                vec![StreamConfig {
+                    stream_name: "stream".into(),
+                    stream_type: "cluster".into(),
+                    config: stream_ok().into(),
+                }],
+                vec![ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action".into(),
+                    action_type: "cluster_send".into(),
+                    config: json.clone().into(),
+                    patterns: patterns.clone(),
+                }],
+            )
+            .await;
+
+        assert!(
+            ret.is_ok() == is_ok,
+            "is_ok: {is_ok}, ret: {:?}, action conf: {json:?}",
+            ret.map(|_| ())
+        );
     }
 }
 
@@ -203,62 +239,55 @@ async fn conf_send() {
     insert_secret_key().await;
 
     // No action is ok
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl(
-            "stream".into(),
-            "cluster".into(),
-            stream_ok_port(2051).into(),
+    let res = Plugin::default()
+        .load_config(
+            vec![StreamConfig {
+                stream_name: "stream".into(),
+                stream_type: "cluster".into(),
+                config: stream_ok().into(),
+            }],
+            vec![],
         )
-        .await
-        .unwrap();
-    let res = plugin.finish_setup().await;
-    eprintln!("{res:?}");
-    assert!(res.is_ok());
+        .await;
+    assert!(res.is_ok(), "{:?}", res.map(|_| ()));
 
     // An action is ok
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl(
-            "stream".into(),
-            "cluster".into(),
-            stream_ok_port(2052).into(),
+    let res = Plugin::default()
+        .load_config(
+            vec![StreamConfig {
+                stream_name: "stream".into(),
+                stream_type: "cluster".into(),
+                config: stream_ok().into(),
+            }],
+            vec![ActionConfig {
+                stream_name: "stream".into(),
+                filter_name: "filter".into(),
+                action_name: "action".into(),
+                action_type: "cluster_send".into(),
+                config: json!({ "send": "message", "to": "stream" }).into(),
+                patterns: vec![],
+            }],
         )
-        .await
-        .unwrap();
-    plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "cluster_send".into(),
-            json!({ "send": "message", "to": "stream" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_ok());
+        .await;
+    assert!(res.is_ok(), "{:?}", res.map(|_| ()));
 
     // Invalid to: option
-    let mut plugin = Plugin::default();
-    plugin
-        .stream_impl(
-            "stream".into(),
-            "cluster".into(),
-            stream_ok_port(2053).into(),
+    let res = Plugin::default()
+        .load_config(
+            vec![StreamConfig {
+                stream_name: "stream".into(),
+                stream_type: "cluster".into(),
+                config: stream_ok().into(),
+            }],
+            vec![ActionConfig {
+                stream_name: "stream".into(),
+                filter_name: "filter".into(),
+                action_name: "action".into(),
+                action_type: "cluster_send".into(),
+                config: json!({ "send": "message", "to": "stream1" }).into(),
+                patterns: vec![],
+            }],
         )
-        .await
-        .unwrap();
-    plugin
-        .action_impl(
-            "stream".into(),
-            "filter".into(),
-            "action".into(),
-            "cluster_send".into(),
-            json!({ "send": "message", "to": "stream1" }).into(),
-            Vec::default(),
-        )
-        .await
-        .unwrap();
-    assert!(plugin.finish_setup().await.is_err());
+        .await;
+    assert!(res.is_err(), "{:?}", res.map(|_| ()));
 }
