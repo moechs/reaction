@@ -136,9 +136,9 @@ local banFor(time) = {
 
 </details>
 
-It is recommended to setup reaction with [`nftables`](https://reaction.ppom.me/actions/nftables.html)
-or [`ipset` + `iptables`](https://reaction.ppom.me/actions/ipset.html), which are much more performant
-solutions than `iptables` alone.
+> It is recommended to setup reaction with [`nftables`](https://reaction.ppom.me/actions/nftables.html)
+> or [`ipset` + `iptables`](https://reaction.ppom.me/actions/ipset.html), which are much more performant
+> solutions than `iptables` alone.
 
 ### Database
 
@@ -155,19 +155,10 @@ If you don't know where to start reaction, `/var/lib/reaction` should be a sane 
 - `reaction test-config` shows loaded configuration
 - `reaction help` for full usage.
 
-### `ip46tables` and `nft46`
+### old binaries
 
-> ⚠️Deprecated since v2.2.0:
-> reaction now provides builtin support for executing different actions on ipv4 and ipv6.
-> They will be removed in a future version.
-
-`ip46tables` and `nft46` are two minimal c programs present in the `helpers_c` directory with only standard posix dependencies.
-
-`ip46tables` permits to configure `iptables` and `ip6tables` at the same time.
-It will execute `iptables` when detecting ipv4, `ip6tables` when detecting ipv6 and both if no ip address is present on the command line.
-
-`nft46` works slightly differently: it will replace the `X` in its argument by 4 or 6 depending on the ip address on the command line.
-This permits to have 2 IP sets, one of type `ipv4_addr` and one of type `ipv6_addr`.
+`ip46tables` and `nft46` binaries are no longer part of reaction. If you really need them, see
+[the last commit that included them](https://framagit.org/ppom/reaction/-/tree/b7d997ca5e9a69c8572bb2ec9d27d0eb03b3cb9f/helpers_c).
 
 ## Wiki
 

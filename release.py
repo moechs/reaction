@@ -162,8 +162,6 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
         files = [
             # Binaries
             "reaction",
-            "nft46",
-            "ip46tables",
             # Shell completion
             "reaction.bash",
             "reaction.fish",

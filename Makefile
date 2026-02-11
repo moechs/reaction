@@ -14,8 +14,6 @@ reaction:
 
 install: reaction
 	install -m755 target/release/reaction $(DESTDIR)$(BINDIR)
-	install -m755 target/release/ip46tables $(DESTDIR)$(BINDIR)
-	install -m755 target/release/nft46 $(DESTDIR)$(BINDIR)
 
 install_systemd: install
 	install -m644 packaging/reaction.service $(SYSTEMDDIR)/system/reaction.service
