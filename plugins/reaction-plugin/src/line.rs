@@ -1,3 +1,9 @@
+//! Helper module that permits to use templated lines (ie. `bad password for <ip>`), like in Stream's and Action's `cmd`.
+//!
+//! Corresponding reaction core settings:
+//! - [Stream's `cmd`](https://reaction.ppom.me/reference.html#cmd)
+//! - [Action's `cmd`](https://reaction.ppom.me/reference.html#cmd-1)
+//!
 #[derive(Debug, PartialEq, Eq)]
 enum SendItem {
     Index(usize),
@@ -55,7 +61,7 @@ pub struct PatternLine {
 impl PatternLine {
     /// Construct [`PatternLine`] from a template line and the list of patterns of the underlying [Filter](https://reaction.ppom.me/reference.html#filter).
     ///
-    /// This list of patterns comes from [`PluginInfo::action_impl`].
+    /// This list of patterns comes from [`super::ActionConfig`].
     pub fn new(template: String, patterns: Vec<String>) -> Self {
         let line = Self::_from(patterns, Vec::from([SendItem::Str(template)]));
         Self {

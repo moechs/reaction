@@ -1,3 +1,9 @@
+//! This module provides [`parse_duration`], which parses duration in reaction's format (ie. `6h`, `3 days`)
+//!
+//! Like in those reaction core settings:
+//! - [Filters' `retryperiod`](https://reaction.ppom.me/reference.html#retryperiod)
+//! - [Actions' `after`](https://reaction.ppom.me/reference.html#after).
+
 use std::time::Duration;
 
 /// Parses the &str argument as a Duration

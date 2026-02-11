@@ -1,10 +1,49 @@
+//! Helper module that provides structures to ease the quitting process when having multiple tokio tasks.
+//!
+//! It defines a [`ShutdownController`], that permits to keep track of ongoing tasks, ask them to shutdown and wait for all of them to quit.
+//!
+//! You can have it as an attribute of your plugin struct.
+//! ```
+//! struct MyPlugin {
+//!   shutdown: ShutdownController
+//! }
+//! ```
+//!
+//! You can then give a [`ShutdownToken`] to other tasks when creating them:
+//!
+//! ```
+//! impl PluginInfo for MyPlugin {
+//!     async fn start(&mut self) -> RemoteResult<()> {
+//!         let token = self.shutdown.token();
+//!
+//!         tokio::spawn(async move {
+//!            token.wait().await;
+//!            eprintln!("DEBUG shutdown asked to quit, now quitting")
+//!         })
+//!     }
+//! }
+//! ```
+//!
+//! On closing, calling [`ShutdownController::ask_shutdown`] will inform all tasks waiting on [`ShutdownToken::wait`] that it's time to leave.
+//! Then we can wait for [`ShutdownController::wait_all_task_shutdown`] to complete.
+//!
+//! ```
+//! impl PluginInfo for MyPlugin {
+//!     async fn close(self) -> RemoteResult<()> {
+//!         self.shutdown.ask_shutdown();
+//!         self.shutdown.wait_all_task_shutdown().await;
+//!         Ok(())
+//!     }
+//! }
+//! ```
+
 use tokio_util::{
     sync::{CancellationToken, WaitForCancellationFuture},
     task::task_tracker::{TaskTracker, TaskTrackerToken},
 };
 
-/// Permits to keep track of ongoing tasks, ask them to shutdown and for all of them to quit.
-/// Stupid wrapper around [`tokio_util::CancellationToken`] and [`tokio_util::task_tracker::TaskTracker`].
+/// Permits to keep track of ongoing tasks, ask them to shutdown and wait for all of them to quit.
+/// Stupid wrapper around [`tokio_util::sync::CancellationToken`] and [`tokio_util::task::task_tracker::TaskTracker`].
 #[derive(Default, Clone)]
 pub struct ShutdownController {
     shutdown_notifyer: CancellationToken,
@@ -12,12 +51,8 @@ pub struct ShutdownController {
 }
 
 impl ShutdownController {
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            shutdown_notifyer: CancellationToken::new(),
-            task_tracker: TaskTracker::new(),
-        }
+        Self::default()
     }
 
     /// Ask for all tasks to quit
@@ -66,7 +101,7 @@ impl ShutdownDelegate {
 ///
 /// - Wait for a shutdown request to happen with [`Self::wait`]
 /// - Keep track of the current task. While this token is held,
-///   [`ShutdownController::wait_shutdown`] will block.
+///   [`ShutdownController::wait_all_task_shutdown`] will block.
 #[derive(Clone)]
 pub struct ShutdownToken {
     shutdown_notifyer: CancellationToken,
@@ -81,6 +116,7 @@ impl ShutdownToken {
         }
     }
 
+    /// Returns underlying [`CancellationToken`] and [`TaskTrackerToken`], consuming self.
     pub fn split(self) -> (CancellationToken, TaskTrackerToken) {
         (self.shutdown_notifyer, self._task_tracker_token)
     }
