@@ -1,6 +1,6 @@
 [package]
 name = "reaction"
-version = "2.2.1"
+version = "2.3.0"
 edition = "2024"
 authors = ["ppom <reaction@ppom.me>"]
 license = "AGPL-3.0"
@@ -22,6 +22,7 @@ systemd-units = { enable = false }
 assets = [
 	# Executables
 	[ "target/release/reaction", "/usr/bin/reaction", "755" ],
+	[ "target/release/reaction-plugin-virtual", "/usr/bin/reaction-plugin-virtual", "755" ],
 	# Man pages
 	[ "target/release/reaction*.1", "/usr/share/man/man1/", "644" ],
 	# Shell completions

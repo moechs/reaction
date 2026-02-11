@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "reaction"
-version = "2.2.1"
+version = "2.3.0"
 dependencies = [
  "assert_cmd",
  "assert_fs",
@@ -2889,7 +2889,7 @@ dependencies = [
 
 [[package]]
 name = "reaction-plugin-ipset"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ipset",
  "reaction-plugin",
@@ -2901,7 +2901,7 @@ dependencies = [
 
 [[package]]
 name = "reaction-plugin-virtual"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "reaction-plugin",
  "remoc",

@@ -1,11 +1,11 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign cargo-cross rustup cargo-deb
+#!nix-shell -i python3 -p "python3.withPackages (ps: with ps; [ requests ])" -p debian-devscripts git minisign docker cargo-deb
 import argparse
 import http.client
 import json
 import os
-import subprocess
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -56,13 +56,13 @@ def main():
         print("exiting.")
         sys.exit(1)
 
+    # Minisign password
+    cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
+    minisign_password = cmd.stdout
+
     if args.publish:
         # Git push
         run_command(["git", "push", "--tags"])
-
-        # Minisign password
-        cmd = subprocess.run(["rbw", "get", "minisign"], capture_output=True, text=True)
-        minisign_password = cmd.stdout
 
         # Create directory
         run_command(
@@ -86,9 +86,11 @@ def main():
             pass
 
     architectures = {
-        "x86_64-unknown-linux-musl": "amd64",
-        "aarch64-unknown-linux-musl": "arm64",
-        "arm-unknown-linux-gnueabihf": "armhf",
+        "x86_64-unknown-linux-gnu": "amd64",
+        # I would like to build for those targets instead:
+        # "x86_64-unknown-linux-musl": "amd64",
+        # "aarch64-unknown-linux-musl": "arm64",
+        # "arm-unknown-linux-gnueabihf": "armhf",
     }
 
     all_files = []
@@ -120,32 +122,55 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 
     for architecture_rs, architecture_pretty in architectures.items():
         # Cargo clean
-        run_command(["cargo", "clean"])
+        # run_command(["cargo", "clean"])
 
-        # Install toolchain
+        # Build docker image
+        run_command(["docker", "pull", "rust:bookworm"])
+        run_command(["docker", "build", "-t", "rust:reaction", "."])
+
+        binaries = [
+            # Binaries
+            "reaction",
+            "reaction-plugin-virtual",
+            "reaction-plugin-ipset",
+        ]
+
+        # Build
         run_command(
             [
-                "rustup",
-                "toolchain",
-                "install",
-                f"stable-{architecture_rs}",
-                "--force-non-host",  # I know, I know!
-                "--profile",
-                "minimal",
+                "docker",
+                "run",
+                "--rm",
+                "-u", str(os.getuid()),
+                "-v", ".:/reaction",
+                "rust:reaction",
+                "sh", "-c",
+                " && ".join([
+                    f"cargo build --release --target {architecture_rs} --package {binary}"
+                    for binary in binaries
+                ])
             ]
         )
 
-        # Build
-        run_command(["cross", "build", "--release", "--target", architecture_rs])
-
         # Build .deb
-        cmd = run_command(
-            ["cargo-deb", f"--target={architecture_rs}", "--no-build", "--no-strip"]
-        )
+        debs = [
+            "reaction",
+            "reaction-plugin-ipset",
+        ]
+        for deb in debs:
+            cmd = run_command(
+                [
+                    "cargo-deb",
+                    "--target", architecture_rs,
+                    "--package", deb,
+                    "--no-build",
+                    "--no-strip"
+                ]
+            )
 
         deb_dir = os.path.join("./target", architecture_rs, "debian")
-        deb_name = [f for f in os.listdir(deb_dir) if f.endswith(".deb")][0]
-        deb_path = os.path.join(deb_dir, deb_name)
+        deb_names = [f for f in os.listdir(deb_dir) if f.endswith(".deb")]
+        deb_paths = [os.path.join(deb_dir, deb_name) for deb_name in deb_names]
 
         # Archive
         files_path = os.path.join("./target", architecture_rs, "release")
@@ -159,9 +184,7 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
         except FileExistsError:
             pass
 
-        files = [
-            # Binaries
-            "reaction",
+        files = binaries + [
             # Shell completion
             "reaction.bash",
             "reaction.fish",
@@ -187,16 +210,17 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
 
         os.chdir(root_dir)
 
-        if args.publish:
-            # Sign
-            run_command(
-                ["minisign", "-Sm", deb_path, tar_path],
-                text=True,
-                input=minisign_password,
-            )
-            deb_sig = f"{deb_path}.minisig"
-            tar_sig = f"{tar_path}.minisig"
+        # Sign
+        run_command(
+            ["minisign", "-Sm", tar_path] + deb_paths,
+            text=True,
+            input=minisign_password,
+        )
+        deb_sig_paths = [f"{deb_path}.minisig" for deb_path in deb_paths]
+        deb_sig_names = [f"{deb_name}.minisig" for deb_name in deb_names]
+        tar_sig = f"{tar_path}.minisig"
 
+        if args.publish:
             # Push
             run_command(
                 [
@@ -204,18 +228,25 @@ $ sudo systemctl enable --now reaction@reaction.jsonnet.service
                     "-az",  # "-e", "ssh -J pica01",
                     tar_path,
                     tar_sig,
-                    deb_path,
-                    deb_sig,
+                ]
+                    + deb_paths
+                    + deb_sig_paths
+                    + [
                     f"akesi:/var/www/static/reaction/releases/{tag}/",
                 ]
             )
+        else:
+            # Copy
+            run_command(["cp", tar_path, tar_sig] + deb_paths + deb_sig_paths + [local_dir])
 
-            all_files.extend([tar_path, tar_sig, deb_path, deb_sig])
+        all_files.extend([tar_path, tar_sig])
+        all_files.extend(deb_paths)
+        all_files.extend(deb_sig_paths)
 
-            # Instructions
+        # Instructions
 
-            instructions.append(
-                f"""
+        instructions.append(
+            f"""
 ## Tar installation ({architecture_pretty} linux)
 
 ```bash
@@ -223,32 +254,42 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{tar_name} \\
      -O https://static.ppom.me/reaction/releases/{tag}/{tar_name}.minisig \\
         && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {tar_name} \\
         && rm {tar_name}.minisig \\
-        && cd {tar_name} \\
+        && tar xvf {tar_name} \\
+        && cd {pkg_name} \\
         && sudo make install
 ```
-        """.strip()
-            )
 
-            instructions.append(
-                f"""
+If you want to install the ipset plugin as well:
+```bash
+sudo apt install -y libipset-dev && sudo make install-ipset
+```
+""".strip()
+        )
+
+        instructions.append(
+            f"""
 ## Debian installation ({architecture_pretty} linux)
 
 ```bash
-curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\
-     -O https://static.ppom.me/reaction/releases/{tag}/{deb_name}.minisig \\
-        && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_name} \\
-        && rm {deb_name}.minisig \\
-        && sudo apt install ./{deb_name}
+curl \\
+{"\n".join([
+    f"    -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\"
+    for deb_name in deb_names + deb_sig_names
+])}
+{"\n".join([
+    f"        && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_name} \\"
+    for deb_name in deb_names
+])}
+        && rm {" ".join(deb_sig_names)} \\
+        && sudo apt install {" ".join([f"./{deb_name}" for deb_name in deb_names])}
 ```
 
 *You can also use [this third-party package repository](https://packages.azlux.fr).*
-        """.strip()
-            )
-        else:
-            # Copy
-            run_command(["cp", tar_path, deb_path, local_dir])
+""".strip()
+        )
 
     if not args.publish:
+        print("\n\n".join(instructions))
         return
 
     # Release
