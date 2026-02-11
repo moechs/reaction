@@ -127,6 +127,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    env::args,
     error::Error,
     fmt::Display,
     process::exit,
@@ -509,31 +510,44 @@ pub struct Exec {
 /// }
 /// ```
 pub async fn main_loop<T: PluginInfo + Send + Sync + 'static>(plugin_info: T) {
-    let (conn, mut tx, _rx): (
-        _,
-        remoc::rch::base::Sender<PluginInfoClient>,
-        remoc::rch::base::Receiver<()>,
-    ) = Connect::io(remoc::Cfg::default(), stdin(), stdout())
-        .await
-        .unwrap();
+    // First check that we're called by reaction
+    let mut args = args();
+    // skip 0th argument
+    let _skip = args.next();
+    if args.next().is_none_or(|arg| arg != "serve") {
+        eprintln!("This plugin is not meant to be called as-is.");
+        eprintln!(
+            "reaction daemon starts plugins itself and communicates with them on stdin, stdout and stderr."
+        );
+        eprintln!("See the doc on plugin configuration: https://reaction.ppom.me/plugins/");
+        exit(1);
+    } else {
+        let (conn, mut tx, _rx): (
+            _,
+            remoc::rch::base::Sender<PluginInfoClient>,
+            remoc::rch::base::Receiver<()>,
+        ) = Connect::io(remoc::Cfg::default(), stdin(), stdout())
+            .await
+            .unwrap();
 
-    let (server, client) = PluginInfoServer::new(plugin_info, 1);
+        let (server, client) = PluginInfoServer::new(plugin_info, 1);
 
-    let (res1, (_, res2), res3) = tokio::join!(tx.send(client), server.serve(), conn);
-    let mut exit_code = 0;
-    if let Err(err) = res1 {
-        eprintln!("ERROR could not send plugin info to reaction: {err}");
-        exit_code = 1;
+        let (res1, (_, res2), res3) = tokio::join!(tx.send(client), server.serve(), conn);
+        let mut exit_code = 0;
+        if let Err(err) = res1 {
+            eprintln!("ERROR could not send plugin info to reaction: {err}");
+            exit_code = 1;
+        }
+        if let Err(err) = res2 {
+            eprintln!("ERROR could not launch plugin service for reaction: {err}");
+            exit_code = 2;
+        }
+        if let Err(err) = res3 {
+            eprintln!("ERROR connection error with reaction: {err}");
+            exit_code = 3;
+        }
+        exit(exit_code);
     }
-    if let Err(err) = res2 {
-        eprintln!("ERROR could not launch plugin service for reaction: {err}");
-        exit_code = 2;
-    }
-    if let Err(err) = res3 {
-        eprintln!("ERROR connection error with reaction: {err}");
-        exit_code = 3;
-    }
-    exit(exit_code);
 }
 
 // Errors
