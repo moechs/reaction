@@ -13,7 +13,7 @@
       path: './target/debug/reaction-plugin-ipset',
       check_root: false,
       systemd_options: {
-        AmbientCapabilities: ['CAP_NET_ADMIN'],
+        CapabilityBoundingSet: ['~CAP_NET_ADMIN', '~CAP_PERFMON'],
       },
     },
   },

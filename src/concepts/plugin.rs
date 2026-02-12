@@ -53,6 +53,8 @@ fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<Stri
             // Various Protections
             ("LockPersonality", vec!["true"]),
             ("NoNewPrivileges", vec!["true"]),
+            ("AmbientCapabilities", vec![""]),
+            ("CapabilityBoundingSet", vec![""]),
             // Isolate File
             ("RemoveIPC", vec!["true"]),
             ("RestrictNamespaces", vec!["true"]),
@@ -67,7 +69,6 @@ fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<Stri
             // ("DynamicUser", vec!["true"]),
             // ("User", vec!["reaction-plugin-test"]),
             // Too restrictive
-            // ("CapabilityBoundingSet", vec![""]),
             // ("NoExecPaths", vec!["/"]),
             // ("RestrictAddressFamilies", vec![""]),
         ]
