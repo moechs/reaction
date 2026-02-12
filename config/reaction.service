@@ -7,7 +7,7 @@ Documentation=https://reaction.ppom.me
 
 # See `man systemd.exec` and `man systemd.service` for most options below
 [Service]
-ExecStart=/usr/local/bin/reaction start -c /etc/reaction.jsonnet
+ExecStart=/usr/local/bin/reaction start -c /etc/reaction/
 
 # Ask systemd to create /var/lib/reaction (/var/lib/ is implicit)
 StateDirectory=reaction
