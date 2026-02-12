@@ -104,6 +104,8 @@ impl PluginInfo for Plugin {
     }
 
     async fn start(&mut self) -> RemoteResult<()> {
+        self.shutdown.delegate().handle_quit_signals()?;
+
         let mut first_error = None;
         for (i, set) in self.sets.iter().enumerate() {
             // Retain if error

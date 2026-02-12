@@ -237,6 +237,8 @@ impl PluginInfo for Plugin {
     }
 
     async fn start(&mut self) -> RemoteResult<()> {
+        self.cluster_shutdown.delegate().handle_quit_signals()?;
+
         let mut db = {
             let path = PathBuf::from(".");
             let (cancellation_token, task_tracker_token) = self.cluster_shutdown.token().split();

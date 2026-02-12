@@ -36,7 +36,10 @@
 //!     }
 //! }
 //! ```
+//!
+//! [`ShutdownDelegate::handle_quit_signals`] permits to handle SIGHUP, SIGINT and SIGTERM by gracefully shutting down tasks.
 
+use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::{
     sync::{CancellationToken, WaitForCancellationFuture},
     task::task_tracker::{TaskTracker, TaskTrackerToken},
@@ -93,6 +96,27 @@ impl ShutdownDelegate {
     /// Ask for all tasks to quit
     pub fn ask_shutdown(&self) {
         self.0.cancel();
+    }
+
+    /// Ensure [`Self::ask_shutdown`] is called whenever we receive SIGHUP,
+    /// SIGTERM or SIGINT. Spawns a task that consumes self.
+    pub fn handle_quit_signals(self) -> Result<(), String> {
+        let err_str = |err| format!("could not register signal: {err}");
+
+        let mut sighup = signal(SignalKind::hangup()).map_err(err_str)?;
+        let mut sigint = signal(SignalKind::interrupt()).map_err(err_str)?;
+        let mut sigterm = signal(SignalKind::terminate()).map_err(err_str)?;
+
+        tokio::spawn(async move {
+            let signal = tokio::select! {
+                _ = sighup.recv() => "SIGHUP",
+                _ = sigint.recv() => "SIGINT",
+                _ = sigterm.recv() => "SIGTERM",
+            };
+            eprintln!("received {signal}, closing...");
+            self.ask_shutdown();
+        });
+        Ok(())
     }
 }
 

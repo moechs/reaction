@@ -9,6 +9,6 @@ remoc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-tokio.features = ["io-std"]
+tokio.features = ["io-std", "signal"]
 tokio-util.workspace = true
 tokio-util.features = ["rt"]
