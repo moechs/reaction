@@ -162,9 +162,10 @@ impl Plugin {
             let mut command = Command::new("run0");
             // --pipe gives direct, non-emulated stdio access, for better performance.
             command.arg("--pipe");
-            self.systemd_setup(&plugin_working_directory);
+
+            let merged_systemd_options = self.systemd_setup(&plugin_working_directory);
             // run0 options
-            for (option, values) in self.systemd_options.iter() {
+            for (option, values) in merged_systemd_options.iter() {
                 for value in values.iter() {
                     command.arg("--property").arg(format!("{option}={value}"));
                 }
