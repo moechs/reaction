@@ -6,6 +6,7 @@ Here is a high-level overview of the codebase.
 
 ## Build
 
+- `bench/`: Configuration that spawns a very high load on reaction. Useful to test performance improvements and regressions.
 - `build.rs`: permits to create shell completions and man pages on build.
 - `Cargo.toml`, `Cargo.lock`: manifest and dependencies.
 - `config/`: example / test configuration files. Look at its git history to discover more.
@@ -15,8 +16,7 @@ Here is a high-level overview of the codebase.
 
 ## Main source code
 
-- `helpers_c/`: C helpers. I wish to have special IP support in reaction and get rid of them. See #79 and #116.
-- `tests/`: Integration tests. For now they test basic reaction runtime behavior, persistance, and client-daemon communication.
+- `tests/`: Integration tests. They test reaction runtime behavior, persistance, client-daemon communication, plugin integrations.
 - `src/`: The source code, here we go!
 
 ### Top-level files
@@ -25,18 +25,13 @@ Here is a high-level overview of the codebase.
 - `src/lib.rs`: Second main entrypoint
 - `src/cli.rs`: Command-line arguments
 - `src/tests.rs`: Test utilities
+- `src/protocol.rs`: de/serialization and client/daemon protocol messages.
 
 ### `src/concepts/`
 
 reaction really is about its configuration, which is at the center of the code.
 
-There is one file for each of its concepts: configuration, streams, filters, actions, patterns.
-
-### `src/protocol/`
-
-Low-level serialization/deserialization and client-daemon protocol messages.
-
-Shared by the client and daemon's socket. Also used by daemon's database.
+There is one file for each of its concepts: configuration, streams, filters, actions, patterns, plugins.
 
 ### `src/client/`
 
@@ -58,9 +53,9 @@ This code has async code, to handle input streams and communication with clients
     - `mod.rs`: High-level logic
     - `state.rs`: Inner state operations
 - `socket.rs`: The socket task, responsible for communication with clients.
-- `shutdown.rs`: Logic for passing shutdown signal across all tasks
+- `plugin.rs`: Plugin startup, configuration loading and cleanup.
 
-### `src/tree`
+### `crates/treedb`
 
 Persistence layer.
 
@@ -68,5 +63,19 @@ This is a database highly adapted to reaction workload, making reaction faster t
 (heed, sled and fjall crates have been tested).
 Its design is explained in the comments of its files:
 
-- `mod.rs`: main database code, with its two API structs: Tree and Database.
-- `raw.rs` low-level part, directly interacting with de/serializisation and files.
+- `lib.rs`: main database code, with its two API structs: Tree and Database.
+- `raw.rs`: low-level part, directly interacting with de/serializisation and files.
+- `time.rs`: time definitions shared with reaction.
+- `helpers.rs`: utilities to ease db deserialization from disk.
+
+### `plugins/reaction-plugin`
+
+Shared plugin interface between reaction daemon and its plugins.
+
+Also defines some shared logic between them:
+- `shutdown.rs`: Logic for passing shutdown signal across all tasks
+- `parse_duration.rs` Duration parsing
+
+### `plugins/reaction-plugin-*`
+
+All core plugins.
