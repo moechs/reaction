@@ -8,7 +8,6 @@ mod stream;
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub use action::Action;
 pub use config::{Config, Patterns};

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io::Error, process::Stdio};
+use std::{collections::BTreeMap, io::Error, path, process::Stdio};
 
 #[cfg(target_os = "freebsd")]
 use std::os::freebsd::fs::MetadataExt;
@@ -32,8 +32,7 @@ fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<Stri
             ("WorkingDirectory", vec![working_directory]),
             // No file access except own directory
             ("ReadWritePaths", vec![working_directory]),
-            ("ReadOnlyPaths", vec![]),
-            // ("NoExecPaths", vec!["/"]),
+            ("ReadOnlyPaths", vec!["/"]),
             ("InaccessiblePaths", vec!["/boot", "/etc"]),
             // Protect special filesystems
             ("PrivateDevices", vec!["true"]),
@@ -43,26 +42,34 @@ fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<Stri
             ("ProcSubset", vec!["pid"]),
             ("ProtectClock", vec!["true"]),
             ("ProtectControlGroups", vec!["true"]),
-            // ("ProtectHome", vec!["true"]),
+            #[cfg(not(debug_assertions))]
+            ("ProtectHome", vec!["true"]),
             ("ProtectHostname", vec!["true"]),
             ("ProtectKernelLogs", vec!["true"]),
             ("ProtectKernelModules", vec!["true"]),
             ("ProtectKernelTunables", vec!["true"]),
             ("ProtectProc", vec!["invisible"]),
             ("ProtectSystem", vec!["strict"]),
-            // Dynamic User
-            ("DynamicUser", vec!["true"]),
             // Various Protections
-            ("CapabilityBoundingSet", vec![""]),
             ("LockPersonality", vec!["true"]),
             ("NoNewPrivileges", vec!["true"]),
             // Isolate File
             ("RemoveIPC", vec!["true"]),
-            ("RestrictAddressFamilies", vec![""]),
             ("RestrictNamespaces", vec!["true"]),
             ("RestrictSUIDSGID", vec!["true"]),
             ("SystemCallArchitectures", vec!["native"]),
-            ("SystemCallFilter", vec!["@system-service", "~@privileged"]),
+            (
+                "SystemCallFilter",
+                vec!["@system-service", "~@privileged", "~@resources", "~@setuid"],
+            ),
+            // User
+            // FIXME Setting another user doesn't work, because of stdio pipe permission errors
+            // ("DynamicUser", vec!["true"]),
+            // ("User", vec!["reaction-plugin-test"]),
+            // Too restrictive
+            // ("CapabilityBoundingSet", vec![""]),
+            // ("NoExecPaths", vec!["/"]),
+            // ("RestrictAddressFamilies", vec![""]),
         ]
         .map(|(k, v)| (k.into(), v.into_iter().map(|v| v.into()).collect())),
     )
@@ -163,7 +170,17 @@ impl Plugin {
             // --pipe gives direct, non-emulated stdio access, for better performance.
             command.arg("--pipe");
 
-            let merged_systemd_options = self.systemd_setup(&plugin_working_directory);
+            // Make path absolute for systemd
+            let full_workdir = path::absolute(&plugin_working_directory)?;
+            let full_workdir = full_workdir.to_str().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidFilename,
+                    format!(
+                        "Could not absolutize plugin working directory {plugin_working_directory}"
+                    ),
+                )
+            })?;
+            let merged_systemd_options = self.systemd_setup(full_workdir);
             // run0 options
             for (option, values) in merged_systemd_options.iter() {
                 for value in values.iter() {
