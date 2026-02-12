@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
-use super::{Match, Pattern, PatternType, null_value};
+use super::{Match, Pattern, PatternType};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -45,7 +45,7 @@ pub struct Action {
     // Plugin-specific
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub action_type: Option<String>,
-    #[serde(default = "null_value", skip_serializing_if = "Value::is_null")]
+    #[serde(default, skip_serializing_if = "Value::is_null")]
     pub options: Value,
 }
 
@@ -100,6 +100,9 @@ impl Action {
             }
             if self.cmd[0].is_empty() {
                 return Err("cmd's first item is empty".into());
+            }
+            if !self.options.is_null() {
+                return Err("can't define options without a plugin type".into());
             }
         } else if !self.cmd.is_empty() {
             return Err("can't define a cmd and a plugin type".into());

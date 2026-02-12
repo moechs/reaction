@@ -4,7 +4,7 @@ use reaction_plugin::StreamConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Filter, Patterns, merge_attrs, null_value};
+use super::{Filter, Patterns, merge_attrs};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -22,7 +22,7 @@ pub struct Stream {
     // Plugin-specific
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub stream_type: Option<String>,
-    #[serde(default = "null_value", skip_serializing_if = "Value::is_null")]
+    #[serde(default, skip_serializing_if = "Value::is_null")]
     pub options: Value,
 }
 
@@ -74,6 +74,9 @@ impl Stream {
             }
             if self.cmd[0].is_empty() {
                 return Err("cmd's first item is empty".into());
+            }
+            if !self.options.is_null() {
+                return Err("can't define options without a plugin type".into());
             }
         } else if !self.cmd.is_empty() {
             return Err("can't define cmd and a plugin type".into());

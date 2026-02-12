@@ -43,10 +43,6 @@ fn merge_attrs<A: Default + Debug + PartialEq + Eq + Clone>(
     Ok(this)
 }
 
-fn null_value() -> Value {
-    Value::Null
-}
-
 #[cfg(test)]
 pub use filter::tests as filter_tests;
 
