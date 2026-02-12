@@ -2,6 +2,13 @@
 name = "reaction-plugin"
 version = "1.0.0"
 edition = "2024"
+authors = ["ppom <reaction@ppom.me>"]
+license = "AGPL-3.0"
+homepage = "https://reaction.ppom.me"
+repository = "https://framagit.org/ppom/reaction"
+keywords = ["security", "sysadmin", "logs", "monitoring", "plugin"]
+categories = ["security"]
+description = "Plugin interface for reaction, a daemon that scans logs and takes action (alternative to fail2ban)"
 
 [dependencies]
 chrono.workspace = true
