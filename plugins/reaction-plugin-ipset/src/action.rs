@@ -8,13 +8,13 @@ use crate::ipset::{CreateSet, IpSet, Order, SetChain, Version};
 
 #[derive(Default, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum IpVersion {
-    #[serde(rename = "4")]
-    V4,
-    #[serde(rename = "6")]
-    V6,
-    #[serde(rename = "46")]
     #[default]
-    V46,
+    #[serde(rename = "ip")]
+    Ip,
+    #[serde(rename = "ipv4")]
+    Ipv4,
+    #[serde(rename = "ipv6")]
+    Ipv6,
 }
 impl Debug for IpVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,9 +22,9 @@ impl Debug for IpVersion {
             f,
             "{}",
             match self {
-                IpVersion::V4 => "4",
-                IpVersion::V6 => "6",
-                IpVersion::V46 => "46",
+                IpVersion::Ipv4 => "ipv4",
+                IpVersion::Ipv6 => "ipv6",
+                IpVersion::Ip => "ip",
             }
         )
     }
@@ -84,9 +84,9 @@ impl ActionOptions {
 pub struct SetOptions {
     /// The IP type.
     /// Defaults to `46`.
-    /// If `4`: creates an IPv4 set with this name
-    /// If `6`: creates an IPv6 set with this name
-    /// If `46`: creates an IPv4 set with its name suffixed by 'v4' AND an IPv6 set with its name suffixed by 'v6'
+    /// If `ipv4`: creates an IPv4 set with this name
+    /// If `ipv6`: creates an IPv6 set with this name
+    /// If `ip`: creates an IPv4 set with its name suffixed by 'v4' AND an IPv6 set with its name suffixed by 'v6'
     /// *Merged set-wise*.
     #[serde(default)]
     version: Option<IpVersion>,
@@ -242,14 +242,14 @@ impl SetNames {
     pub fn new(name: String, version: Option<IpVersion>) -> Self {
         Self {
             ipv4: match version {
-                Some(IpVersion::V4) => Some(name.clone()),
-                Some(IpVersion::V6) => None,
-                None | Some(IpVersion::V46) => Some(format!("{}v4", name)),
+                Some(IpVersion::Ipv4) => Some(name.clone()),
+                Some(IpVersion::Ipv6) => None,
+                None | Some(IpVersion::Ip) => Some(format!("{}v4", name)),
             },
             ipv6: match version {
-                Some(IpVersion::V4) => None,
-                Some(IpVersion::V6) => Some(name),
-                None | Some(IpVersion::V46) => Some(format!("{}v6", name)),
+                Some(IpVersion::Ipv4) => None,
+                Some(IpVersion::Ipv6) => Some(name),
+                None | Some(IpVersion::Ip) => Some(format!("{}v6", name)),
             },
         }
     }
@@ -359,7 +359,7 @@ mod tests {
             target: None,
         };
         let s2 = SetOptions {
-            version: Some(IpVersion::V4),
+            version: Some(IpVersion::Ipv4),
             chains: Some(vec!["INPUT".into()]),
             timeout: Some("3h".into()),
             timeout_u32: Some(3 * 3600),
@@ -397,7 +397,7 @@ mod tests {
 
         for s3 in [
             SetOptions {
-                version: Some(IpVersion::V6),
+                version: Some(IpVersion::Ipv6),
                 ..Default::default()
             },
             SetOptions {

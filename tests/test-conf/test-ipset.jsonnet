@@ -30,7 +30,7 @@
               options: {
                 set: 'reactiontest',
                 // pattern: 'ip',
-                // version: 46,
+                // version: 'ip',
                 // chains: ['INPUT', 'FORWARD'],
                 // target: 'DROP',
                 // action: 'add',

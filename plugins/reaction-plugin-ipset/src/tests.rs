@@ -34,7 +34,7 @@ async fn conf_action_standalone() {
         (true, json!({ "set": "test" }), &p),
         // missing set key
         (false, json!({}), &p),
-        (false, json!({ "version": 4 }), &p),
+        (false, json!({ "version": "ipv4" }), &p),
         // unknown key
         (false, json!({ "set": "test", "unknown": "yes" }), &p),
         (false, json!({ "set": "test", "ip_index": 1 }), &p),
@@ -66,14 +66,18 @@ async fn conf_action_standalone() {
         (false, json!({ "set": "test", "action": 1 }), &p),
         // ip version //
         // ok
-        (true, json!({ "set": "test", "version": "4" }), &p),
-        (true, json!({ "set": "test", "version": "6" }), &p),
-        (true, json!({ "set": "test", "version": "46" }), &p),
+        (true, json!({ "set": "test", "version": "ipv4" }), &p),
+        (true, json!({ "set": "test", "version": "ipv6" }), &p),
+        (true, json!({ "set": "test", "version": "ip" }), &p),
         // unknown version
         (false, json!({ "set": "test", "version": 4 }), &p),
         (false, json!({ "set": "test", "version": 6 }), &p),
         (false, json!({ "set": "test", "version": 46 }), &p),
         (false, json!({ "set": "test", "version": "5" }), &p),
+        (false, json!({ "set": "test", "version": "ipv5" }), &p),
+        (false, json!({ "set": "test", "version": "4" }), &p),
+        (false, json!({ "set": "test", "version": "6" }), &p),
+        (false, json!({ "set": "test", "version": "46" }), &p),
         // bad type
         (false, json!({ "set": "test", "version": true }), &p),
         // chains //
@@ -167,7 +171,7 @@ async fn conf_action_merge() {
         config: json!({
             "set": "test",
             "target": "DROP",
-            "version": "46",
+            "version": "ip",
             "action": "add",
         })
         .into(),
@@ -206,7 +210,7 @@ async fn conf_action_merge() {
                     config: json!({
                         "set": "test2",
                         "target": "target1",
-                        "version": "6",
+                        "version": "ipv6",
                     })
                     .into(),
                     patterns: vec!["ip".into()],
