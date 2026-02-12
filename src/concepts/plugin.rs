@@ -1,17 +1,17 @@
 use std::{collections::BTreeMap, io::Error, process::Stdio};
 
-#[cfg(target_os = "linux")]
-use std::os::linux::fs::MetadataExt;
 #[cfg(target_os = "freebsd")]
 use std::os::freebsd::fs::MetadataExt;
-#[cfg(target_os = "openbsd")]
-use std::os::openbsd::fs::MetadataExt;
-#[cfg(target_os = "netbsd")]
-use std::os::netbsd::fs::MetadataExt;
-#[cfg(target_os = "solaris")]
-use std::os::solaris::fs::MetadataExt;
 #[cfg(target_os = "illumos")]
 use std::os::illumos::fs::MetadataExt;
+#[cfg(target_os = "linux")]
+use std::os::linux::fs::MetadataExt;
+#[cfg(target_os = "netbsd")]
+use std::os::netbsd::fs::MetadataExt;
+#[cfg(target_os = "openbsd")]
+use std::os::openbsd::fs::MetadataExt;
+#[cfg(target_os = "solaris")]
+use std::os::solaris::fs::MetadataExt;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -19,6 +19,54 @@ use tokio::{
     process::{Child, Command},
 };
 use tracing::{debug, warn};
+
+// TODO commented options block execution of program,
+// while developping in my home directory.
+// Some options may still be useful in production environments.
+fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<String>> {
+    BTreeMap::from(
+        [
+            // reaction slice (does nothing if inexistent)
+            ("Slice", vec!["reaction.slice"]),
+            // Started in its own directory
+            ("WorkingDirectory", vec![working_directory]),
+            // No file access except own directory
+            ("ReadWritePaths", vec![working_directory]),
+            ("ReadOnlyPaths", vec![]),
+            // ("NoExecPaths", vec!["/"]),
+            ("InaccessiblePaths", vec!["/boot", "/etc"]),
+            // Protect special filesystems
+            ("PrivateDevices", vec!["true"]),
+            ("PrivateMounts", vec!["true"]),
+            ("PrivateTmp", vec!["true"]),
+            // ("PrivateUsers", vec!["true"]),
+            ("ProcSubset", vec!["pid"]),
+            ("ProtectClock", vec!["true"]),
+            ("ProtectControlGroups", vec!["true"]),
+            // ("ProtectHome", vec!["true"]),
+            ("ProtectHostname", vec!["true"]),
+            ("ProtectKernelLogs", vec!["true"]),
+            ("ProtectKernelModules", vec!["true"]),
+            ("ProtectKernelTunables", vec!["true"]),
+            ("ProtectProc", vec!["invisible"]),
+            ("ProtectSystem", vec!["strict"]),
+            // Dynamic User
+            ("DynamicUser", vec!["true"]),
+            // Various Protections
+            ("CapabilityBoundingSet", vec![""]),
+            ("LockPersonality", vec!["true"]),
+            ("NoNewPrivileges", vec!["true"]),
+            // Isolate File
+            ("RemoveIPC", vec!["true"]),
+            ("RestrictAddressFamilies", vec![""]),
+            ("RestrictNamespaces", vec!["true"]),
+            ("RestrictSUIDSGID", vec!["true"]),
+            ("SystemCallArchitectures", vec!["native"]),
+            ("SystemCallFilter", vec!["@system-service", "~@privileged"]),
+        ]
+        .map(|(k, v)| (k.into(), v.into_iter().map(|v| v.into()).collect())),
+    )
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -144,52 +192,4 @@ impl Plugin {
             .env("RUST_BACKTRACE", "1")
             .spawn()
     }
-}
-
-// TODO commented options block execution of program,
-// while developping in my home directory.
-// Some options may still be useful in production environments.
-fn systemd_default_options(working_directory: &str) -> BTreeMap<String, Vec<String>> {
-    BTreeMap::from(
-        [
-            // reaction slice (does nothing if inexistent)
-            ("Slice", vec!["reaction.slice"]),
-            // Started in its own directory
-            ("WorkingDirectory", vec![working_directory]),
-            // No file access except own directory
-            ("ReadWritePaths", vec![working_directory]),
-            ("ReadOnlyPaths", vec![]),
-            // ("NoExecPaths", vec!["/"]),
-            ("InaccessiblePaths", vec!["/boot", "/etc"]),
-            // Protect special filesystems
-            ("PrivateDevices", vec!["true"]),
-            ("PrivateMounts", vec!["true"]),
-            ("PrivateTmp", vec!["true"]),
-            // ("PrivateUsers", vec!["true"]),
-            ("ProcSubset", vec!["pid"]),
-            ("ProtectClock", vec!["true"]),
-            ("ProtectControlGroups", vec!["true"]),
-            // ("ProtectHome", vec!["true"]),
-            ("ProtectHostname", vec!["true"]),
-            ("ProtectKernelLogs", vec!["true"]),
-            ("ProtectKernelModules", vec!["true"]),
-            ("ProtectKernelTunables", vec!["true"]),
-            ("ProtectProc", vec!["invisible"]),
-            ("ProtectSystem", vec!["strict"]),
-            // Dynamic User
-            ("DynamicUser", vec!["true"]),
-            // Various Protections
-            ("CapabilityBoundingSet", vec![""]),
-            ("LockPersonality", vec!["true"]),
-            ("NoNewPrivileges", vec!["true"]),
-            // Isolate File
-            ("RemoveIPC", vec!["true"]),
-            ("RestrictAddressFamilies", vec![""]),
-            ("RestrictNamespaces", vec!["true"]),
-            ("RestrictSUIDSGID", vec!["true"]),
-            ("SystemCallArchitectures", vec!["native"]),
-            ("SystemCallFilter", vec!["@system-service", "~@privileged"]),
-        ]
-        .map(|(k, v)| (k.into(), v.into_iter().map(|v| v.into()).collect())),
-    )
 }
