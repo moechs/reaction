@@ -114,8 +114,8 @@ $ sudo systemctl daemon-reload
 
 Then enable and start reaction with this command
 ```bash
-# replace `reaction.jsonnet` with the name of your configuration file in /etc/
-$ sudo systemctl enable --now reaction@reaction.jsonnet.service
+# write first your configuration file(s) in /etc/reaction/
+$ sudo systemctl enable --now reaction.service
 ```
 """.strip(),
     ]
