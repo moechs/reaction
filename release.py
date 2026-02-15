@@ -102,9 +102,8 @@ def main():
 
 You'll need to install minisign to check the authenticity of the package.
 
-After installing reaction, create your configuration file at
-`/etc/reaction.json`, `/etc/reaction.jsonnet` or `/etc/reaction.yml`.
-You can also provide a directory containing multiple configuration files in the previous formats.
+After installing reaction, create your configuration file(s) in JSON, YAML or JSONnet in the
+`/etc/reaction/` directory.
 See <https://reaction.ppom.me> for documentation.
 
 Reload systemd:
