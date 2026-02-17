@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, io::Error, path, process::Stdio};
 
+#[cfg(target_os = "macos")]
+use std::os::darwin::fs::MetadataExt;
 #[cfg(target_os = "freebsd")]
 use std::os::freebsd::fs::MetadataExt;
 #[cfg(target_os = "illumos")]
