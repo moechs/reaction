@@ -39,9 +39,6 @@ pub enum AddDel {
     Del,
 }
 
-// FIXME block configs that have different set options for the same name
-// treat default values as none?
-
 /// User-facing action options
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
