@@ -4,6 +4,7 @@ pkgs.mkShell {
   name = "libipset";
   buildInputs = [
     ipset
+    nftables
     clang
   ];
   src = null;

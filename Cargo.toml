@@ -83,6 +83,7 @@ members = [
 	"plugins/reaction-plugin",
 	"plugins/reaction-plugin-cluster",
 	"plugins/reaction-plugin-ipset",
+	"plugins/reaction-plugin-nftables",
 	"plugins/reaction-plugin-virtual"
 ]
 
