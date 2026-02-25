@@ -7,26 +7,65 @@ use libnftables1_sys::Nftables;
 use nftables::batch::Batch;
 use tokio::sync::{mpsc, oneshot};
 
-pub fn nftables_thread() -> NftClient {
-    let (tx, mut rx) = mpsc::channel(10);
+/// A client with a dedicated server thread to libnftables.
+/// Calling [`Default::default()`] spawns a new server thread.
+/// Cloning just creates a new client to the same server thread.
+#[derive(Clone)]
+pub struct NftClient {
+    tx: mpsc::Sender<NftCommand>,
+}
 
-    thread::spawn(move || {
-        let mut conn = Nftables::new();
+impl Default for NftClient {
+    fn default() -> Self {
+        let (tx, mut rx) = mpsc::channel(10);
 
-        while let Some(NftCommand { json, ret }) = rx.blocking_recv() {
-            let (rc, output, error) = conn.run_cmd(json.as_ptr());
-            let res = match rc {
-                0 => to_rust_string(output)
-                    .ok_or_else(|| "unknown ok (rc = 0 but no output buffer)".into()),
-                _ => to_rust_string(error)
-                    .map(|err| format!("error (rc = {rc}: {err})"))
-                    .ok_or_else(|| format!("unknown error (rc = {rc} but no error buffer)")),
-            };
-            ret.send(res);
-        }
-    });
+        thread::spawn(move || {
+            let mut conn = Nftables::new();
 
-    NftClient { tx }
+            while let Some(NftCommand { json, ret }) = rx.blocking_recv() {
+                let (rc, output, error) = conn.run_cmd(json.as_ptr());
+                let res = match rc {
+                    0 => to_rust_string(output)
+                        .ok_or_else(|| "unknown ok (rc = 0 but no output buffer)".into()),
+                    _ => to_rust_string(error)
+                        .map(|err| format!("error (rc = {rc}: {err})"))
+                        .ok_or_else(|| format!("unknown error (rc = {rc} but no error buffer)")),
+                };
+                let _ = ret.send(res);
+            }
+        });
+
+        NftClient { tx }
+    }
+}
+
+impl NftClient {
+    /// Send a batch to nftables.
+    pub async fn send(&self, batch: Batch<'_>) -> Result<String, String> {
+        // convert JSON to CString
+        let mut json = serde_json::to_vec(&batch.to_nftables())
+            .map_err(|err| format!("couldn't build json to send to nftables: {err}"))?;
+        json.push('\0' as u8);
+        let json = CString::from_vec_with_nul(json)
+            .map_err(|err| format!("invalid json with null char: {err}"))?;
+
+        // Send command
+        let (tx, rx) = oneshot::channel();
+        let command = NftCommand { json, ret: tx };
+        self.tx
+            .send(command)
+            .await
+            .map_err(|err| format!("nftables thread has quit, can't send command: {err}"))?;
+
+        // Wait for result
+        rx.await
+            .map_err(|_| format!("nftables thread has quit, no response for command"))?
+    }
+}
+
+struct NftCommand {
+    json: CString,
+    ret: oneshot::Sender<Result<String, String>>,
 }
 
 fn to_rust_string(c_ptr: *const i8) -> Option<String> {
@@ -39,31 +78,4 @@ fn to_rust_string(c_ptr: *const i8) -> Option<String> {
                 .into_owned(),
         )
     }
-}
-
-pub struct NftClient {
-    tx: mpsc::Sender<NftCommand>,
-}
-
-impl NftClient {
-    pub async fn send(&self, batch: Batch<'_>) -> Result<String, String> {
-        // convert JSON to CString
-        let mut json = serde_json::to_vec(&batch.to_nftables())
-            .map_err(|err| format!("couldn't build json to send to nftables: {err}"))?;
-        json.push('\0' as u8);
-        let json = CString::from_vec_with_nul(json)
-            .map_err(|err| format!("invalid json with null char: {err}"))?;
-        // Send command
-        let (tx, rx) = oneshot::channel();
-        let command = NftCommand { json, ret: tx };
-        self.tx.send(command).await;
-        // Wait for result
-        rx.await
-            .map_err(|err| format!("nftables thread has quit: {err}"))?
-    }
-}
-
-struct NftCommand {
-    json: CString,
-    ret: oneshot::Sender<Result<String, String>>,
 }

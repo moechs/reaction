@@ -8,7 +8,6 @@ use std::{
 use nftables::{
     batch::Batch,
     expr::Expression,
-    helper::apply_ruleset_async,
     schema::{Element, NfListObject, Rule, SetFlag, SetType, SetTypeValue},
     stmt::Statement,
     types::{NfFamily, NfHook},
@@ -247,13 +246,14 @@ impl Set {
             if let Some(set) = set {
                 let family = NfFamily::INet;
                 let table = Cow::from("reaction");
-                let name = Cow::from(set.as_str());
 
                 // create set
-                batch.add(NfListObject::<'a>::Set(Box::new(nftables::schema::Set {
+                batch.add(NfListObject::<'a>::Set(Box::new(nftables::schema::Set::<
+                    'a,
+                > {
                     family,
                     table: table.to_owned(),
-                    name,
+                    name: Cow::Owned(set.to_owned()),
                     // TODO Try a set which is both ipv4 and ipv6?
                     set_type: SetTypeValue::Single(match version {
                         Version::IPv4 => SetType::Ipv4Addr,

@@ -3,7 +3,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use libnftables1_sys::Nftables;
 use nftables::{
     batch::Batch,
     schema::{Chain, NfListObject, Table},
@@ -15,7 +14,10 @@ use reaction_plugin::{
 };
 use remoc::rtc;
 
-use crate::action::{Action, ActionOptions, Set, SetOptions};
+use crate::{
+    action::{Action, ActionOptions, Set, SetOptions},
+    nft::NftClient,
+};
 
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,7 @@ async fn main() {
 
 #[derive(Default)]
 struct Plugin {
+    nft: NftClient,
     sets: Vec<Set>,
     actions: Vec<Action>,
     shutdown: ShutdownController,
@@ -90,8 +93,12 @@ impl PluginInfo for Plugin {
                 .map_err(|err| format!("set {}: {err}", options.set))?;
 
             let (tx, rx) = remoc::rch::mpsc::channel(1);
-            self.actions
-                .push(Action::new(self.shutdown.token(), rx, options)?);
+            self.actions.push(Action::new(
+                self.nft.clone(),
+                self.shutdown.token(),
+                rx,
+                options,
+            )?);
 
             ret_actions.push(ActionImpl { tx });
         }
@@ -133,7 +140,7 @@ impl PluginInfo for Plugin {
         }
 
         // TODO apply batch
-        Nftables::new();
+        self.nft.send(batch).await?;
 
         // Launch a task that will destroy the table on shutdown
         {
