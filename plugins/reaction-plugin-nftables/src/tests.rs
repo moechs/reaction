@@ -5,13 +5,13 @@ use crate::Plugin;
 
 #[tokio::test]
 async fn conf_stream() {
-    // No stream is supported by ipset
+    // No stream is supported by nftables
     assert!(
         Plugin::default()
             .load_config(
                 vec![StreamConfig {
                     stream_name: "stream".into(),
-                    stream_type: "ipset".into(),
+                    stream_type: "nftables".into(),
                     config: Value::Null
                 }],
                 vec![]
@@ -20,7 +20,7 @@ async fn conf_stream() {
             .is_err()
     );
 
-    // Nothing is ok
+    // Empty config is ok
     assert!(Plugin::default().load_config(vec![], vec![]).await.is_ok());
 }
 
@@ -55,11 +55,11 @@ async fn conf_action_standalone() {
         (false, json!({ "set": "test", "pattern": true }), &p_noip),
         // action //
         (true, json!({ "set": "test", "action": "add" }), &p),
-        (true, json!({ "set": "test", "action": "del" }), &p),
+        (true, json!({ "set": "test", "action": "delete" }), &p),
         // unknown action
         (false, json!({ "set": "test", "action": "create" }), &p),
         (false, json!({ "set": "test", "action": "insert" }), &p),
-        (false, json!({ "set": "test", "action": "delete" }), &p),
+        (false, json!({ "set": "test", "action": "del" }), &p),
         (false, json!({ "set": "test", "action": "destroy" }), &p),
         // bad type
         (false, json!({ "set": "test", "action": true }), &p),
@@ -80,27 +80,19 @@ async fn conf_action_standalone() {
         (false, json!({ "set": "test", "version": "46" }), &p),
         // bad type
         (false, json!({ "set": "test", "version": true }), &p),
-        // chains //
+        // hooks //
         // everything is fine really
-        (true, json!({ "set": "test", "chains": [] }), &p),
-        (true, json!({ "set": "test", "chains": ["INPUT"] }), &p),
-        (true, json!({ "set": "test", "chains": ["FORWARD"] }), &p),
+        (true, json!({ "set": "test", "hooks": [] }), &p),
         (
             true,
-            json!({ "set": "test", "chains": ["custom_chain"] }),
+            json!({ "set": "test", "hooks": ["input", "forward", "ingress", "prerouting", "output", "postrouting", "egress"] }),
             &p,
         ),
+        (false, json!({ "set": "test", "hooks": ["INPUT"] }), &p),
+        (false, json!({ "set": "test", "hooks": ["FORWARD"] }), &p),
         (
-            true,
-            json!({ "set": "test", "chains": ["INPUT", "FORWARD"] }),
-            &p,
-        ),
-        (
-            true,
-            json!({
-                "set": "test",
-                "chains": ["INPUT", "FORWARD", "my_iptables_chain"]
-            }),
+            false,
+            json!({ "set": "test", "hooks": ["unknown_hook"] }),
             &p,
         ),
         // timeout //
@@ -111,11 +103,13 @@ async fn conf_action_standalone() {
         (false, json!({ "set": "test", "timeout": 12 }), &p),
         // target //
         // anything is fine too
-        (true, json!({ "set": "test", "target": "DROP" }), &p),
-        (true, json!({ "set": "test", "target": "ACCEPT" }), &p),
-        (true, json!({ "set": "test", "target": "RETURN" }), &p),
-        (true, json!({ "set": "test", "target": "custom_chain" }), &p),
+        (true, json!({ "set": "test", "target": "drop" }), &p),
+        (true, json!({ "set": "test", "target": "accept" }), &p),
+        (true, json!({ "set": "test", "target": "return" }), &p),
+        (true, json!({ "set": "test", "target": "continue" }), &p),
         // bad
+        (false, json!({ "set": "test", "target": "custom" }), &p),
+        (false, json!({ "set": "test", "target": "DROP" }), &p),
         (false, json!({ "set": "test", "target": 11 }), &p),
         (false, json!({ "set": "test", "target": ["DROP"] }), &p),
     ] {
@@ -126,7 +120,7 @@ async fn conf_action_standalone() {
                     stream_name: "stream".into(),
                     filter_name: "filter".into(),
                     action_name: "action".into(),
-                    action_type: "ipset".into(),
+                    action_type: "nftables".into(),
                     config: conf.clone().into(),
                     patterns: patterns.clone(),
                 }],
@@ -152,11 +146,11 @@ async fn conf_action_merge() {
         stream_name: "stream".into(),
         filter_name: "filter".into(),
         action_name: "action1".into(),
-        action_type: "ipset".into(),
+        action_type: "nftables".into(),
         config: json!({
             "set": "test",
-            "target": "DROP",
-            "chains": ["INPUT"],
+            "target": "drop",
+            "hooks": ["input"],
             "action": "add",
         })
         .into(),
@@ -167,10 +161,10 @@ async fn conf_action_merge() {
         stream_name: "stream".into(),
         filter_name: "filter".into(),
         action_name: "action2".into(),
-        action_type: "ipset".into(),
+        action_type: "nftables".into(),
         config: json!({
             "set": "test",
-            "target": "DROP",
+            "target": "drop",
             "version": "ip",
             "action": "add",
         })
@@ -182,10 +176,10 @@ async fn conf_action_merge() {
         stream_name: "stream".into(),
         filter_name: "filter".into(),
         action_name: "action2".into(),
-        action_type: "ipset".into(),
+        action_type: "nftables".into(),
         config: json!({
             "set": "test",
-            "action": "del",
+            "action": "delete",
         })
         .into(),
         patterns: vec!["ip".into()],
@@ -206,10 +200,10 @@ async fn conf_action_merge() {
                     stream_name: "stream".into(),
                     filter_name: "filter".into(),
                     action_name: "action3".into(),
-                    action_type: "ipset".into(),
+                    action_type: "nftables".into(),
                     config: json!({
                         "set": "test2",
-                        "target": "target1",
+                        "target": "return",
                         "version": "ipv6",
                     })
                     .into(),
@@ -237,7 +231,7 @@ async fn conf_action_merge() {
                     stream_name: "stream".into(),
                     filter_name: "filter".into(),
                     action_name: "action3".into(),
-                    action_type: "ipset".into(),
+                    action_type: "nftables".into(),
                     config: json!({
                         "set": "test",
                         "target": "target2",
