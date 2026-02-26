@@ -45,7 +45,7 @@ impl PluginInfo for Plugin {
         Ok(Manifest {
             hello: Hello::new(),
             streams: BTreeSet::default(),
-            actions: BTreeSet::from(["ipset".into()]),
+            actions: BTreeSet::from(["nftables".into()]),
         })
     }
 
