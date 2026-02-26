@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
 
 use reaction_plugin::StreamConfig;
+use regex::RegexSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -18,6 +19,11 @@ pub struct Stream {
 
     #[serde(skip)]
     pub name: String,
+
+    #[serde(skip)]
+    pub compiled_regex_set: RegexSet,
+    #[serde(skip)]
+    pub regex_index_to_filter_name: Vec<String>,
 
     // Plugin-specific
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
@@ -89,6 +95,21 @@ impl Stream {
         for (key, filter) in &mut self.filters {
             filter.setup(name, key, patterns)?;
         }
+
+        let all_regexes: BTreeMap<_, _> = self
+            .filters
+            .values()
+            .flat_map(|filter| {
+                filter
+                    .regex
+                    .iter()
+                    .map(|regex| (regex, filter.name.clone()))
+            })
+            .collect();
+
+        self.compiled_regex_set = RegexSet::new(all_regexes.keys())
+            .map_err(|err| format!("too much regexes on the filters of this stream: {err}"))?;
+        self.regex_index_to_filter_name = all_regexes.into_values().collect();
 
         Ok(())
     }
