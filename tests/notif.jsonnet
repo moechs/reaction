@@ -41,6 +41,23 @@
             },
           },
         },
+        f2: {
+          regex: [
+            "^can't found <num>$",
+          ],
+          retry: 2,
+          retryperiod: '60s',
+          actions: {
+            damn: {
+              cmd: ['notify-send', 'you should not see that', 'ban <num>'],
+            },
+            undamn: {
+              cmd: ['notify-send', 'you should not see that', 'unban <num>'],
+              after: '3s',
+              onexit: true,
+            },
+          },
+        },
       },
     },
   },
