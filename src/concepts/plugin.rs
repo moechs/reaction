@@ -173,7 +173,7 @@ impl Plugin {
             // --pipe gives direct, non-emulated stdio access, for better performance.
             command.arg("--pipe");
             // run the command inside the same slice as reaction
-            command.arg("--slice-intherit");
+            command.arg("--slice-inherit");
 
             // Make path absolute for systemd
             let full_workdir = path::absolute(&plugin_working_directory)?;
