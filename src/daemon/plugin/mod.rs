@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Display,
     io,
     ops::{Deref, DerefMut},
     process::ExitStatus,
@@ -52,7 +53,7 @@ impl PluginManager {
         let mut child = plugin
             .launch(state_directory)
             .await
-            .map_err(|err| format!("could not launch plugin: {err}"))?;
+            .map_err(|err| systemd_error(plugin, "could not launch plugin", err))?;
 
         {
             let stderr = child.stderr.take().unwrap();
@@ -70,10 +71,7 @@ impl PluginManager {
         ) = Connect::io(remoc::Cfg::default(), stdout, stdin)
             .await
             .map_err(|err| {
-                format!(
-                    "could not init communication with plugin {}: {err}",
-                    plugin.name
-                )
+                systemd_error(plugin, "could not init communication with plugin", err)
             })?;
 
         tokio::spawn(conn);
@@ -163,6 +161,20 @@ impl PluginManager {
                 error!("plugin {}: process exited. {err}", self.plugin.name);
             }
         }
+    }
+}
+
+fn systemd_error(plugin: &Plugin, message: &str, err: impl Display) -> String {
+    if plugin.systemd {
+        format!(
+            "{message}: {err}. \
+`plugins.{0}.systemd` is set to true, so this may be an issue with systemd's run0. \
+please make sure `sudo run0 ls /` returns the same thing as `sudo ls /` as a test. \
+if run0 can't be found or doesn't output anything, set `plugins.{0}.systemd` to false.",
+            plugin.name,
+        )
+    } else {
+        format!("{message}: {err}")
     }
 }
 
