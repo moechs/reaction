@@ -1,6 +1,6 @@
 # vim: ft=systemd
 [Unit]
-Description=A daemon that scans program outputs for repeated patterns, and takes action.
+Description=reaction daemon
 Documentation=https://reaction.ppom.me
 # Ensure reaction will insert its chain after docker has inserted theirs. Only useful when iptables & docker are used
 # After=docker.service
@@ -17,6 +17,8 @@ RuntimeDirectory=reaction
 WorkingDirectory=/var/lib/reaction
 # Let reaction kill its child processes first
 KillMode=mixed
+# Put reaction in its own slice so that plugins can be grouped within.
+Slice=system-reaction.slice
 
 [Install]
 WantedBy=multi-user.target

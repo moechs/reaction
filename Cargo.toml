@@ -29,6 +29,8 @@ assets = [
 	[ "target/release/reaction.bash", "/usr/share/bash-completion/completions/reaction", "644" ],
 	[ "target/release/reaction.fish", "/usr/share/fish/completions/", "644" ],
 	[ "target/release/_reaction", "/usr/share/zsh/vendor-completions/", "644" ],
+	# Slice
+	[ "packaging/system-reaction.slice", "/usr/lib/systemd/system/", "644" ],
 ]
 
 [dependencies]
