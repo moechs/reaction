@@ -11,7 +11,6 @@ categories = ["security"]
 description = "Plugin interface for reaction, a daemon that scans logs and takes action (alternative to fail2ban)"
 
 [dependencies]
-chrono.workspace = true
 remoc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

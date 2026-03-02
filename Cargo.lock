@@ -2886,7 +2886,6 @@ dependencies = [
 name = "reaction-plugin"
 version = "1.0.0"
 dependencies = [
- "chrono",
  "remoc",
  "serde",
  "serde_json",
