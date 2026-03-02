@@ -109,15 +109,21 @@ impl PluginInfo for Plugin {
         let mut first_error = None;
         for (i, set) in self.sets.iter().enumerate() {
             // Retain if error
-            if let Err(err) = set.init(&mut self.ipset).await {
-                first_error = Some((i, RemoteError::Plugin(err)));
+            if let Err((failed_step, err)) = set.init(&mut self.ipset).await {
+                first_error = Some((i, failed_step, RemoteError::Plugin(err)));
                 break;
             }
         }
         // Destroy initialized sets if error
-        if let Some((i, err)) = first_error {
-            for set in self.sets.iter().take(i + 1) {
-                let _ = set.destroy(&mut self.ipset).await;
+        if let Some((last_set, failed_step, err)) = first_error {
+            eprintln!("DEBUG last_set: {last_set} failed_step: {failed_step} err: {err}");
+            for (curr_set, set) in self.sets.iter().enumerate().take(last_set + 1) {
+                let until = if last_set == curr_set {
+                    Some(failed_step)
+                } else {
+                    None
+                };
+                let _ = set.destroy(&mut self.ipset, until).await;
             }
             return Err(err);
         }
@@ -148,6 +154,6 @@ impl PluginInfo for Plugin {
 async fn destroy_sets_at_shutdown(mut ipset: IpSet, sets: Vec<Set>, shutdown: ShutdownToken) {
     shutdown.wait().await;
     for set in sets {
-        set.destroy(&mut ipset).await;
+        set.destroy(&mut ipset, None).await;
     }
 }

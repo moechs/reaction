@@ -1,4 +1,4 @@
-use std::{fmt::Debug, u32};
+use std::{fmt::Debug, u32, usize};
 
 use reaction_plugin::{Exec, shutdown::ShutdownToken, time::parse_duration};
 use remoc::rch::mpsc as remocMpsc;
@@ -173,7 +173,7 @@ impl Set {
         }
     }
 
-    pub async fn init(&self, ipset: &mut IpSet) -> Result<(), String> {
+    pub async fn init(&self, ipset: &mut IpSet) -> Result<(), (usize, String)> {
         for (set, version) in [
             (&self.sets.ipv4, Version::IPv4),
             (&self.sets.ipv6, Version::IPv6),
@@ -186,44 +186,42 @@ impl Set {
                         version,
                         timeout: self.timeout,
                     }))
-                    .await?;
+                    .await
+                    .map_err(|err| (0, err.to_string()))?;
                 // insert set in chains
-                for chain in &self.chains {
+                for (i, chain) in self.chains.iter().enumerate() {
                     ipset
                         .order(Order::InsertSet(SetChain {
                             set: set.clone(),
                             chain: chain.clone(),
                             target: self.target.clone(),
                         }))
-                        .await?;
+                        .await
+                        .map_err(|err| (i + 1, err.to_string()))?;
                 }
             }
         }
         Ok(())
     }
 
-    pub async fn destroy(&self, ipset: &mut IpSet) {
-        for (set, version) in [
-            (&self.sets.ipv4, Version::IPv4),
-            (&self.sets.ipv6, Version::IPv6),
-        ] {
+    pub async fn destroy(&self, ipset: &mut IpSet, until: Option<usize>) {
+        for set in [&self.sets.ipv4, &self.sets.ipv6] {
             if let Some(set) = set {
-                for chain in &self.chains {
-                    if let Err(err) = ipset
+                for chain in self
+                    .chains
+                    .iter()
+                    .take(until.map(|until| until - 1).unwrap_or(usize::MAX))
+                {
+                    let _ = ipset
                         .order(Order::RemoveSet(SetChain {
                             set: set.clone(),
                             chain: chain.clone(),
                             target: self.target.clone(),
                         }))
-                        .await
-                    {
-                        eprintln!(
-                            "ERROR while removing {version} set {set} from chain {chain}: {err}"
-                        );
-                    }
+                        .await;
                 }
-                if let Err(err) = ipset.order(Order::DestroySet(set.clone())).await {
-                    eprintln!("ERROR while destroying {version} set {set}: {err}");
+                if until.is_none_or(|until| until != 0) {
+                    let _ = ipset.order(Order::DestroySet(set.clone())).await;
                 }
             }
         }

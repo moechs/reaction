@@ -72,7 +72,7 @@ impl IpSet {
 
 pub enum IpSetError {
     Thread(String),
-    IpSet(String),
+    IpSet(()),
 }
 impl Display for IpSetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,7 +81,7 @@ impl Display for IpSetError {
             "{}",
             match self {
                 IpSetError::Thread(err) => err,
-                IpSetError::IpSet(err) => err,
+                IpSetError::IpSet(()) => "ipset error",
             }
         )
     }
@@ -90,12 +90,12 @@ impl From<IpSetError> for String {
     fn from(value: IpSetError) -> Self {
         match value {
             IpSetError::Thread(err) => err,
-            IpSetError::IpSet(err) => err,
+            IpSetError::IpSet(()) => "ipset error".to_string(),
         }
     }
 }
 
-pub type OrderType = (Order, oneshot::Sender<Result<(), String>>);
+pub type OrderType = (Order, oneshot::Sender<Result<(), ()>>);
 
 struct Set {
     session: Session<HashNet>,
@@ -121,7 +121,7 @@ impl IPsetManager {
         }
     }
 
-    fn handle_order(&mut self, order: Order) -> Result<(), String> {
+    fn handle_order(&mut self, order: Order) -> Result<(), ()> {
         match order {
             Order::CreateSet(CreateSet {
                 name,
@@ -139,7 +139,7 @@ impl IPsetManager {
                         };
                         builder.with_ipv6(version == Version::IPv6)?.build()
                     })
-                    .map_err(|err| format!("Could not create set {name}: {err}"))?;
+                    .map_err(|err| eprintln!("ERROR Could not create set {name}: {err}"))?;
 
                 self.sessions.insert(name, Set { session, version });
             }
@@ -149,7 +149,7 @@ impl IPsetManager {
                     session
                         .session
                         .destroy()
-                        .map_err(|err| format!("Could not destroy set {set}: {err}"))?;
+                        .map_err(|err| eprintln!("ERROR Could not destroy set {set}: {err}"))?;
                 }
             }
 
@@ -162,9 +162,13 @@ impl IPsetManager {
         Ok(())
     }
 
-    fn insert_remove_ip(&mut self, set: String, ip: String, insert: bool) -> Result<(), String> {
+    fn insert_remove_ip(&mut self, set: String, ip: String, insert: bool) -> Result<(), ()> {
+        self._insert_remove_ip(set, ip, insert)
+            .map_err(|err| eprintln!("ERROR {err}"))
+    }
+    fn _insert_remove_ip(&mut self, set: String, ip: String, insert: bool) -> Result<(), String> {
         let session = self.sessions.get_mut(&set).ok_or(format!(
-            "No set handled by us with this name: {set}. This likely is a bug."
+            "No set handled by this plugin with this name: {set}. This likely is a bug."
         ))?;
 
         let mut net_data = NetDataType::new(Ipv4Addr::LOCALHOST, 0);
@@ -182,24 +186,28 @@ impl IPsetManager {
         Ok(())
     }
 
-    fn insert_remove_set(&self, options: SetChain, insert: bool) -> Result<(), String> {
-        let SetChain {
-            set,
-            chain,
-            target: action,
-        } = options;
+    fn insert_remove_set(&self, options: SetChain, insert: bool) -> Result<(), ()> {
+        self._insert_remove_set(options, insert)
+            .map_err(|err| eprintln!("ERROR {err}"))
+    }
+    fn _insert_remove_set(&self, options: SetChain, insert: bool) -> Result<(), String> {
+        let SetChain { set, chain, target } = options;
 
         let version = self
             .sessions
             .get(&set)
-            .ok_or(format!("No set managed by us with this name: {set}"))?
+            .ok_or(format!(
+                "No set managed by this plugin with this name: {set}"
+            ))?
             .version;
 
-        if insert {
-            eprintln!("INFO inserting {version} set {set} in chain {chain}");
+        let (verb, verbing, from) = if insert {
+            ("insert", "inserting", "in")
         } else {
-            eprintln!("INFO removing   {version} set {set} from chain {chain}");
-        }
+            ("remove", "removing", "from")
+        };
+
+        eprintln!("INFO {verbing} {version} set {set} {from} chain {chain}");
 
         let command = match version {
             Version::IPv4 => "iptables",
@@ -217,20 +225,20 @@ impl IPsetManager {
                 &set,
                 "src",
                 "-j",
-                &action,
+                &target,
             ])
             .spawn()
-            .map_err(|err| format!("Could not insert ipset {set} in chain {chain}: {err}"))?;
+            .map_err(|err| format!("Could not {verb} ipset {set} {from} chain {chain}: Could not execute {command}: {err}"))?;
 
         let exit = child
             .wait()
-            .map_err(|err| format!("Could not insert ipset: {err}"))?;
+            .map_err(|err| format!("Could not {verb} ipset {set} {from} chain {chain}: {err}"))?;
 
         if exit.success() {
             Ok(())
         } else {
             Err(format!(
-                "Could not insert ipset: exit code {}",
+                "Could not {verb} ipset: exit code {}",
                 exit.code()
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| "<unknown>".to_string())
