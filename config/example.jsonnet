@@ -63,7 +63,7 @@ local ip46tables(arguments) = [
       type: 'ip',
       ignore: ['127.0.0.1', '::1'],
       // they can also ignore whole CIDR ranges of ip
-      ignorecidr: ['10.0.0.0/8'],
+      ignorecidr: ['10.0.0.0/8', 'fe80::/10'],
       // last but not least, patterns of type ip, ipv4, ipv6 can also group their matched ips by mask
       // ipv4mask: 30
       // this means that ipv6 matches will be converted to their network part.
