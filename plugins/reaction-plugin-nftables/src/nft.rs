@@ -3,7 +3,7 @@ use std::{
     thread,
 };
 
-use libnftables1_sys::Nftables;
+use libnftables1_sys::{Nftables, nft_ctx_input_set_flags, nft_ctx_output_set_flags};
 use nftables::batch::Batch;
 use tokio::sync::{mpsc, oneshot};
 
@@ -21,15 +21,18 @@ impl Default for NftClient {
 
         thread::spawn(move || {
             let mut conn = Nftables::new();
+            conn.set_json();
 
             while let Some(NftCommand { json, ret }) = rx.blocking_recv() {
                 let (rc, output, error) = conn.run_cmd(json.as_ptr());
                 let res = match rc {
                     0 => to_rust_string(output)
                         .ok_or_else(|| "unknown ok (rc = 0 but no output buffer)".into()),
-                    _ => to_rust_string(error)
+                    _ => Err(to_rust_string(error)
                         .map(|err| format!("error (rc = {rc}: {err})"))
-                        .ok_or_else(|| format!("unknown error (rc = {rc} but no error buffer)")),
+                        .unwrap_or_else(|| {
+                            format!("unknown error (rc = {rc} but no error buffer)")
+                        })),
                 };
                 let _ = ret.send(res);
             }

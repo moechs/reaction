@@ -132,6 +132,7 @@ $ sudo systemctl enable --now reaction.service
             "reaction",
             "reaction-plugin-virtual",
             "reaction-plugin-ipset",
+            "reaction-plugin-nftables",
         ]
 
         # Build
@@ -155,6 +156,7 @@ $ sudo systemctl enable --now reaction.service
         debs = [
             "reaction",
             "reaction-plugin-ipset",
+            "reaction-plugin-nftables",
         ]
         for deb in debs:
             cmd = run_command(

@@ -6,6 +6,7 @@ FROM rust:bookworm
 RUN apt update && apt install -y \
   clang \
   libipset-dev \
+  libnftables-dev \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /reaction
