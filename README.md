@@ -188,7 +188,7 @@ See the [wiki](https://reaction.ppom.me/configurations/OpenBSD.html).
 
 ### Compilation
 
-You'll need a recent rust toolchain for reaction and a c compiler for ip46tables.
+You'll need a recent rust toolchain. `rustup` is recommended way to install it.
 ```shell
 $ make
 ```
