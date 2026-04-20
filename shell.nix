@@ -6,6 +6,7 @@ pkgs.mkShell {
     ipset
     nftables
     clang
+    pkg-config
   ];
   src = null;
   shellHook = ''

@@ -21,7 +21,7 @@ impl Default for NftClient {
 
         thread::spawn(move || {
             let mut conn = Nftables::new();
-            conn.set_json();
+            conn.set_output_json();
 
             while let Some(NftCommand { json, ret }) = rx.blocking_recv() {
                 let (rc, output, error) = conn.run_cmd(json.as_ptr());
