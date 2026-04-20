@@ -3,7 +3,7 @@ use std::{
     thread,
 };
 
-use libnftables1_sys::{Nftables, nft_ctx_input_set_flags, nft_ctx_output_set_flags};
+use libnftables1_sys::Nftables;
 use nftables::batch::Batch;
 use tokio::sync::{mpsc, oneshot};
 

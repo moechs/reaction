@@ -145,9 +145,15 @@ impl PluginInfo for Plugin {
         // Launch a task that will destroy the table on shutdown
         {
             let token = self.shutdown.token();
+            let nft = self.nft.clone();
             tokio::spawn(async move {
                 token.wait().await;
-                Batch::new().delete(reaction_table());
+
+                let mut batch = Batch::new();
+                batch.delete(reaction_table());
+                if let Err(err) = nft.send(batch).await {
+                    eprintln!("ERROR removing reaction nft table: {err}");
+                }
             });
         }
 
