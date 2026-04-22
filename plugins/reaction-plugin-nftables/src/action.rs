@@ -7,9 +7,9 @@ use std::{
 
 use nftables::{
     batch::Batch,
-    expr::Expression,
+    expr::{Expression, NamedExpression, Payload, PayloadField},
     schema::{Element, NfListObject, Rule, SetFlag, SetType, SetTypeValue},
-    stmt::Statement,
+    stmt::{Match, Operator, Statement},
     types::{NfFamily, NfHook},
 };
 use reaction_plugin::{Exec, shutdown::ShutdownToken, time::parse_duration};
@@ -254,8 +254,7 @@ impl Set {
                     family,
                     table: table.to_owned(),
                     name: Cow::Owned(set.to_owned()),
-                    // TODO Try a set which is both ipv4 and ipv6?
-                    set_type: SetTypeValue::Single(match version {
+                    set_type: SetTypeValue::Single(match &version {
                         Version::IPv4 => SetType::Ipv4Addr,
                         Version::IPv6 => SetType::Ipv6Addr,
                     }),
@@ -269,19 +268,35 @@ impl Set {
                     timeout: self.timeout.clone(),
                     ..Default::default()
                 })));
-                // insert set in chains
-                let expr = vec![match self.target {
-                    RStatement::Accept => Statement::Accept(None),
-                    RStatement::Drop => Statement::Drop(None),
-                    RStatement::Continue => Statement::Continue(None),
-                    RStatement::Return => Statement::Return(None),
-                }];
+                // Add set rule in the chains
                 for hook in &self.hooks {
                     batch.add(NfListObject::Rule(Rule {
                         family,
                         table: table.to_owned(),
                         chain: Cow::from(hook.to_string()),
-                        expr: Cow::Owned(expr.clone()),
+                        expr: Cow::Owned(vec![
+                            // If source address in set
+                            Statement::Match(Match {
+                                op: Operator::EQ,
+                                left: Expression::Named(NamedExpression::Payload(
+                                    Payload::PayloadField(PayloadField {
+                                        protocol: Cow::Borrowed(match version {
+                                            Version::IPv4 => "ip",
+                                            Version::IPv6 => "ip6",
+                                        }),
+                                        field: Cow::Borrowed("saddr"),
+                                    }),
+                                )),
+                                right: Expression::String(format!("@{}", set).into()),
+                            }),
+                            // Do this action
+                            match self.target {
+                                RStatement::Accept => Statement::Accept(None),
+                                RStatement::Drop => Statement::Drop(None),
+                                RStatement::Continue => Statement::Continue(None),
+                                RStatement::Return => Statement::Return(None),
+                            },
+                        ]),
                         ..Default::default()
                     }));
                 }
