@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -15,13 +15,15 @@ use tokio_util::{
 use tracing::{error, warn};
 
 use crate::{
-    concepts::{Config, Filter, Pattern, Stream, now},
+    concepts::{Config, Filter, Pattern, Patterns, Stream, now},
     protocol::{ClientRequest, ClientStatus, DaemonResponse, Order},
 };
 
 use super::filter::FilterManager;
 
-async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
+pub type SharedState = HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>;
+
+async fn open_socket(path: &Path) -> Result<UnixListener, String> {
     macro_rules! err_str {
         ($expression:expr) => {
             $expression.map_err(|err| err.to_string())
@@ -39,7 +41,7 @@ async fn open_socket(path: PathBuf) -> Result<UnixListener, String> {
                 Err(format!("socket {path:?} is already a directory"))
             } else {
                 warn!("socket {path:?} already exists: is the daemon already running? deleting.");
-                err_str!(fs::remove_file(&path).await)
+                err_str!(fs::remove_file(path).await)
             }
         }
         Err(err) => err_str!(match err.kind() {
@@ -55,7 +57,7 @@ async fn handle_trigger_order(
     stream_name: Option<String>,
     filter_name: Option<String>,
     patterns: BTreeMap<Arc<Pattern>, String>,
-    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+    shared_state: &SharedState,
 ) -> DaemonResponse {
     // Check names existence
     let (stream_name, filter_name) = match (stream_name, filter_name) {
@@ -75,7 +77,7 @@ async fn handle_trigger_order(
         );
     }
 
-    // Check stream existance
+    // Check stream existence
     let filters = match shared_state
         .iter()
         .find(|(stream, _)| stream_name == stream.name)
@@ -86,7 +88,7 @@ async fn handle_trigger_order(
         }
     };
 
-    // Check filter existance
+    // Check filter existence
     let filter_manager = match filters
         .iter()
         .find(|(filter, _)| filter_name == filter.name)
@@ -110,7 +112,7 @@ async fn handle_show_or_flush_order(
     filter_name: Option<String>,
     patterns: BTreeMap<Arc<Pattern>, Regex>,
     order: Order,
-    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+    shared_state: &SharedState,
 ) -> DaemonResponse {
     let now = now();
     let iter = shared_state
@@ -145,36 +147,43 @@ async fn handle_show_or_flush_order(
     DaemonResponse::Order(cs)
 }
 
-async fn answer_order(
-    config: &'static Config,
-    shared_state: &HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
-    options: ClientRequest,
-) -> DaemonResponse {
-    // Compute options
-    let (stream_name, filter_name) = match options.stream_filter {
+fn split_stream_name(stream_filter: Option<String>) -> (Option<String>, Option<String>) {
+    match stream_filter {
         Some(sf) => match sf.split_once(".") {
             Some((s, f)) => (Some(s.to_string()), Some(f.to_string())),
             None => (Some(sf), None),
         },
         None => (None, None),
-    };
+    }
+}
 
-    // Compute the Vec<(pattern_name: String, regex: String)> into a BTreeMap<Arc<Pattern>, String>
-    let patterns = match options
-        .patterns
+fn compute_patterns(
+    patterns: Vec<(String, String)>,
+    config_patterns: &Patterns,
+) -> Result<BTreeMap<Arc<Pattern>, String>, String> {
+    patterns
         .into_iter()
         .map(|(name, reg)| {
             // lookup pattern in config.patterns
-            config
-                .patterns
+            config_patterns
                 .iter()
                 // retrieve or Err
                 .find(|(pattern_name, _)| &name == *pattern_name)
                 .ok_or_else(|| format!("pattern '{name}' doesn't exist"))
                 .map(|(_, pattern)| (pattern.clone(), reg))
         })
-        .collect::<Result<BTreeMap<Arc<Pattern>, String>, String>>()
-    {
+        .collect()
+}
+
+async fn answer_order(
+    config: &'static Config,
+    shared_state: &SharedState,
+    options: ClientRequest,
+) -> DaemonResponse {
+    // Compute options
+    let (stream_name, filter_name) = split_stream_name(options.stream_filter);
+
+    let patterns = match compute_patterns(options.patterns, &config.patterns) {
         Ok(p) => p,
         Err(err) => return DaemonResponse::Err(err),
     };
@@ -228,7 +237,7 @@ pub struct Socket {
 impl Socket {
     pub async fn open(socket: PathBuf) -> Result<Self, String> {
         Ok(Socket {
-            socket: open_socket(socket.clone())
+            socket: open_socket(&socket)
                 .await
                 .map_err(|err| format!("while creating communication socket: {err}"))?,
             path: socket,
@@ -238,7 +247,7 @@ impl Socket {
     pub fn manager(
         self,
         config: &'static Config,
-        shared_state: HashMap<&'static Stream, HashMap<&'static Filter, FilterManager>>,
+        shared_state: SharedState,
         shutdown: ShutdownToken,
     ) {
         tokio::spawn(async move {
@@ -282,5 +291,165 @@ impl Socket {
                 error!("failed to remove socket: {}", err);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, path::PathBuf};
+
+    use assert_fs::TempDir;
+    use tokio::fs::File;
+
+    use crate::concepts::{Pattern, Patterns};
+
+    use super::{compute_patterns, open_socket, split_stream_name};
+
+    #[tokio::test]
+    async fn open_socket_empty_dir() {
+        let tmp_dir = TempDir::new().unwrap();
+        let res = open_socket(&tmp_dir).await;
+        assert_eq!(
+            res.err(),
+            Some(format!(
+                "socket {:?} is already a directory",
+                tmp_dir.path()
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn open_socket_in_empty_dir() {
+        let tmp_dir = TempDir::new().unwrap();
+        let path = tmp_dir.join("socket.sock");
+        let res = open_socket(&path).await;
+        assert!(res.is_ok());
+        assert!(path.try_exists().is_ok_and(|b| b));
+    }
+
+    #[tokio::test]
+    async fn open_socket_in_creatable_dir() {
+        let tmp_dir = TempDir::new().unwrap();
+        let path = tmp_dir.join("subdir").join("subsubdir").join("socket.sock");
+        let res = open_socket(&path).await;
+        assert!(res.is_ok());
+        assert!(path.try_exists().is_ok_and(|b| b));
+    }
+
+    #[tokio::test]
+    async fn open_socket_in_noncreatable_dir() {
+        // skip this test if we're root, as we may have the rights
+        // to create this directory
+        #[allow(unsafe_code)]
+        let euid = unsafe { nix::libc::geteuid() };
+        if euid != 0 {
+            let path = PathBuf::from("/zblerg/zblorg/zblurg/socket.sock");
+            let res = open_socket(&path).await;
+            assert!(res.is_ok());
+            assert!(path.try_exists().is_ok_and(|b| b));
+        }
+    }
+
+    #[tokio::test]
+    async fn open_socket_on_replacable_file() {
+        let tmp_dir = TempDir::new().unwrap();
+        let path = tmp_dir.join("socket.sock");
+        File::create(&path).await.unwrap();
+        // This should write a warning to stderr, but we can't easily test that
+        let res = open_socket(&path).await;
+        assert!(res.is_ok());
+        assert!(path.try_exists().is_ok_and(|b| b));
+    }
+
+    #[test]
+    fn split_stream_name_test() {
+        assert_eq!(split_stream_name(None), (None, None));
+        assert_eq!(
+            split_stream_name(Some("abcde".into())),
+            (Some("abcde".into()), None)
+        );
+        assert_eq!(
+            split_stream_name(Some("a.b".into())),
+            (Some("a".into()), Some("b".into()))
+        );
+        assert_eq!(
+            split_stream_name(Some("abcde.abc".into())),
+            (Some("abcde".into()), Some("abc".into()))
+        );
+    }
+
+    fn sample_patterns() -> Patterns {
+        Patterns::from([
+            (
+                "boubou".into(),
+                Pattern {
+                    regex: "abcd[efg]".into(),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            (
+                "bibi".into(),
+                Pattern {
+                    regex: "abcde[fgh]".into(),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            (
+                "baba".into(),
+                Pattern {
+                    regex: "ba(ba)+".into(),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+        ])
+    }
+
+    #[test]
+    fn compute_patterns_test() {
+        let config_patterns = sample_patterns();
+        assert_eq!(
+            compute_patterns(vec![("baba".into(), "one".into())], &config_patterns),
+            Ok(BTreeMap::from([(
+                config_patterns["baba"].to_owned(),
+                "one".to_string()
+            )])),
+        );
+        assert_eq!(
+            compute_patterns(
+                vec![("baba".into(), "one".into()), ("bibi".into(), "two".into())],
+                &config_patterns,
+            ),
+            Ok(BTreeMap::from([
+                (config_patterns["baba"].to_owned(), "one".to_string()),
+                (config_patterns["bibi"].to_owned(), "two".into())
+            ])),
+        );
+        assert_eq!(
+            compute_patterns(
+                vec![
+                    ("baba".into(), "one".into()),
+                    ("boubou".into(), "two".into()),
+                    ("bibi".into(), "three".into())
+                ],
+                &config_patterns,
+            ),
+            Ok(BTreeMap::from([
+                (config_patterns["baba"].to_owned(), "one".to_string()),
+                (config_patterns["boubou"].to_owned(), "two".into()),
+                (config_patterns["bibi"].to_owned(), "three".into())
+            ])),
+        );
+
+        assert!(compute_patterns(vec![("bobo".into(), "one".into())], &config_patterns).is_err());
+        assert!(
+            compute_patterns(
+                vec![("baba".into(), "one".into()), ("bobo".into(), "two".into())],
+                &config_patterns
+            )
+            .is_err()
+        );
     }
 }
