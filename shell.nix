@@ -7,6 +7,7 @@ pkgs.mkShell {
     nftables
     clang
     pkg-config
+    cargo-deb
   ];
   src = null;
   shellHook = ''
