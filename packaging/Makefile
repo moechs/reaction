@@ -15,10 +15,14 @@ install:
 install-ipset:
 	install -Dm755 reaction-plugin-ipset $(DESTDIR)$(BINDIR)
 
+install-nftables:
+	install -Dm755 reaction-plugin-nftables $(DESTDIR)$(BINDIR)
+
 remove:
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-virtual
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-ipset
+	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-nftables
 	rm -f $(DESTDIR)$(MANDIR)/reaction*.1
 	rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/reaction
 	rm -f $(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/reaction.fish
