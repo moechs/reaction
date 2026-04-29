@@ -271,19 +271,18 @@ sudo apt install -y libipset-dev && sudo make install-ipset
             f"""
 ## Debian installation ({architecture_pretty} linux)
 
+{"".join([
+    f"""
 ```bash
-curl \\
-{"\n".join([
-    f"    -O https://static.ppom.me/reaction/releases/{tag}/{deb_name} \\"
-    for deb_name in deb_names + deb_sig_names
-])}
-{"\n".join([
-    f"        && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_name} \\"
-    for deb_name in deb_names
-])}
-        && rm {" ".join(deb_sig_names)} \\
-        && sudo apt install {" ".join([f"./{deb_name}" for deb_name in deb_names])}
+# {deb_names[i].split("_")[0]}
+curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_names[i]} \\
+    && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_names[i]} \\
+    && rm {deb_sig_names[i]}
+    && sudo apt install ./{deb_names[i]}
 ```
+    """
+    for i in range(len(deb_names))
+])}
 
 *You can also use [this third-party package repository](https://packages.azlux.fr).*
 """.strip()
