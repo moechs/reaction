@@ -56,10 +56,10 @@ async fn conf_action_standalone() {
         // action //
         (true, json!({ "set": "test", "action": "add" }), &p),
         (true, json!({ "set": "test", "action": "delete" }), &p),
+        (true, json!({ "set": "test", "action": "del" }), &p),
         // unknown action
         (false, json!({ "set": "test", "action": "create" }), &p),
         (false, json!({ "set": "test", "action": "insert" }), &p),
-        (false, json!({ "set": "test", "action": "del" }), &p),
         (false, json!({ "set": "test", "action": "destroy" }), &p),
         // bad type
         (false, json!({ "set": "test", "action": true }), &p),

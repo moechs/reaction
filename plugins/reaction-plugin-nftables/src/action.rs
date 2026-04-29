@@ -45,9 +45,9 @@ impl Debug for IpVersion {
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub enum AddDel {
     #[default]
-    #[serde(alias = "add")]
+    #[serde(rename = "add")]
     Add,
-    #[serde(alias = "delete")]
+    #[serde(rename = "delete", alias = "del")]
     Delete,
 }
 
