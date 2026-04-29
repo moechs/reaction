@@ -276,8 +276,9 @@ sudo apt install -y libipset-dev && sudo make install-ipset
 ```bash
 # {deb_names[i].split("_")[0]}
 curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_names[i]} \\
+    -O https://static.ppom.me/reaction/releases/{tag}/{deb_sig_names[i]} \\
     && minisign -VP RWSpLTPfbvllNqRrXUgZzM7mFjLUA7PQioAItz80ag8uU4A2wtoT2DzX -m {deb_names[i]} \\
-    && rm {deb_sig_names[i]}
+    && rm {deb_sig_names[i]} \\
     && sudo apt install ./{deb_names[i]}
 ```
     """
