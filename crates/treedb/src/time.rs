@@ -20,9 +20,9 @@ impl From<Duration> for Time {
         Time(value)
     }
 }
-impl Into<Duration> for Time {
-    fn into(self) -> Duration {
-        self.0
+impl From<Time> for Duration {
+    fn from(value: Time) -> Self {
+        value.0
     }
 }
 impl Add<Duration> for Time {

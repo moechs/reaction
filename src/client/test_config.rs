@@ -11,9 +11,9 @@ pub fn test_config(
     if verbose {
         if config_path.is_dir() {
             println!(
-            "Loaded the configuration from the following files in the directory {} in this order:",
-            config_path.display()
-        );
+                "Loaded the configuration from the following files in the directory {} in this order:",
+                config_path.display()
+            );
             println!("{}\n", cfg_files.join("\n"));
         } else {
             println!(

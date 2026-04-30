@@ -90,17 +90,17 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
     }
 
     if daemon_err || !stop_ok {
-        return 1;
+        1
     } else if let Some(mut db_status) = db_status
         && let Ok(Err(err)) = db_status.try_recv()
     {
         error!("database error: {}", err);
-        return 1;
+        1
     } else if !signal_received.load(Ordering::SeqCst) {
         error!("quitting because all streams finished");
-        return 1;
+        1
     } else {
-        return 0;
+        0
     }
 }
 

@@ -417,16 +417,16 @@ impl From<JValue> for Value {
                     Value::Null
                 }
             }
-            JValue::String(s) => Value::String(s.into()),
+            JValue::String(s) => Value::String(s),
             JValue::Array(v) => Value::Array(v.into_iter().map(|e| e.into()).collect()),
             JValue::Object(m) => Value::Object(m.into_iter().map(|(k, v)| (k, v.into())).collect()),
         }
     }
 }
 
-impl Into<JValue> for Value {
-    fn into(self) -> JValue {
-        match self {
+impl From<Value> for JValue {
+    fn from(value: Value) -> Self {
+        match value {
             Value::Null => JValue::Null,
             Value::Bool(v) => JValue::Bool(v),
             Value::Integer(v) => JValue::Number(v.into()),

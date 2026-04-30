@@ -14,7 +14,10 @@ pub async fn kill_child(mut child: Child, context: String, grace_time_sec: u64) 
         // but we still need to reclaim it with Child::wait
         let _ = nix::sys::signal::kill(pid, nix::sys::signal::SIGTERM);
 
-        if let Ok(_) = timeout(Duration::from_secs(grace_time_sec), child.wait()).await {
+        if timeout(Duration::from_secs(grace_time_sec), child.wait())
+            .await
+            .is_ok()
+        {
             return;
         }
     } else {

@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeSet,
     error::Error,
-    io::{stdin, BufRead, BufReader},
+    io::{BufRead, BufReader, stdin},
     path::PathBuf,
     sync::Arc,
 };

@@ -51,7 +51,6 @@ pub enum React {
     Trigger,
 }
 
-#[allow(clippy::unwrap_used)]
 impl FilterManager {
     pub async fn new(
         filter: &'static Filter,
@@ -93,7 +92,6 @@ impl FilterManager {
     }
 
     async fn handle_match(&self, m: Match, now: Time) -> bool {
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().await;
         state.clear_past_matches(now).await;
 
@@ -140,7 +138,6 @@ impl FilterManager {
     ) -> Result<(), String> {
         let match_ = self.filter.get_match_from_patterns(patterns)?;
 
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().await;
         state.remove_match(&match_).await;
         state.add_trigger(match_.clone(), now, None).await;
@@ -166,7 +163,6 @@ impl FilterManager {
                 .all(|(a_match, regex)| regex.is_match(a_match))
         };
 
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().await;
 
         let mut cs: BTreeMap<_, _> = {
@@ -211,6 +207,8 @@ impl FilterManager {
             .collect::<Vec<_>>();
 
         for m in cloned_triggers.into_iter() {
+            // we know it's a key of triggers. state is locked so it's not racy.
+            #[allow(clippy::unwrap_used)]
             let map = state.triggers.get(&m).unwrap().clone();
 
             if let Order::Flush = order {
@@ -225,6 +223,7 @@ impl FilterManager {
                         let action_time = t + action.after_duration.unwrap_or_default();
                         if action_time > now {
                             // Pretty print time
+                            #[allow(clippy::unwrap_used)]
                             let time = chrono::Local
                                 .timestamp_opt(
                                     action_time.as_secs() as i64,
@@ -303,7 +302,6 @@ impl FilterManager {
                     };
                     // Exec action if triggered hasn't been already flushed
                     if !exiting || action.on_exit {
-                        #[allow(clippy::unwrap_used)] // propagating panics is ok
                         let mut state = this.state.lock().await;
                         if state.decrement_trigger(&m, t, exiting).await {
                             exec_now(&this.exec_limit, this.shutdown, action, action_impl, m, t);
@@ -325,7 +323,6 @@ impl FilterManager {
             .filter(|action| !action.oneshot)
             .count() as u64;
 
-        #[allow(clippy::unwrap_used)] // propagating panics is ok
         let mut state = self.state.lock().await;
 
         let cloned_triggers = state
@@ -348,6 +345,7 @@ impl FilterManager {
             } else {
                 // Filter duplicates
                 // unwrap is fine because map is not empty (see if)
+                #[allow(clippy::unwrap_used)]
                 let map = match self.filter.duplicate {
                     // Keep only last item
                     Duplicate::Extend => BTreeMap::from([map.into_iter().next_back().unwrap()]),
@@ -410,7 +408,6 @@ fn exec_now(
                     .await
                 {
                     error!("{action}: communication with plugin failed: {err}");
-                    return;
                 }
             }
             None => {
