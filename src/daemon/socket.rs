@@ -107,6 +107,40 @@ async fn handle_trigger_order(
     }
 }
 
+/// An iterator over Filters in the SharedState that match the optional stream_name and filter_name, and that have required patterns.
+fn stream_filter_iter<'a>(
+    stream_name: &'a Option<String>,
+    filter_name: &'a Option<String>,
+    patterns: &BTreeMap<Arc<Pattern>, Regex>,
+    shared_state: &SharedState,
+) -> impl Iterator<Item = (&'a String, impl Iterator<Item = (String, FilterManager)>)> {
+    shared_state
+        .iter()
+        // stream filtering
+        .filter(|(stream, _)| {
+            stream_name.is_none() || stream_name.clone().is_some_and(|name| name == stream.name)
+        })
+        .map(|(stream, filters)| {
+            (
+                &stream.name,
+                filters
+                    .iter()
+                    // filter filtering
+                    .filter(|(filter, _)| {
+                        filter_name.is_none()
+                            || filter_name.clone().is_some_and(|name| name == filter.name)
+                    })
+                    // pattern filtering
+                    .filter(|(filter, _)| {
+                        patterns
+                            .iter()
+                            .all(|(pattern, _)| filter.patterns.get(pattern).is_some())
+                    })
+                    .map(|(k, v)| (k.name.clone(), v.clone())),
+            )
+        })
+}
+
 async fn handle_show_or_flush_order(
     stream_name: Option<String>,
     filter_name: Option<String>,
@@ -115,34 +149,17 @@ async fn handle_show_or_flush_order(
     shared_state: &SharedState,
 ) -> DaemonResponse {
     let now = now();
-    let iter = shared_state
-        .iter()
-        // stream filtering
-        .filter(|(stream, _)| {
-            stream_name.is_none() || stream_name.clone().is_some_and(|name| name == stream.name)
-        });
     let mut cs = ClientStatus::new();
-    for (stream, filter_manager) in iter {
-        let iter = filter_manager
-            .iter()
-            // filter filtering
-            .filter(|(filter, _)| {
-                filter_name.is_none() || filter_name.clone().is_some_and(|name| name == filter.name)
-            })
-            // pattern filtering
-            .filter(|(filter, _)| {
-                patterns
-                    .iter()
-                    .all(|(pattern, _)| filter.patterns.get(pattern).is_some())
-            });
+    for (stream, filters) in stream_filter_iter(&stream_name, &filter_name, &patterns, shared_state)
+    {
         let mut inner_map = BTreeMap::new();
-        for (filter, manager) in iter {
+        for (filter, manager) in filters {
             inner_map.insert(
-                filter.name.to_owned(),
+                filter.to_owned(),
                 manager.handle_order(&patterns, order, now).await,
             );
         }
-        cs.insert(stream.name.to_owned(), inner_map);
+        cs.insert(stream.to_owned(), inner_map);
     }
     DaemonResponse::Order(cs)
 }
@@ -296,14 +313,28 @@ impl Socket {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, path::PathBuf};
+    use std::{
+        collections::{BTreeMap, BTreeSet, HashMap},
+        ops::DerefMut,
+        path::PathBuf,
+        sync::Arc,
+    };
 
     use assert_fs::TempDir;
+    use reaction_plugin::shutdown::ShutdownController;
+    use regex::Regex;
     use tokio::fs::File;
+    use treedb::time::now;
 
-    use crate::concepts::{Pattern, Patterns};
+    use crate::{
+        concepts::{Filter, Pattern, Patterns, Stream},
+        daemon::{filter::FilterManager, plugin::Plugins},
+        tests::TempDatabase,
+    };
 
-    use super::{compute_patterns, open_socket, split_stream_name};
+    use super::{
+        SharedState, compute_patterns, open_socket, split_stream_name, stream_filter_iter,
+    };
 
     #[tokio::test]
     async fn open_socket_empty_dir() {
@@ -345,8 +376,8 @@ mod tests {
         if euid != 0 {
             let path = PathBuf::from("/zblerg/zblorg/zblurg/socket.sock");
             let res = open_socket(&path).await;
-            assert!(res.is_ok());
-            assert!(path.try_exists().is_ok_and(|b| b));
+            assert!(res.is_err());
+            assert!(path.try_exists().is_ok_and(|b| !b));
         }
     }
 
@@ -383,6 +414,7 @@ mod tests {
             (
                 "boubou".into(),
                 Pattern {
+                    name: "boubou".into(),
                     regex: "abcd[efg]".into(),
                     ..Default::default()
                 }
@@ -391,6 +423,7 @@ mod tests {
             (
                 "bibi".into(),
                 Pattern {
+                    name: "bibi".into(),
                     regex: "abcde[fgh]".into(),
                     ..Default::default()
                 }
@@ -399,6 +432,7 @@ mod tests {
             (
                 "baba".into(),
                 Pattern {
+                    name: "baba".into(),
                     regex: "ba(ba)+".into(),
                     ..Default::default()
                 }
@@ -450,6 +484,256 @@ mod tests {
                 &config_patterns
             )
             .is_err()
+        );
+    }
+
+    fn extract_patterns(patterns: &Patterns, names: &[&str]) -> Arc<BTreeSet<Arc<Pattern>>> {
+        Arc::new(
+            patterns
+                .iter()
+                .filter(|(name, _)| names.contains(&name.as_str()))
+                .map(|(_, v)| v.clone())
+                .collect(),
+        )
+    }
+    fn extract_patterns_map(patterns: &Patterns, names: &[&str]) -> BTreeMap<Arc<Pattern>, Regex> {
+        patterns
+            .iter()
+            .filter(|(name, _)| names.contains(&name.as_str()))
+            .map(|(_, pat)| (pat.clone(), Regex::new("").unwrap()))
+            .collect()
+    }
+    fn extract_iter<'a>(
+        iter: impl Iterator<Item = (&'a String, impl Iterator<Item = (String, FilterManager)>)>,
+    ) -> Vec<(String, Vec<String>)> {
+        let mut vec: Vec<_> = iter
+            .map(|(k, v)| {
+                (k.clone(), {
+                    let mut vec: Vec<_> = v.map(|(k, _)| k).collect();
+                    vec.sort();
+                    vec
+                })
+            })
+            .collect();
+        vec.sort();
+        vec
+    }
+
+    async fn sample_state() -> SharedState {
+        let mut db = TempDatabase::default().await;
+        let patterns = sample_patterns();
+
+        let filter1: &'static Filter = Box::leak(Box::new(Filter {
+            name: "filter1".into(),
+            patterns: extract_patterns(&patterns, &["baba"]),
+            ..Default::default()
+        }));
+        let filter2: &'static Filter = Box::leak(Box::new(Filter {
+            name: "filter2".into(),
+            patterns: extract_patterns(&patterns, &["bibi"]),
+            ..Default::default()
+        }));
+        let filter3: &'static Filter = Box::leak(Box::new(Filter {
+            name: "filter3".into(),
+            patterns: extract_patterns(&patterns, &["boubou", "baba"]),
+            ..Default::default()
+        }));
+        let filter4: &'static Filter = Box::leak(Box::new(Filter {
+            name: "filter4".into(),
+            patterns: extract_patterns(&patterns, &["bibi", "baba"]),
+            ..Default::default()
+        }));
+
+        let stream1: &'static Stream = Box::leak(Box::new(Stream {
+            name: "stream1".into(),
+            ..Default::default()
+        }));
+        let stream2: &'static Stream = Box::leak(Box::new(Stream {
+            name: "stream2".into(),
+            ..Default::default()
+        }));
+
+        async fn pair(
+            db: &mut TempDatabase,
+            filter: &'static Filter,
+        ) -> (&'static Filter, FilterManager) {
+            (
+                filter,
+                FilterManager::new(
+                    filter,
+                    None,
+                    ShutdownController::new().token(),
+                    db.deref_mut(),
+                    &mut Plugins::default(),
+                    now(),
+                )
+                .await
+                .unwrap(),
+            )
+        }
+
+        HashMap::from([
+            (
+                stream1,
+                HashMap::from([pair(&mut db, filter1).await, pair(&mut db, filter2).await]),
+            ),
+            (
+                stream2,
+                HashMap::from([pair(&mut db, filter3).await, pair(&mut db, filter4).await]),
+            ),
+        ])
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream0_boubou() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream0".into()),
+                &None,
+                &extract_patterns_map(&patterns, &["boubou"]),
+                &state,
+            )),
+            vec![]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream1_boubou() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream1".into()),
+                &None,
+                &extract_patterns_map(&patterns, &["boubou"]),
+                &state,
+            )),
+            vec![("stream1".into(), vec![])]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream1_baba() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream1".into()),
+                &None,
+                &extract_patterns_map(&patterns, &["baba"]),
+                &state,
+            )),
+            vec![("stream1".into(), vec!["filter1".into()])]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream1_bibi() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream1".into()),
+                &None,
+                &extract_patterns_map(&patterns, &["bibi"]),
+                &state,
+            )),
+            vec![("stream1".into(), vec!["filter2".into()])]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream1_filter1_bibi() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream1".into()),
+                &Some("filter1".into()),
+                &extract_patterns_map(&patterns, &["bibi"]),
+                &state,
+            )),
+            vec![("stream1".into(), vec![])]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_stream1_filter1_baba() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &Some("stream1".into()),
+                &Some("filter1".into()),
+                &extract_patterns_map(&patterns, &["baba"]),
+                &state,
+            )),
+            vec![("stream1".into(), vec!["filter1".into()])]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_nostream_nopattern() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &None,
+                &None,
+                &extract_patterns_map(&patterns, &[]),
+                &state,
+            )),
+            vec![
+                ("stream1".into(), vec!["filter1".into(), "filter2".into()]),
+                ("stream2".into(), vec!["filter3".into(), "filter4".into()])
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_nostream_baba() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &None,
+                &None,
+                &extract_patterns_map(&patterns, &["baba"]),
+                &state,
+            )),
+            vec![
+                ("stream1".into(), vec!["filter1".into()]),
+                ("stream2".into(), vec!["filter3".into(), "filter4".into()])
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_filter_iter_nostream_boubou() {
+        let state = sample_state().await;
+        let patterns = sample_patterns();
+
+        assert_eq!(
+            extract_iter(stream_filter_iter(
+                &None,
+                &None,
+                &extract_patterns_map(&patterns, &["boubou"]),
+                &state,
+            )),
+            vec![
+                ("stream1".into(), vec![]),
+                ("stream2".into(), vec!["filter3".into()])
+            ]
         );
     }
 }
