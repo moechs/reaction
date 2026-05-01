@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs::read_to_string,
+    ops::Add,
     sync::Arc,
     time::Duration,
 };
@@ -9,7 +10,7 @@ use reaction_plugin::shutdown::ShutdownController;
 use regex::Regex;
 use serde_json::json;
 use tempfile::TempPath;
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, time::sleep};
 
 use super::{
     FilterManager, React,
@@ -254,7 +255,7 @@ async fn three_matches_then_action_then_delayed_action() {
         drop(_block);
 
         // Now the first action executes
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        sleep(Duration::from_millis(40)).await;
         // Check first action
         assert_eq!(
             bed.manager.state.lock().await.triggers.tree(),
@@ -268,7 +269,7 @@ async fn three_matches_then_action_then_delayed_action() {
         );
 
         // Now the second action executes
-        tokio::time::sleep(Duration::from_millis(140)).await;
+        sleep(Duration::from_millis(140)).await;
         // Check second action
         assert!(
             bed.manager.state.lock().await.triggers.is_empty(),
@@ -326,7 +327,7 @@ async fn one_match_one_action() {
         bed.assert_empty_trees().await;
 
         // the action executes
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        sleep(Duration::from_millis(40)).await;
         assert_eq!(
             "a1 one\n",
             &read_to_string(&bed.out_file).unwrap(),
@@ -394,7 +395,7 @@ async fn one_match_one_delayed_action() {
         );
 
         // The action executes
-        tokio::time::sleep(Duration::from_millis(140)).await;
+        sleep(Duration::from_millis(140)).await;
         assert!(
             bed.manager.state.lock().await.triggers.is_empty(),
             "triggers are empty again"
@@ -469,7 +470,7 @@ async fn one_db_match_one_runtime_match_one_action() {
         );
         bed.assert_empty_trees().await;
         // the action executes
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        sleep(Duration::from_millis(40)).await;
         assert_eq!(
             "a1 one\n",
             &read_to_string(&bed.out_file).unwrap(),
@@ -578,7 +579,7 @@ async fn trigger_unmatched_pattern() {
             .unwrap();
 
         // the action executes
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        sleep(Duration::from_millis(40)).await;
 
         // No matches, one action registered
         {
@@ -659,7 +660,7 @@ async fn trigger_matched_pattern() {
             .unwrap();
 
         // the action executes
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        sleep(Duration::from_millis(40)).await;
 
         // No matches, one action registered
         {
@@ -734,7 +735,7 @@ async fn trigger_deduplication_on_start() {
         let bed = bed.part2(filter, now, Some(db)).await;
 
         // the action executes
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
 
         // No matches, one or two action·s registered
         {
@@ -817,7 +818,7 @@ async fn multiple_triggers() {
         );
 
         // Wait for first action to execute
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
 
         assert_eq!(
             "a1 one\n",
@@ -825,7 +826,7 @@ async fn multiple_triggers() {
             "Duplicate: {dup:?}"
         );
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
 
         let now = crate::concepts::now();
         assert_eq!(
@@ -848,7 +849,7 @@ async fn multiple_triggers() {
         );
 
         // Wait for second action to execute
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
 
         assert_eq!(
             &read_to_string(&bed.out_file).unwrap(),
@@ -860,7 +861,7 @@ async fn multiple_triggers() {
         );
 
         // Wait for first after action to execute
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
 
         assert_eq!(
             &read_to_string(&bed.out_file).unwrap(),
@@ -873,7 +874,7 @@ async fn multiple_triggers() {
         );
 
         // Wait for second after action to execute
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
 
         assert_eq!(
             &read_to_string(&bed.out_file).unwrap(),
@@ -980,7 +981,7 @@ async fn extend_trigger_multiple_after_actions() {
         );
 
         // Wait for first trigger to execute (partially)
-        tokio::time::sleep(second_match_duration).await;
+        sleep(second_match_duration).await;
 
         assert_eq!(
             first_action_list.join("\n"),
@@ -995,7 +996,7 @@ async fn extend_trigger_multiple_after_actions() {
         );
 
         // Wait for second trigger to execute (fully)
-        tokio::time::sleep(last_match_duration).await;
+        sleep(last_match_duration).await;
 
         assert_eq!(
             first_action_list
@@ -1064,7 +1065,7 @@ async fn ip_specific() {
     );
 
     // Wait for action to execute
-    tokio::time::sleep(Duration::from_millis(70)).await;
+    sleep(Duration::from_millis(70)).await;
 
     assert_eq!(
         "ipv4 1.2.3.4\nany 1.2.3.4\n",
@@ -1080,7 +1081,7 @@ async fn ip_specific() {
     );
 
     // Wait for action to execute
-    tokio::time::sleep(Duration::from_millis(70)).await;
+    sleep(Duration::from_millis(70)).await;
 
     assert_eq!(
         "ipv6 1:2:3:4:5:6:7:8\nany 1:2:3:4:5:6:7:8\n",
@@ -1186,9 +1187,38 @@ async fn show_then_flush_one_match() {
 }
 
 #[tokio::test]
-async fn show_then_flush_multiple_matches() {
+async fn show_then_flush_matches() {
+    let obaaa = vec!["obaaa".to_string()];
+    let lama = vec!["lama".to_string()];
+    let lou1uol = vec!["lou1uol".to_string()];
+    let alulu = vec!["alulu".to_string()];
+    let o1a = vec!["o1a".to_string()];
+
+    let all = BTreeSet::from([
+        obaaa.clone(),
+        lama.clone(),
+        lou1uol.clone(),
+        alulu.clone(),
+        o1a.clone(),
+    ]);
+
+    let now = now();
+    let now1s = now - Time::from_secs(1);
+    let now2s = now - Time::from_secs(2);
+    let now3s = now - Time::from_secs(3);
+    let now4s = now - Time::from_secs(4);
+    let now5s = now - Time::from_secs(5);
+
     for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
-        for query in [Some("^o.*"), Some("1"), Some("a$"), None] {
+        for (query, filtered) in [
+            (Some("^o.*"), BTreeSet::from([obaaa.clone(), o1a.clone()])),
+            (Some("1"), BTreeSet::from([lou1uol.clone(), o1a.clone()])),
+            (
+                Some("a$"),
+                BTreeSet::from([obaaa.clone(), lama.clone(), o1a.clone()]),
+            ),
+            (None, all.clone()),
+        ] {
             let bed = TestBed::default();
             let filter = Filter::new_static(
                 vec![
@@ -1204,7 +1234,7 @@ async fn show_then_flush_multiple_matches() {
                     ),
                     Action::new(
                         vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
-                        Some("2s"),
+                        Some("10s"),
                         false,
                         "test",
                         "test",
@@ -1221,19 +1251,6 @@ async fn show_then_flush_multiple_matches() {
                 dup,
                 &bed.az_patterns,
             );
-
-            let now = now();
-            let now1s = now - Time::from_secs(1);
-            let now2s = now - Time::from_secs(2);
-            let now3s = now - Time::from_secs(3);
-            let now4s = now - Time::from_secs(4);
-            let now5s = now - Time::from_secs(5);
-
-            let obaaa = vec!["obaaa".to_string()];
-            let lama = vec!["lama".to_string()];
-            let lou1uol = vec!["lou1uol".to_string()];
-            let alulu = vec!["alulu".to_string()];
-            let o1a = vec!["o1a".to_string()];
 
             let db = TempDatabase::from_loaded_db(HashMap::from([(
                 filter_ordered_times_db_name(filter),
@@ -1258,21 +1275,6 @@ async fn show_then_flush_multiple_matches() {
             let ps = PatternStatus {
                 matches: 1,
                 ..Default::default()
-            };
-
-            let all = BTreeSet::from([
-                obaaa.clone(),
-                lama.clone(),
-                lou1uol.clone(),
-                alulu.clone(),
-                o1a.clone(),
-            ]);
-
-            let filtered = match query {
-                Some("^o.*") => BTreeSet::from([obaaa, o1a]),
-                Some("1") => BTreeSet::from([lou1uol, o1a]),
-                Some(_) => BTreeSet::from([obaaa, lama, o1a]),
-                None => all.clone(),
             };
 
             let filtered_map = filtered
@@ -1311,6 +1313,331 @@ async fn show_then_flush_multiple_matches() {
                 assert_eq!(
                     state.matches.keys().collect::<BTreeSet<_>>(),
                     all.difference(&filtered).collect(),
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn show_then_flush_multiple_patterns() {
+    let now = now();
+    let now1s = now - Time::from_secs(1);
+    let now2s = now - Time::from_secs(2);
+    let now3s = now - Time::from_secs(3);
+    let now4s = now - Time::from_secs(4);
+
+    let m1a = vec!["aaa".to_string(), "1.1.1.1".to_string()];
+    let m2a = vec!["aaa".to_string(), "2.2.2.2".to_string()];
+    let m1b = vec!["b".to_string(), "1.1.1.1".to_string()];
+    let m2b = vec!["b".to_string(), "2.2.2.2".to_string()];
+
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        for (query, filtered) in [
+            (
+                (None, None),
+                vec![m1a.clone(), m2a.clone(), m1b.clone(), m2b.clone()],
+            ),
+            ((Some("a".into()), None), vec![m1a.clone(), m2a.clone()]),
+            ((None, Some("2.2.2.2")), vec![m2a.clone(), m2b.clone()]),
+            ((Some("b".into()), Some("1.1.1.1")), vec![m1b.clone()]),
+        ] {
+            let bed = TestBed::default();
+
+            let mut patterns = bed.az_patterns.clone();
+            patterns.insert("ip".into(), bed.ip_patterns.get("ip").unwrap().clone());
+
+            let filter = Filter::new_static(
+                vec![
+                    Action::new(
+                        vec![
+                            "sh",
+                            "-c",
+                            &format!("echo a1 <az> <ip> >> {}", &bed.out_file),
+                        ],
+                        None,
+                        false,
+                        "test",
+                        "test",
+                        "a1",
+                        &patterns,
+                        0,
+                    ),
+                    Action::new(
+                        vec![
+                            "sh",
+                            "-c",
+                            &format!("echo a2 <az> <ip> >> {}", &bed.out_file),
+                        ],
+                        Some("2s"),
+                        false,
+                        "test",
+                        "test",
+                        "a2",
+                        &patterns,
+                        0,
+                    ),
+                ],
+                vec!["test <az> <ip>"],
+                Some(3),
+                Some("6s"),
+                "test",
+                "test",
+                dup,
+                &patterns,
+            );
+
+            let db = TempDatabase::from_loaded_db(HashMap::from([(
+                filter_ordered_times_db_name(filter),
+                HashMap::from([
+                    (now1s.as_nanos().to_string().into(), m1a.clone().into()),
+                    (now2s.as_nanos().to_string().into(), m2a.clone().into()),
+                    (now3s.as_nanos().to_string().into(), m1b.clone().into()),
+                    (now4s.as_nanos().to_string().into(), m2b.clone().into()),
+                ]),
+            )]))
+            .await;
+            let bed = bed.part2(filter, now, Some(db)).await;
+
+            let patterns = {
+                let mut patterns = BTreeMap::new();
+                if let Some(az) = query.0 {
+                    patterns.insert(
+                        bed.az_patterns.iter().next().unwrap().1.clone(),
+                        Regex::new(az).unwrap(),
+                    );
+                }
+                if let Some(ip) = query.1 {
+                    patterns.insert(
+                        bed.ip_patterns.iter().next().unwrap().1.clone(),
+                        Regex::new(ip).unwrap(),
+                    );
+                }
+                patterns
+            };
+            let ps = PatternStatus {
+                matches: 1,
+                ..Default::default()
+            };
+
+            let all = BTreeSet::from([m1a.clone(), m2a.clone(), m1b.clone(), m2b.clone()]);
+
+            let filtered = BTreeSet::from_iter(filtered.into_iter());
+            let filtered_map = filtered.iter().map(|k| (k.join(" "), ps.clone())).collect();
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.iter().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(&patterns, Order::Show, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.iter().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(&patterns, Order::Flush, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.difference(&filtered).collect(),
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn show_then_flush_triggers() {
+    let now = now();
+    let now1s = now - Time::from_secs(1);
+    let now2s = now - Time::from_secs(2);
+    let now3s = now - Time::from_secs(3);
+    let now4s = now - Time::from_secs(4);
+    let now5s = now - Time::from_secs(5);
+
+    let obaaa = vec!["obaaa".to_string()];
+    let lama = vec!["lama".to_string()];
+    let lou1uol = vec!["lou1uol".to_string()];
+    let alulu = vec!["alulu".to_string()];
+    let o1a = vec!["o1a".to_string()];
+
+    let all = BTreeMap::from([
+        (obaaa.clone(), vec![now1s]),
+        (lama.clone(), vec![now2s]),
+        (lou1uol.clone(), vec![now3s]),
+        (alulu.clone(), vec![now4s]),
+        (o1a.clone(), vec![now5s]),
+    ]);
+
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        for (query, filtered) in [
+            (
+                Some("^o.*"),
+                all.clone()
+                    .into_iter()
+                    .filter(|(k, _)| [&obaaa, &o1a].contains(&k))
+                    .collect(),
+            ),
+            (
+                Some("1"),
+                all.clone()
+                    .into_iter()
+                    .filter(|(k, _)| [&lou1uol, &o1a].contains(&k))
+                    .collect(),
+            ),
+            (
+                Some("a$"),
+                all.clone()
+                    .into_iter()
+                    .filter(|(k, _)| [&obaaa, &lama, &o1a].contains(&k))
+                    .collect(),
+            ),
+            (None, all.clone()),
+        ] {
+            let bed = TestBed::default();
+            let filter = Filter::new_static(
+                vec![
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                        None,
+                        false,
+                        "test",
+                        "test",
+                        "a1",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                        Some("10s"),
+                        false,
+                        "test",
+                        "test",
+                        "a2",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                ],
+                vec!["test <az>"],
+                Some(3),
+                Some("6s"),
+                "test",
+                "test",
+                dup,
+                &bed.az_patterns,
+            );
+
+            let db = TempDatabase::from_loaded_db(HashMap::from([(
+                filter_triggers_db_name(filter),
+                HashMap::from([
+                    (
+                        obaaa.clone().into(),
+                        json!({now1s.as_nanos().to_string(): 1}),
+                    ),
+                    (
+                        lama.clone().into(),
+                        json!({now2s.as_nanos().to_string(): 1}),
+                    ),
+                    (
+                        lou1uol.clone().into(),
+                        json!({now3s.as_nanos().to_string(): 1}),
+                    ),
+                    (
+                        alulu.clone().into(),
+                        json!({now4s.as_nanos().to_string(): 1}),
+                    ),
+                    (o1a.clone().into(), json!({now5s.as_nanos().to_string(): 1})),
+                ]),
+            )]))
+            .await;
+            let bed = bed.part2(filter, now, Some(db)).await;
+
+            // Wait for startup actions to complete
+            sleep(Duration::from_millis(50)).await;
+            // Then reset them
+            bed.reset_out_file().await;
+
+            dbg!(bed.manager.state.lock().await.triggers.tree());
+            dbg!(read_to_string(&bed.out_file).unwrap());
+
+            let patterns = match query {
+                Some(q) => &BTreeMap::from([(
+                    bed.az_patterns.iter().next().unwrap().1.clone(),
+                    Regex::new(q).unwrap(),
+                )]),
+                None => &BTreeMap::default(),
+            };
+
+            let filtered_map = filtered
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k[0].clone(),
+                        PatternStatus {
+                            actions: v
+                                .into_iter()
+                                .map(|v| {
+                                    // We add 10sec because the action has after: 10s
+                                    ("a2".into(), vec![v.add(Duration::from_secs(10)).pretty()])
+                                })
+                                .collect(),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect();
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.triggers.keys().collect::<BTreeSet<_>>(),
+                    all.keys().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Show, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.triggers.keys().collect::<BTreeSet<_>>(),
+                    all.keys().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Flush, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.triggers.keys().collect::<BTreeSet<_>>(),
+                    all.clone()
+                        .into_keys()
+                        .collect::<BTreeSet<_>>()
+                        .difference(&filtered.into_keys().collect())
+                        .collect(),
                 );
             }
         }
