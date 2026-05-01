@@ -4,6 +4,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use chrono::TimeZone as _;
 use serde::{Deserialize, Serialize};
 
 /// [`std::time::Duration`] since [`std::time::UNIX_EPOCH`]
@@ -109,6 +110,17 @@ impl Time {
     }
     pub fn from_nanos(nanos: u64) -> Time {
         Time(Duration::from_nanos(nanos))
+    }
+
+    pub fn pretty(&self) -> String {
+        #[allow(clippy::unwrap_used)]
+        chrono::Local
+            .timestamp_opt(self.as_secs() as i64, self.subsec_nanos())
+            .unwrap()
+            .to_rfc3339()
+            .chars()
+            .take(19)
+            .collect()
     }
 }
 

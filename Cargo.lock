@@ -2864,7 +2864,6 @@ version = "2.3.1"
 dependencies = [
  "assert_cmd",
  "assert_fs",
- "chrono",
  "clap",
  "clap_complete",
  "clap_mangen",

@@ -34,8 +34,6 @@ assets = [
 ]
 
 [dependencies]
-# Time types
-chrono.workspace = true
 # CLI parsing
 clap = { version = "4.5.4", features = ["derive"] }
 # Unix interfaces

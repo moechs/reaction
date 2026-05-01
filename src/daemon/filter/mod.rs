@@ -5,7 +5,6 @@ mod state;
 
 use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 
-use chrono::TimeZone;
 use reaction_plugin::{ActionImpl, shutdown::ShutdownToken};
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
@@ -224,24 +223,12 @@ impl FilterManager {
                     for action in self.filter.filtered_actions_from_match(&m) {
                         let action_time = t + action.after_duration.unwrap_or_default();
                         if action_time > now {
-                            // Pretty print time
-                            #[allow(clippy::unwrap_used)]
-                            let time = chrono::Local
-                                .timestamp_opt(
-                                    action_time.as_secs() as i64,
-                                    action_time.subsec_nanos(),
-                                )
-                                .unwrap()
-                                .to_rfc3339()
-                                .chars()
-                                .take(19)
-                                .collect();
                             // Insert action
                             pattern_status
                                 .actions
                                 .entry(action.name.clone())
                                 .or_default()
-                                .push(time);
+                                .push(action_time.pretty());
 
                             // Execute the action early
                             if let Order::Flush = order {
