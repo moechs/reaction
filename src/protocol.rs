@@ -32,7 +32,7 @@ pub enum DaemonResponse {
 
 pub type ClientStatus = BTreeMap<String, BTreeMap<String, BTreeMap<String, PatternStatus>>>;
 
-#[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PatternStatus {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub matches: usize,

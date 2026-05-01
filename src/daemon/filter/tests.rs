@@ -1126,7 +1126,7 @@ async fn show_then_flush_one_match() {
             );
 
             let now = now();
-            let now1s = now - Time::from_millis(1000);
+            let now1s = now - Time::from_secs(1);
             let one = vec!["one".to_string()];
 
             let db = TempDatabase::from_loaded_db(HashMap::from([(
@@ -1180,6 +1180,138 @@ async fn show_then_flush_one_match() {
             {
                 let state = bed.manager.state.lock().await;
                 assert!(state.matches.is_empty());
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn show_then_flush_multiple_matches() {
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        for query in [Some("^o.*"), Some("1"), Some("a$"), None] {
+            let bed = TestBed::default();
+            let filter = Filter::new_static(
+                vec![
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                        None,
+                        false,
+                        "test",
+                        "test",
+                        "a1",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                        Some("2s"),
+                        false,
+                        "test",
+                        "test",
+                        "a2",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                ],
+                vec!["test <az>"],
+                Some(3),
+                Some("6s"),
+                "test",
+                "test",
+                dup,
+                &bed.az_patterns,
+            );
+
+            let now = now();
+            let now1s = now - Time::from_secs(1);
+            let now2s = now - Time::from_secs(2);
+            let now3s = now - Time::from_secs(3);
+            let now4s = now - Time::from_secs(4);
+            let now5s = now - Time::from_secs(5);
+
+            let obaaa = vec!["obaaa".to_string()];
+            let lama = vec!["lama".to_string()];
+            let lou1uol = vec!["lou1uol".to_string()];
+            let alulu = vec!["alulu".to_string()];
+            let o1a = vec!["o1a".to_string()];
+
+            let db = TempDatabase::from_loaded_db(HashMap::from([(
+                filter_ordered_times_db_name(filter),
+                HashMap::from([
+                    (now1s.as_nanos().to_string().into(), obaaa.clone().into()),
+                    (now2s.as_nanos().to_string().into(), lama.clone().into()),
+                    (now3s.as_nanos().to_string().into(), lou1uol.clone().into()),
+                    (now4s.as_nanos().to_string().into(), alulu.clone().into()),
+                    (now5s.as_nanos().to_string().into(), o1a.clone().into()),
+                ]),
+            )]))
+            .await;
+            let bed = bed.part2(filter, now, Some(db)).await;
+
+            let patterns = match query {
+                Some(q) => &BTreeMap::from([(
+                    bed.az_patterns.iter().next().unwrap().1.clone(),
+                    Regex::new(q).unwrap(),
+                )]),
+                None => &BTreeMap::default(),
+            };
+            let ps = PatternStatus {
+                matches: 1,
+                ..Default::default()
+            };
+
+            let all = BTreeSet::from([
+                obaaa.clone(),
+                lama.clone(),
+                lou1uol.clone(),
+                alulu.clone(),
+                o1a.clone(),
+            ]);
+
+            let filtered = match query {
+                Some("^o.*") => BTreeSet::from([obaaa, o1a]),
+                Some("1") => BTreeSet::from([lou1uol, o1a]),
+                Some(_) => BTreeSet::from([obaaa, lama, o1a]),
+                None => all.clone(),
+            };
+
+            let filtered_map = filtered
+                .iter()
+                .map(|k| (k[0].clone(), ps.clone()))
+                .collect();
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.iter().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Show, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.iter().collect(),
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Flush, now).await,
+                &filtered_map,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches.keys().collect::<BTreeSet<_>>(),
+                    all.difference(&filtered).collect(),
+                );
             }
         }
     }
