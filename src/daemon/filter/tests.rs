@@ -6,6 +6,7 @@ use std::{
 };
 
 use reaction_plugin::shutdown::ShutdownController;
+use regex::Regex;
 use serde_json::json;
 use tempfile::TempPath;
 use tokio::sync::Semaphore;
@@ -17,6 +18,7 @@ use super::{
 use crate::{
     concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time, now},
     daemon::plugin::Plugins,
+    protocol::{Order, PatternStatus},
     tests::TempDatabase,
 };
 
@@ -1084,4 +1086,101 @@ async fn ip_specific() {
         "ipv6 1:2:3:4:5:6:7:8\nany 1:2:3:4:5:6:7:8\n",
         &read_to_string(&bed.out_file).unwrap(),
     );
+}
+
+#[tokio::test]
+async fn show_then_flush_one_match() {
+    for dup in [Duplicate::Rerun, Duplicate::Extend, Duplicate::Ignore] {
+        for query in [None, Some("one"), Some("o.*")] {
+            let bed = TestBed::default();
+            let filter = Filter::new_static(
+                vec![
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a1 <az> >> {}", &bed.out_file)],
+                        None,
+                        false,
+                        "test",
+                        "test",
+                        "a1",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                    Action::new(
+                        vec!["sh", "-c", &format!("echo a2 <az> >> {}", &bed.out_file)],
+                        Some("2s"),
+                        false,
+                        "test",
+                        "test",
+                        "a2",
+                        &bed.az_patterns,
+                        0,
+                    ),
+                ],
+                vec!["test <az>"],
+                Some(3),
+                Some("3s"),
+                "test",
+                "test",
+                dup,
+                &bed.az_patterns,
+            );
+
+            let now = now();
+            let now1s = now - Time::from_millis(1000);
+            let one = vec!["one".to_string()];
+
+            let db = TempDatabase::from_loaded_db(HashMap::from([(
+                filter_ordered_times_db_name(filter),
+                HashMap::from([(now1s.as_nanos().to_string().into(), one.clone().into())]),
+            )]))
+            .await;
+            let bed = bed.part2(filter, now, Some(db)).await;
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches,
+                    BTreeMap::from([(vec!["one".into()], BTreeSet::from([now1s]))])
+                );
+            }
+
+            let patterns = match query {
+                Some(q) => &BTreeMap::from([(
+                    bed.az_patterns.iter().next().unwrap().1.clone(),
+                    Regex::new(q).unwrap(),
+                )]),
+                None => &BTreeMap::default(),
+            };
+            let result = BTreeMap::from([(
+                "one".into(),
+                PatternStatus {
+                    matches: 1,
+                    ..Default::default()
+                },
+            )]);
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Show, now).await,
+                &result,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert_eq!(
+                    state.matches,
+                    BTreeMap::from([(vec!["one".into()], BTreeSet::from([now1s]))])
+                );
+            }
+
+            assert_eq!(
+                &bed.manager.handle_order(patterns, Order::Flush, now).await,
+                &result,
+            );
+
+            {
+                let state = bed.manager.state.lock().await;
+                assert!(state.matches.is_empty());
+            }
+        }
+    }
 }

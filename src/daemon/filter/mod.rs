@@ -177,15 +177,17 @@ impl FilterManager {
 
             let mut cs = BTreeMap::new();
             for match_ in cloned_matches {
-                // mutable State required here
-                if let Order::Flush = order {
-                    state.remove_match(&match_).await;
-                }
                 let matches = state
                     .matches
                     .get(&match_)
                     .map(|times| times.len())
                     .unwrap_or(0);
+
+                // mutable State required here
+                if let Order::Flush = order {
+                    state.remove_match(&match_).await;
+                }
+
                 cs.insert(
                     match_,
                     PatternStatus {
