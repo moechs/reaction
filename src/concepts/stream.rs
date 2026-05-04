@@ -101,8 +101,8 @@ impl Stream {
             .values()
             .flat_map(|filter| {
                 filter
-                    .regex
-                    .iter()
+                    .hint_regexes()
+                    .into_iter()
                     .map(|regex| (regex, filter.name.clone()))
             })
             .collect();
