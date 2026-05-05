@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "reaction-plugin-nftables"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libnftables1-sys",
  "nftables",
