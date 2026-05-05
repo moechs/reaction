@@ -7,7 +7,7 @@ use std::{
 
 use nftables::{
     batch::Batch,
-    expr::{Expression, NamedExpression, Payload, PayloadField},
+    expr::{Expression, NamedExpression, Payload, PayloadField, Prefix},
     schema::{Element, NfListObject, Rule, SetFlag, SetType, SetTypeValue},
     stmt::{Match, Operator, Statement},
     types::{NfFamily, NfHook},
@@ -412,8 +412,27 @@ impl Action {
             family: NfFamily::INet,
             table: Cow::from("reaction"),
             name: Cow::from(set),
-            elem: Cow::from(vec![Expression::String(Cow::from(ip.clone()))]),
+            elem: match ip.split_once("/") {
+                // IP has no range, we give it as-is
+                None => Cow::from(vec![Expression::String(Cow::from(ip.clone()))]),
+
+                // IP has a range, we must split it ourselves
+                Some((ip, prefix)) => match u32::from_str_radix(prefix, 10) {
+                    Ok(len) => {
+                        Cow::from(vec![Expression::Named(NamedExpression::Prefix(Prefix {
+                            addr: Box::new(Expression::String(ip.into())),
+                            len,
+                        }))])
+                    }
+                    Err(err) => {
+                        return Err(format!(
+                            "CIDR part of {ip}/{prefix} can't be converted to u32, this is a bug! error: {err}"
+                        ));
+                    }
+                },
+            },
         });
+
         let mut batch = Batch::new();
         match self.action {
             AddDel::Add => batch.add(element),

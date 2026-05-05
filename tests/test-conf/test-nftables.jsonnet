@@ -3,6 +3,11 @@
     ip: {
       type: 'ip',
     },
+    ipm: {
+      type: 'ip',
+      ipv4mask: 24,
+      ipv6mask: 64,
+    },
     all: {
       regex: @".*",
     },
@@ -41,6 +46,27 @@
               type: 'nftables',
               options: {
                 set: 'reactiontest',
+                action: 'delete',
+              },
+            },
+          },
+        },
+        f1: {
+          regex: ['^<ipm>$'],
+          actions: {
+            a2: {
+              type: 'nftables',
+              options: {
+                set: 'reactiontestmask',
+                pattern: 'ipm',
+              },
+            },
+            a3: {
+              after: '2s',
+              type: 'nftables',
+              options: {
+                set: 'reactiontestmask',
+                pattern: 'ipm',
                 action: 'delete',
               },
             },
