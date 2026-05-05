@@ -139,7 +139,7 @@ impl PluginInfo for Plugin {
             set.init(&mut batch)?;
         }
 
-        // TODO apply batch
+        // apply batch
         self.nft.send(batch).await?;
 
         // Launch a task that will destroy the table on shutdown

@@ -375,13 +375,13 @@ impl Action {
                 Some(Ok(Some(exec))) => {
                     if let Err(err) = self.handle_exec(exec).await {
                         eprintln!("ERROR {err}");
-                        break;
+                        // break;
                     }
                 }
             }
         }
-        // eprintln!("DEBUG Asking for shutdown");
-        // self.shutdown.ask_shutdown();
+        eprintln!("DEBUG Asking for shutdown");
+        self.shutdown.ask_shutdown();
     }
 
     async fn handle_exec(&mut self, mut exec: Exec) -> Result<(), String> {
