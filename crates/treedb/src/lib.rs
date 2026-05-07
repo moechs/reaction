@@ -101,17 +101,11 @@ impl Database {
         })
     }
 
-    /// Rotate the database.
-    /// During the rotation process, the database stops processing new entries.
-    /// It will read the entire on-disk database, discarding timed-out entries and writing new entries to a new file.
-    /// Then the new file will atomically replace the old one, and the database will start processing entries again.
-    pub async fn rotate(&mut self) -> Result<(), String> {
-        self.entry_tx
-            .as_ref()
-            .ok_or("Database is closing")?
-            .send(Order::Rotate)
-            .await
-            .map_err(|_| "Database did not answer".into())
+    /// Get an independent struct that permits to rotate the database
+    pub fn get_rotate(&self) -> Result<DatabaseRotate, String> {
+        Ok(DatabaseRotate {
+            entry_tx: self.entry_tx.clone().ok_or("Database is closing")?,
+        })
     }
 
     /// Permit to close DB's channel.
@@ -121,8 +115,21 @@ impl Database {
     }
 }
 
-// TODO rotate_db at a regular interval instead of every N bytes?
-// This would make more sense, as actual garbage collection is time-based
+pub struct DatabaseRotate {
+    entry_tx: mpsc::Sender<Order>,
+}
+impl DatabaseRotate {
+    /// Rotate the database.
+    /// During the rotation process, the database stops processing new entries.
+    /// It will read the entire on-disk database, discarding timed-out entries and writing new entries to a new file.
+    /// Then the new file will atomically replace the old one, and the database will start processing entries again.
+    pub async fn rotate(&mut self) -> Result<(), String> {
+        self.entry_tx
+            .send(Order::Rotate)
+            .await
+            .map_err(|_| "Database did not answer".into())
+    }
+}
 
 /// A [`Database`] logs all write operations on [`Tree`]s in a single file.
 /// Logs are written asynchronously, so the write operations in RAM will block only when the
