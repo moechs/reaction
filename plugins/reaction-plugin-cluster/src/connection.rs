@@ -549,7 +549,7 @@ async fn false_recv() -> MaybeRemoteLine {
 }
 
 const START_TIMEOUT: Duration = Duration::from_millis(500);
-const MAX_TIMEOUT: Duration = Duration::from_hours(1);
+const MAX_TIMEOUT: Duration = Duration::from_secs(3600);
 const TIMEOUT_FACTOR: f64 = 1.5;
 
 fn with_random(d: Duration) -> Duration {

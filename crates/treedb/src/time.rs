@@ -97,10 +97,10 @@ impl Time {
         Time(Duration::new(secs, nanos))
     }
     pub fn from_hours(hours: u64) -> Time {
-        Time(Duration::from_hours(hours))
+        Time(Duration::from_secs(hours * 3600))
     }
     pub fn from_mins(mins: u64) -> Time {
-        Time(Duration::from_mins(mins))
+        Time(Duration::from_secs(mins * 60))
     }
     pub fn from_secs(secs: u64) -> Time {
         Time(Duration::from_secs(secs))
