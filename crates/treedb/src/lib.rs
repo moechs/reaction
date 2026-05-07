@@ -39,7 +39,7 @@ pub mod time;
 enum Order {
     Log(Entry),
     OpenTree(OpenTree),
-    Rotate(oneshot::Sender<Result<(), String>>),
+    Rotate,
 }
 
 /// Entry sent from [`Tree`] to [`Database`]
@@ -106,15 +106,12 @@ impl Database {
     /// It will read the entire on-disk database, discarding timed-out entries and writing new entries to a new file.
     /// Then the new file will atomically replace the old one, and the database will start processing entries again.
     pub async fn rotate(&mut self) -> Result<(), String> {
-        // Request the tree
-        let (tx, rx) = oneshot::channel();
         self.entry_tx
             .as_ref()
             .ok_or("Database is closing")?
-            .send(Order::Rotate(tx))
+            .send(Order::Rotate)
             .await
-            .map_err(|_| "Database did not answer")?;
-        rx.await.map_err(|_| "Database did not respond")?
+            .map_err(|_| "Database did not answer".into())
     }
 
     /// Permit to close DB's channel.
@@ -240,14 +237,10 @@ impl DatabaseManager {
                 self.handle_open_tree(open_tree);
                 Ok(())
             }
-            Some(Order::Rotate(tx)) => {
-                let result = self
-                    .rotate_db()
-                    .await
-                    .map_err(|err| format!("while rotating database: {err}"));
-                let _ = tx.send(result.clone());
-                result.map_err(Option::Some)
-            }
+            Some(Order::Rotate) => self
+                .rotate_db()
+                .await
+                .map_err(|err| Option::Some(format!("while rotating database: {err}"))),
             None => Err(None),
         }
     }
