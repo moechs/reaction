@@ -39,6 +39,7 @@ pub mod time;
 enum Order {
     Log(Entry),
     OpenTree(OpenTree),
+    Rotate(oneshot::Sender<Result<(), String>>),
 }
 
 /// Entry sent from [`Tree`] to [`Database`]
@@ -100,6 +101,22 @@ impl Database {
         })
     }
 
+    /// Rotate the database.
+    /// During the rotation process, the database stops processing new entries.
+    /// It will read the entire on-disk database, discarding timed-out entries and writing new entries to a new file.
+    /// Then the new file will atomically replace the old one, and the database will start processing entries again.
+    pub async fn rotate(&mut self) -> Result<(), String> {
+        // Request the tree
+        let (tx, rx) = oneshot::channel();
+        self.entry_tx
+            .as_ref()
+            .ok_or("Database is closing")?
+            .send(Order::Rotate(tx))
+            .await
+            .map_err(|_| "Database did not answer")?;
+        rx.await.map_err(|_| "Database did not respond")?
+    }
+
     /// Permit to close DB's channel.
     /// Without this function manually called, the DB can't close.
     pub fn quit(self) -> DatabaseErrorReceiver {
@@ -127,10 +144,6 @@ struct DatabaseManager {
     entry_rx: mpsc::Receiver<Order>,
     /// The interval at which the database must be flushed to kernel
     flush_every: Duration,
-    /// The maximum bytes that must be written until the database is rotated
-    max_bytes: usize,
-    /// Counter to account of the current number of bytes written
-    bytes_written: usize,
 }
 
 impl DatabaseManager {
@@ -152,8 +165,6 @@ impl DatabaseManager {
                 new_path,
                 entry_rx,
                 flush_every: Duration::from_secs(2),
-                max_bytes: 20 * 1024 * 1024, // 20 MiB
-                bytes_written: 0,
             },
             entry_tx,
         ))
@@ -171,6 +182,7 @@ impl DatabaseManager {
             // flush_every for the next tick, resulting in a relaxed interval.
             // Hoping this will smooth IO pressure when under heavy load.
             interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
             let mut status = loop {
                 tokio::select! {
                     order = self.entry_rx.recv() => {
@@ -228,6 +240,14 @@ impl DatabaseManager {
                 self.handle_open_tree(open_tree);
                 Ok(())
             }
+            Some(Order::Rotate(tx)) => {
+                let result = self
+                    .rotate_db()
+                    .await
+                    .map_err(|err| format!("while rotating database: {err}"));
+                let _ = tx.send(result.clone());
+                result.map_err(Option::Some)
+            }
             None => Err(None),
         }
     }
@@ -235,20 +255,7 @@ impl DatabaseManager {
     /// Write a received entry.
     async fn handle_entry(&mut self, entry: Entry) -> Result<(), String> {
         match self.write_db.write_entry(&entry).await {
-            Ok(bytes_written) => {
-                self.bytes_written += bytes_written;
-                if self.bytes_written > self.max_bytes {
-                    match self.rotate_db().await {
-                        Ok(_) => {
-                            self.bytes_written = 0;
-                            Ok(())
-                        }
-                        Err(err) => Err(format!("while rotating database: {err}")),
-                    }
-                } else {
-                    Ok(())
-                }
-            }
+            Ok(_) => Ok(()),
             Err(err) => Err(format!("while writing entry to database: {err}")),
         }
     }

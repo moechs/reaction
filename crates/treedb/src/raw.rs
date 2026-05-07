@@ -87,8 +87,7 @@ impl WriteDB {
     }
 
     /// Writes an entry in the database
-    pub async fn write_entry(&mut self, entry: &Entry) -> Result<usize, SerdeOrIoError> {
-        let mut written = 0;
+    pub async fn write_entry(&mut self, entry: &Entry) -> Result<(), SerdeOrIoError> {
         let tree_id = match self.names.get(&entry.tree) {
             Some(id) => *id,
             // Insert special database entry when the tree is not recorded yet
@@ -97,15 +96,14 @@ impl WriteDB {
                 self.next_id += 1;
 
                 self.names.insert(entry.tree.clone(), id);
-                written = self
-                    ._write_entry(&WriteEntry {
-                        tree: DB_TREE_ID,
-                        key: &id.into(),
-                        value: &Some(entry.tree.clone().into()),
-                        // Expiry is not used for special entries
-                        expiry: 0,
-                    })
-                    .await?;
+                self._write_entry(&WriteEntry {
+                    tree: DB_TREE_ID,
+                    key: &id.into(),
+                    value: &Some(entry.tree.clone().into()),
+                    // Expiry is not used for special entries
+                    expiry: 0,
+                })
+                .await?;
 
                 id
             }
@@ -117,14 +115,13 @@ impl WriteDB {
             expiry: entry.expiry.as_millis() as u64,
         })
         .await
-        .map(|bytes_written| bytes_written + written)
     }
 
-    async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<usize, SerdeOrIoError> {
+    async fn _write_entry(&mut self, raw_entry: &WriteEntry<'_>) -> Result<(), SerdeOrIoError> {
         self.buffer.clear();
         serde_json::to_writer(&mut self.buffer, &raw_entry)?;
         self.buffer.push(b'\n');
-        Ok(self.file.write(self.buffer.as_ref()).await?)
+        Ok(self.file.write(self.buffer.as_ref()).await.map(|_| ())?)
     }
 
     /// Flushes the inner [`tokio::io::BufWriter`]
