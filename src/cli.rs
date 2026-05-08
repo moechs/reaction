@@ -101,6 +101,15 @@ Then prints the flushed matches and actions."
         patterns: Vec<(String, String)>,
     },
 
+    /// Rotate the on-disk database
+    #[command(long_about = "Rotate the on-disk database (removes outdated entries).
+See state_rotation_interval configuration key for more information)")]
+    Rotate {
+        /// path to the client-daemon communication socket
+        #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
+        socket: PathBuf,
+    },
+
     /// Test a regex
     #[command(
         name = "test-regex",

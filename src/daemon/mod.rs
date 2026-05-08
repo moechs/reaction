@@ -156,7 +156,12 @@ async fn daemon_start(
 
     // Open socket and run task
     let socket = Socket::open(socket).await?;
-    socket.manager(config, state, shutdown.clone());
+    socket.manager(
+        config,
+        state,
+        shutdown.clone(),
+        db.as_ref().unwrap().get_rotate()?,
+    );
 
     // all core systems started, we can run start commands
     *config_started = true;
@@ -196,6 +201,9 @@ fn state_rotation(
     if let Some(duration) = state_rotation_duration {
         let mut interval = interval(duration);
         tokio::spawn(async move {
+            // skip the first interval, that ticks immediately
+            interval.tick().await;
+            // rotate at each tick until shutdown
             loop {
                 tokio::select! {
                     _ = interval.tick() => {

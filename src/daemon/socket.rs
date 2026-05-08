@@ -13,6 +13,7 @@ use tokio_util::{
     codec::{Framed, LengthDelimitedCodec},
 };
 use tracing::{error, warn};
+use treedb::DatabaseRotate;
 
 use crate::{
     concepts::{Config, Filter, Pattern, Patterns, Stream, now},
@@ -195,6 +196,7 @@ fn compute_patterns(
 async fn answer_order(
     config: &'static Config,
     shared_state: &SharedState,
+    db_rotate: &mut DatabaseRotate,
     options: ClientRequest,
 ) -> DaemonResponse {
     // Compute options
@@ -207,6 +209,11 @@ async fn answer_order(
 
     if let Order::Trigger = options.order {
         handle_trigger_order(stream_name, filter_name, patterns, shared_state).await
+    } else if let Order::Rotate = options.order {
+        match db_rotate.rotate().await {
+            Ok(()) => DaemonResponse::Ok(()),
+            Err(err) => DaemonResponse::Err(err),
+        }
     } else {
         let patterns = match patterns
             .into_iter()
@@ -266,6 +273,7 @@ impl Socket {
         config: &'static Config,
         shared_state: SharedState,
         shutdown: ShutdownToken,
+        mut db_rotate: DatabaseRotate,
     ) {
         tokio::spawn(async move {
             loop {
@@ -289,7 +297,7 @@ impl Socket {
                                     serde_json::from_slice(&encoded_request)
                                     );
                                 // Process
-                                let response = answer_order(config, &shared_state, request).await;
+                                let response = answer_order(config, &shared_state, &mut db_rotate, request).await;
                                 // Encode
                                 let encoded_response =
                                     or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));

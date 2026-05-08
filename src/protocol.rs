@@ -14,6 +14,7 @@ pub enum Order {
     Show,
     Flush,
     Trigger,
+    Rotate,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

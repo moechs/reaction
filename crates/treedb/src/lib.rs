@@ -30,6 +30,7 @@ use tokio_util::{sync::CancellationToken, task::task_tracker::TaskTrackerToken};
 
 use raw::{ReadDB, WriteDB};
 use time::{Time, now};
+use tracing::info;
 
 pub mod helpers;
 mod raw;
@@ -275,9 +276,11 @@ impl DatabaseManager {
 
     /// Rotate inner database.
     async fn rotate_db(&mut self) -> Result<(), IoError> {
+        info!("Starting rotation...");
         self.write_db.close().await?;
         let (write_db, _) = rotate_db(&self.path, &self.new_path, false).await?;
         self.write_db = write_db;
+        info!("Finished rotation.");
         Ok(())
     }
 }

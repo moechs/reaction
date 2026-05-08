@@ -64,6 +64,9 @@ async fn main() {
                 limit,
                 patterns,
             } => request(socket, Format::JSON, Some(limit), patterns, Order::Trigger).await,
+            SubCommand::Rotate { socket } => {
+                request(socket, Format::JSON, None, vec![], Order::Rotate).await
+            }
             SubCommand::TestRegex {
                 config,
                 regex,
