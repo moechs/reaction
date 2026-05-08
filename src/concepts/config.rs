@@ -5,8 +5,10 @@ use std::{
     path::Path,
     process::{Command, Stdio},
     sync::Arc,
+    time::Duration,
 };
 
+use reaction_plugin::time::parse_duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -23,6 +25,10 @@ pub struct Config {
     pub concurrency: usize,
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
+    #[serde(default = "one_day", skip_serializing_if = "is_one_day")]
+    pub state_rotation_interval: Option<String>,
+    #[serde(skip)]
+    pub state_rotation_duration: Option<Duration>,
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub plugins: BTreeMap<String, Plugin>,
@@ -45,6 +51,13 @@ pub struct Config {
 
 fn dot() -> String {
     ".".into()
+}
+
+fn one_day() -> Option<String> {
+    Some("1d".into())
+}
+fn is_one_day(interval: &Option<String>) -> bool {
+    interval == &one_day()
 }
 
 impl Config {
@@ -100,6 +113,13 @@ impl Config {
             "state_directory",
         )?;
 
+        self.state_rotation_interval = merge_attrs(
+            self.state_rotation_interval.clone(),
+            other.state_rotation_interval,
+            one_day(),
+            "state_rotation_interval",
+        )?;
+
         self.concurrency = merge_attrs(
             self.concurrency,
             other.concurrency,
@@ -113,6 +133,17 @@ impl Config {
     pub fn setup(&mut self) -> Result<(), String> {
         if self.concurrency == 0 {
             self.concurrency = num_cpus::get();
+        }
+
+        if let Some(state_rotation_interval) = self.state_rotation_interval.as_ref() {
+            let duration = parse_duration(state_rotation_interval)
+                .map_err(|err| format!("failed to parse state_rotation_interval: {}", err))?;
+            if duration < Duration::from_mins(30) {
+                return Err(format!(
+                    "state_rotation_interval minimum value is set to 30 mins, but you set it to '{state_rotation_interval}'"
+                ));
+            }
+            self.state_rotation_duration = Some(duration);
         }
 
         // Nullify this useless field
@@ -808,5 +839,49 @@ mod tests {
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
         assert_eq!(cfg_org.concurrency, num_cpus::get());
+    }
+
+    #[test]
+    fn parse_config_no_state_rotate_interval() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+        );
+        assert!(cfg_org.setup().is_ok());
+        assert_eq!(
+            cfg_org.state_rotation_duration,
+            Some(Duration::from_hours(24))
+        );
+    }
+
+    #[test]
+    fn parse_config_set_state_rotation_interval() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "state_rotation_interval": "6h",
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+        );
+        assert!(cfg_org.setup().is_ok());
+        assert_eq!(
+            cfg_org.state_rotation_duration,
+            Some(Duration::from_hours(6))
+        );
+    }
+
+    #[test]
+    fn parse_config_null_state_rotation_interval() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "state_rotation_interval": null,
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+        );
+        assert!(cfg_org.setup().is_ok());
+        assert_eq!(cfg_org.state_rotation_duration, None);
     }
 }

@@ -6,6 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use futures::future::join_all;
@@ -14,9 +15,10 @@ use tokio::{
     select,
     signal::unix::{SignalKind, signal},
     sync::Semaphore,
+    time::interval,
 };
 use tracing::{debug, error, info};
-use treedb::Database;
+use treedb::{Database, DatabaseRotate};
 
 use crate::concepts::{Config, now};
 use filter::FilterManager;
@@ -166,6 +168,13 @@ async fn daemon_start(
     plugins.start().await?;
     plugins.manager();
 
+    // Start db rotation at regular interval
+    state_rotation(
+        shutdown.clone(),
+        config.state_rotation_duration,
+        db.as_ref().unwrap().get_rotate()?,
+    );
+
     // Start Stream managers
     let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {
         let standalone = stream_manager.is_standalone();
@@ -177,6 +186,28 @@ async fn daemon_start(
     // Wait for all streams to quit
     join_all(stream_task_handles).await;
     Ok(())
+}
+
+fn state_rotation(
+    shutdown: ShutdownToken,
+    state_rotation_duration: Option<Duration>,
+    mut db: DatabaseRotate,
+) {
+    if let Some(duration) = state_rotation_duration {
+        let mut interval = interval(duration);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        let _ = db.rotate().await;
+                    }
+                    _ = shutdown.wait() => {
+                        break;
+                    }
+                }
+            }
+        });
+    }
 }
 
 fn handle_signals(
