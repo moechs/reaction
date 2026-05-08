@@ -121,7 +121,7 @@ impl WriteDB {
         self.buffer.clear();
         serde_json::to_writer(&mut self.buffer, &raw_entry)?;
         self.buffer.push(b'\n');
-        Ok(self.file.write(self.buffer.as_ref()).await.map(|_| ())?)
+        Ok(self.file.write(self.buffer.as_ref()).await.map(drop)?)
     }
 
     /// Flushes the inner [`tokio::io::BufWriter`]

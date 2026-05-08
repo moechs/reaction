@@ -138,7 +138,7 @@ async fn conf_action_standalone() {
             "conf: {:?}, must be ok: {is_ok}, result: {:?}",
             conf,
             // empty Result::Ok because ActionImpl is not Debug
-            res.map(|_| ())
+            res.map(drop)
         );
     }
 }
@@ -219,7 +219,7 @@ async fn conf_action_merge() {
         )
         .await;
 
-    assert!(res.is_ok(), "res: {:?}", res.map(|_| ()));
+    assert!(res.is_ok(), "res: {:?}", res.map(drop));
 
     // Another set with conflict is not ok
     let res = plugin
@@ -249,5 +249,5 @@ async fn conf_action_merge() {
             ],
         )
         .await;
-    assert!(res.is_err(), "res: {:?}", res.map(|_| ()));
+    assert!(res.is_err(), "res: {:?}", res.map(drop));
 }

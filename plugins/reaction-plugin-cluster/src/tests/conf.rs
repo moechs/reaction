@@ -226,7 +226,7 @@ async fn conf_action() {
         assert!(
             ret.is_ok() == is_ok,
             "is_ok: {is_ok}, ret: {:?}, action conf: {json:?}",
-            ret.map(|_| ())
+            ret.map(drop)
         );
     }
 }
@@ -249,7 +249,7 @@ async fn conf_send() {
             vec![],
         )
         .await;
-    assert!(res.is_ok(), "{:?}", res.map(|_| ()));
+    assert!(res.is_ok(), "{:?}", res.map(drop));
 
     // An action is ok
     let res = Plugin::default()
@@ -269,7 +269,7 @@ async fn conf_send() {
             }],
         )
         .await;
-    assert!(res.is_ok(), "{:?}", res.map(|_| ()));
+    assert!(res.is_ok(), "{:?}", res.map(drop));
 
     // Invalid to: option
     let res = Plugin::default()
@@ -289,5 +289,5 @@ async fn conf_send() {
             }],
         )
         .await;
-    assert!(res.is_err(), "{:?}", res.map(|_| ()));
+    assert!(res.is_err(), "{:?}", res.map(drop));
 }
