@@ -1338,9 +1338,9 @@ async fn show_then_flush_multiple_patterns() {
                 (None, None),
                 vec![m1a.clone(), m2a.clone(), m1b.clone(), m2b.clone()],
             ),
-            ((Some("a".into()), None), vec![m1a.clone(), m2a.clone()]),
+            ((Some("a"), None), vec![m1a.clone(), m2a.clone()]),
             ((None, Some("2.2.2.2")), vec![m2a.clone(), m2b.clone()]),
-            ((Some("b".into()), Some("1.1.1.1")), vec![m1b.clone()]),
+            ((Some("b"), Some("1.1.1.1")), vec![m1b.clone()]),
         ] {
             let bed = TestBed::default();
 
@@ -1591,7 +1591,7 @@ async fn show_then_flush_triggers() {
                         k[0].clone(),
                         PatternStatus {
                             actions: v
-                                .into_iter()
+                                .iter()
                                 .map(|v| {
                                     // We add 10sec because the action has after: 10s
                                     ("a2".into(), vec![v.add(Duration::from_secs(10)).pretty()])
