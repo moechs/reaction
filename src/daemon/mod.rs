@@ -17,7 +17,7 @@ use tokio::{
     sync::Semaphore,
     time::interval,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use treedb::{Database, DatabaseRotate};
 
 use crate::concepts::{Config, now};
@@ -49,6 +49,9 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
     // Cancellation Token
     let shutdown = ShutdownController::new();
 
+    // Cancel if DB fails
+    let db_failed = Arc::new(AtomicBool::new(false));
+
     // Cancel when we receive a quit signal
     let signal_received = Arc::new(AtomicBool::new(false));
     if let Err(err) = handle_signals(shutdown.delegate(), signal_received.clone()) {
@@ -56,7 +59,6 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
         return 1;
     }
 
-    let mut db = None;
     let mut config_started = false;
     let mut daemon_err = false;
 
@@ -64,20 +66,15 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
     if let Err(err) = daemon_start(
         config,
         socket,
+        shutdown.delegate(),
         shutdown.token(),
-        &mut db,
         &mut config_started,
+        signal_received.clone(),
     )
     .await
     {
         error!("{err}");
         daemon_err = true;
-    }
-
-    // Release last db's sender
-    let mut db_status = None;
-    if let Some(db) = db {
-        db_status = Some(db.quit());
     }
 
     debug!("Asking for all tasks to quit...");
@@ -93,32 +90,36 @@ pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
 
     if daemon_err || !stop_ok {
         1
-    } else if let Some(mut db_status) = db_status
-        && let Ok(Err(err)) = db_status.try_recv()
-    {
-        error!("database error: {}", err);
-        1
     } else if !signal_received.load(Ordering::SeqCst) {
         error!("quitting because all streams finished");
+        1
+    } else if db_failed.load(Ordering::SeqCst) {
+        error!("quitting because database errored");
         1
     } else {
         0
     }
 }
 
+// This part is in a separate function because a lot of its operations are fallible
+// If one of them fails, reaction must not exit directly:
+// it must properly shutdown all tasks before that.
+// This function just uses ? to return, and its caller takes care of properly quitting.
 async fn daemon_start(
     config: &'static Config,
     socket: PathBuf,
+    shutdown_delegate: ShutdownDelegate,
     shutdown: ShutdownToken,
-    db: &mut Option<Database>,
     config_started: &mut bool,
+    db_failed: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut plugins = Plugins::new(config, shutdown.clone()).await?;
 
     // Open Database
     let (cancellation, task_tracker) = shutdown.clone().split();
     let path = PathBuf::from(config.state_directory.clone());
-    *db = Some(Database::open(&path, cancellation, task_tracker).await?);
+    let mut db = Database::open(&path, cancellation, task_tracker).await?;
+    let db_rotate = db.get_rotate()?;
 
     let (state, stream_managers) = {
         // Semaphore limiting action execution concurrency
@@ -138,7 +139,7 @@ async fn daemon_start(
                     filter,
                     exec_limit.clone(),
                     shutdown.clone(),
-                    db.as_mut().unwrap(),
+                    &mut db,
                     &mut plugins,
                     now,
                 )
@@ -154,14 +155,12 @@ async fn daemon_start(
         (state, stream_managers)
     };
 
+    // Handle if DB fails
+    handle_db(shutdown_delegate, db_failed, db);
+
     // Open socket and run task
     let socket = Socket::open(socket).await?;
-    socket.manager(
-        config,
-        state,
-        shutdown.clone(),
-        db.as_ref().unwrap().get_rotate()?,
-    );
+    socket.manager(config, state, shutdown.clone(), db_rotate.clone());
 
     // all core systems started, we can run start commands
     *config_started = true;
@@ -174,11 +173,7 @@ async fn daemon_start(
     plugins.manager();
 
     // Start db rotation at regular interval
-    state_rotation(
-        shutdown.clone(),
-        config.state_rotation_duration,
-        db.as_ref().unwrap().get_rotate()?,
-    );
+    state_rotation(shutdown.clone(), config.state_rotation_duration, db_rotate);
 
     // Start Stream managers
     let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {
@@ -218,6 +213,24 @@ fn state_rotation(
     }
 }
 
+fn handle_db(shutdown: ShutdownDelegate, db_failed: Arc<AtomicBool>, db: Database) {
+    tokio::spawn(async move {
+        match db.error_rx.await {
+            Ok(Ok(())) => return,
+            Ok(Err(err)) => {
+                error!("Database task failed: {err}");
+            }
+            Err(err) => {
+                error!("Database task has quit without telling goodbye: {err}");
+            }
+        }
+        warn!("set db_failed to true");
+        db_failed.store(true, Ordering::SeqCst);
+        warn!("asking shutdown");
+        shutdown.ask_shutdown();
+    });
+}
+
 fn handle_signals(
     shutdown: ShutdownDelegate,
     signal_received: Arc<AtomicBool>,
@@ -232,8 +245,8 @@ fn handle_signals(
             _ = sigterm.recv() => "SIGTERM",
         };
         info!("received {signal}, closing streams...");
-        shutdown.ask_shutdown();
         signal_received.store(true, Ordering::SeqCst);
+        shutdown.ask_shutdown();
     });
     Ok(())
 }

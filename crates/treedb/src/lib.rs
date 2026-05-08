@@ -77,7 +77,7 @@ pub type DatabaseErrorReceiver = oneshot::Receiver<Result<(), String>>;
 /// Public-facing API for a treedb Database
 pub struct Database {
     entry_tx: Option<mpsc::Sender<Order>>,
-    error_rx: DatabaseErrorReceiver,
+    pub error_rx: DatabaseErrorReceiver,
 }
 
 impl Database {
@@ -110,12 +110,13 @@ impl Database {
     }
 
     /// Permit to close DB's channel.
-    /// Without this function manually called, the DB can't close.
+    /// The DB closes either when this function is called, or when the [`CancellationToken`] is cancelled.
     pub fn quit(self) -> DatabaseErrorReceiver {
         self.error_rx
     }
 }
 
+#[derive(Clone)]
 pub struct DatabaseRotate {
     entry_tx: mpsc::Sender<Order>,
 }
