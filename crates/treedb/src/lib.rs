@@ -20,7 +20,7 @@ use std::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
-    fs::{File, rename},
+    fs::{File, remove_file, rename},
     sync::{mpsc, oneshot},
     time::{MissedTickBehavior, interval},
 };
@@ -63,6 +63,7 @@ pub type LoadedDB = HashMap<String, LoadedTree>;
 
 const DB_NAME: &str = "reaction.db";
 const DB_NEW_NAME: &str = "reaction.new.db";
+const DB_LOCK_NAME: &str = "reaction.lock";
 
 fn path_of(state_directory: &Path, name: &str) -> PathBuf {
     if state_directory.as_os_str().is_empty() {
@@ -146,6 +147,8 @@ struct DatabaseManager {
     /// Path for the "new" database, when rotating database.
     /// New database atomically replaces the old one when its writing is done.
     new_path: PathBuf,
+    /// Path for the database, lockfile
+    lock_path: PathBuf,
     /// The receiver on [`Tree`] write operations
     entry_rx: mpsc::Receiver<Order>,
     /// The interval at which the database must be flushed to kernel
@@ -158,6 +161,18 @@ impl DatabaseManager {
     ) -> Result<(DatabaseManager, mpsc::Sender<Order>), IoError> {
         let path = path_of(path_directory, DB_NAME);
         let new_path = path_of(path_directory, DB_NEW_NAME);
+        let lock_path = path_of(path_directory, DB_LOCK_NAME);
+
+        // Attempt to create the lock file first
+        if let Err(err) = File::create_new(&lock_path).await {
+            return Err(IoError::new(
+                err.kind(),
+                format!(
+                    "Could not create lock file {}. Either another instance of reaction is running, or reaction was not properly shut down. Please check that no other instance of reaction is running and delete the lock file.",
+                    lock_path.canonicalize().unwrap_or(lock_path).display()
+                ),
+            ));
+        }
 
         let (write_db, loaded_db) = rotate_db(&path, &new_path, true).await?;
 
@@ -169,6 +184,7 @@ impl DatabaseManager {
                 loaded_db,
                 path,
                 new_path,
+                lock_path,
                 entry_rx,
                 flush_every: Duration::from_secs(2),
             },
@@ -218,16 +234,25 @@ impl DatabaseManager {
                 }
             }
 
+            let lock_path = self.lock_path.clone();
+
             // Shutdown
             let close_status = self
                 .close()
                 .await
                 .map_err(|err| format!("while closing database: {err}"));
 
+            // Release lock
+            let lock_close_status = remove_file(lock_path)
+                .await
+                .map_err(|err| format!("while deleting database lock file: {err}"));
+
             let _ = error_tx.send(if let Some(err) = status {
                 Err(err)
             } else if close_status.is_err() {
                 close_status
+            } else if lock_close_status.is_err() {
+                lock_close_status
             } else {
                 Ok(())
             });

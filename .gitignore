@@ -3,6 +3,7 @@ reaction.db
 reaction.db.old
 /data
 /reaction*.sock
+/reaction.lock
 /result
 /wiki
 *.deb
