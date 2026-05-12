@@ -2,6 +2,13 @@
 name = "reaction-plugin-nftables"
 version = "0.1.1"
 edition = "2024"
+description = "ipset plugin for reaction"
+authors = ["ppom <reaction@ppom.me>"]
+license = "AGPL-3.0"
+homepage = "https://reaction.ppom.me"
+repository = "https://framagit.org/ppom/reaction"
+keywords = ["security", "firewall", "fail2ban", "nftables", "monitoring"]
+default-run = "reaction-plugin-nftables"
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -11,3 +18,10 @@ serde.workspace = true
 serde_json.workspace = true
 nftables = { version = "0.6.3", features = ["tokio"] }
 libnftables1-sys = { version = "1.0.0" }
+
+[package.metadata.deb]
+section = "net"
+assets = [
+	[ "target/release/reaction-plugin-nftables", "/usr/bin/reaction-plugin-nftables", "755" ],
+]
+depends = ["libnftables-dev", "reaction"]

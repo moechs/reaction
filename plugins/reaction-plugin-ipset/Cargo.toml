@@ -7,7 +7,7 @@ authors = ["ppom <reaction@ppom.me>"]
 license = "AGPL-3.0"
 homepage = "https://reaction.ppom.me"
 repository = "https://framagit.org/ppom/reaction"
-keywords = ["security", "sysadmin", "fail2ban", "logs", "monitoring"]
+keywords = ["security", "firewall", "fail2ban", "ipset", "monitoring"]
 default-run = "reaction-plugin-ipset"
 
 [dependencies]
