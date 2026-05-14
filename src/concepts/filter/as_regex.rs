@@ -1,9 +1,9 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::concepts::{Match, Patterns};
+use crate::concepts::{Match, Patterns, filter::compute_regex_with_patterns};
 
 use super::{FilterMethodAs, PatternSet};
 
@@ -18,48 +18,30 @@ pub struct FilterMethodRegex {
 
 impl FilterMethodAs for FilterMethodRegex {
     fn setup(&mut self, config_patterns: &Patterns) -> Result<PatternSet, String> {
-        if self.regex.is_empty() {
-            return Err("no regex configured".into());
-        }
+        let mut new_patterns = None;
 
-        let mut new_patterns = BTreeSet::new();
-        let mut new_regex = Vec::new();
-        let mut first = true;
-        for regex in &self.regex {
-            let mut regex_buf = regex.clone();
-            for pattern in config_patterns.values() {
-                if let Some(index) = regex.find(pattern.name_with_braces()) {
-                    // we already `find` it, so we must be able to `rfind` it
-                    #[allow(clippy::unwrap_used)]
-                    if regex.rfind(pattern.name_with_braces()).unwrap() != index {
-                        return Err(format!(
-                            "pattern {} present multiple times in regex",
-                            pattern.name_with_braces()
-                        ));
-                    }
-                    if first {
-                        new_patterns.insert(pattern.clone());
-                    } else if !new_patterns.contains(pattern) {
-                        return Err(format!(
-                            "pattern {} is not present in the first regex but is present in a following regex. all regexes should contain the same set of regexes",
-                            &pattern.name_with_braces()
-                        ));
-                    }
-                } else if !first && new_patterns.contains(pattern) {
+        for regex in std::mem::take(&mut self.regex) {
+            let (regex_buf, compiled, new_patterns_regex) =
+                compute_regex_with_patterns(regex, config_patterns)?;
+
+            if let Some(new_patterns) = &new_patterns {
+                if let Some(pattern) = new_patterns_regex.symmetric_difference(new_patterns).next()
+                {
                     return Err(format!(
-                        "pattern {} is present in the first regex but is not present in a following regex. all regexes should contain the same set of regexes",
+                        "pattern {} is present in a regex but is not present in another regex. all regexes should contain the same set of patterns",
                         &pattern.name_with_braces()
                     ));
                 }
-                regex_buf = regex_buf.replacen(pattern.name_with_braces(), &pattern.regex, 1);
+            } else {
+                new_patterns = Some(new_patterns_regex);
             }
-            new_regex.push(regex_buf.clone());
-            let compiled = Regex::new(&regex_buf).map_err(|err| err.to_string())?;
+
+            self.regex.push(regex_buf);
             self.compiled_regex.push(compiled);
-            first = false;
         }
-        self.regex = new_regex;
-        self.patterns = Arc::new(new_patterns);
+
+        // Here we check that we have at least one regex
+        self.patterns = Arc::new(new_patterns.ok_or("no regex configured")?);
 
         Ok(self.patterns.clone())
     }

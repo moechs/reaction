@@ -8,6 +8,7 @@ use std::{
 };
 
 use reaction_plugin::time::parse_duration;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::{Action, Match, Pattern, PatternType, Patterns};
@@ -388,6 +389,30 @@ impl Hash for Filter {
         self.stream_name.hash(state);
         self.name.hash(state);
     }
+}
+
+// Used by FilterMethods to insert Patterns into a user regex
+fn compute_regex_with_patterns(
+    mut regex: String,
+    config_patterns: &Patterns,
+) -> Result<(String, Regex, BTreeSet<Arc<Pattern>>), String> {
+    let mut new_patterns = BTreeSet::new();
+    for pattern in config_patterns.values() {
+        if let Some(index) = regex.find(pattern.name_with_braces()) {
+            // we already `find` it, so we must be able to `rfind` it
+            #[allow(clippy::unwrap_used)]
+            if regex.rfind(pattern.name_with_braces()).unwrap() != index {
+                return Err(format!(
+                    "pattern {} present multiple times in regex",
+                    pattern.name_with_braces()
+                ));
+            }
+            new_patterns.insert(pattern.clone());
+        }
+        regex = regex.replacen(pattern.name_with_braces(), &pattern.regex, 1);
+    }
+    let compiled = Regex::new(&regex).map_err(|err| err.to_string())?;
+    Ok((regex, compiled, new_patterns))
 }
 
 #[cfg(test)]
