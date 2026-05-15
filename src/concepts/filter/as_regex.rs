@@ -13,11 +13,11 @@ pub struct FilterMethodRegex {
     #[serde(skip)]
     pub compiled_regex: Vec<Regex>,
     #[serde(skip)]
-    pub patterns: PatternSet,
+    pub patterns: Arc<PatternSet>,
 }
 
 impl FilterMethodAs for FilterMethodRegex {
-    fn setup(&mut self, config_patterns: &Patterns) -> Result<PatternSet, String> {
+    fn setup(&mut self, config_patterns: &Patterns) -> Result<Arc<PatternSet>, String> {
         let mut new_patterns = None;
 
         for regex in std::mem::take(&mut self.regex) {

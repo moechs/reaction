@@ -54,14 +54,14 @@ impl Default for FilterMethod {
 }
 
 pub trait FilterMethodAs {
-    fn setup(&mut self, config_patterns: &Patterns) -> Result<PatternSet, String>;
+    fn setup(&mut self, config_patterns: &Patterns) -> Result<Arc<PatternSet>, String>;
     fn get_match(&self, line: &str) -> Option<Match>;
     fn hint_regexes(&self) -> Vec<String>;
 }
 
 // We want patterns to be ordered
 // This is necessary when using matches which contain multiple patterns
-pub type PatternSet = Arc<BTreeSet<Arc<Pattern>>>;
+pub type PatternSet = BTreeSet<Arc<Pattern>>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Duplicate {
@@ -98,7 +98,7 @@ pub struct Filter {
     pub option_struct: Option<FilterMethodStruct>,
 
     #[serde(skip)]
-    pub patterns: PatternSet,
+    pub patterns: Arc<PatternSet>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<u32>,
