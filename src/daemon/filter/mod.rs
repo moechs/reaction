@@ -79,14 +79,19 @@ impl FilterManager {
     }
 
     pub async fn handle_line(&self, line: &str, now: Time) -> React {
-        if let Some(match_) = self.filter.get_match(line) {
-            if self.handle_match(match_, now).await {
-                React::Trigger
-            } else {
-                React::Match
+        match self.filter.get_match(line) {
+            Ok(Some(match_)) => {
+                if self.handle_match(match_, now).await {
+                    React::Trigger
+                } else {
+                    React::Match
+                }
             }
-        } else {
-            React::NoMatch
+            Ok(None) => React::NoMatch,
+            Err(err) => {
+                error!("{}: {err}", self.filter);
+                React::NoMatch
+            }
         }
     }
 

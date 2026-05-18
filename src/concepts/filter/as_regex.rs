@@ -46,7 +46,7 @@ impl FilterMethodAs for FilterMethodRegex {
         Ok(self.patterns.clone())
     }
 
-    fn get_match(&self, line: &str) -> Option<Match> {
+    fn get_match(&self, line: &str) -> Result<Option<Match>, String> {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
                 if !self.patterns.is_empty() {
@@ -63,14 +63,14 @@ impl FilterMethodAs for FilterMethodRegex {
                         }
                     }
                     if result.len() == self.patterns.len() {
-                        return Some(result);
+                        return Ok(Some(result));
                     }
                 } else {
-                    return Some(vec![]);
+                    return Ok(Some(vec![]));
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     fn hint_regexes(&self) -> Vec<String> {
@@ -274,10 +274,13 @@ mod tests {
         filter = FilterMethodRegex::default();
         filter.regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&patterns).is_ok());
-        assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
-        assert_eq!(filter.get_match("insert a here"), None);
-        assert_eq!(filter.get_match("youpi b youpi"), None);
-        assert_eq!(filter.get_match("insert  here"), None);
+        assert_eq!(
+            filter.get_match("insert b here").unwrap(),
+            Some(vec!("b".into()))
+        );
+        assert_eq!(filter.get_match("insert a here").unwrap(), None);
+        assert_eq!(filter.get_match("youpi b youpi").unwrap(), None);
+        assert_eq!(filter.get_match("insert  here").unwrap(), None);
 
         // two patterns in one regex
         filter = FilterMethodRegex::default();
@@ -286,21 +289,37 @@ mod tests {
             .push("insert <name> here and <boubou> there".to_string());
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here and bouboubou there"),
+            filter
+                .get_match("insert b here and bouboubou there")
+                .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
-        assert_eq!(filter.get_match("insert a here and bouboubou there"), None);
-        assert_eq!(filter.get_match("insert b here and boubou there"), None);
+        assert_eq!(
+            filter
+                .get_match("insert a here and bouboubou there")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter.get_match("insert b here and boubou there").unwrap(),
+            None
+        );
 
         // multiple regexes with same pattern
         filter = FilterMethodRegex::default();
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
         assert!(filter.setup(&patterns).is_ok());
-        assert_eq!(filter.get_match("insert a here"), None);
-        assert_eq!(filter.get_match("insert b here"), Some(vec!("b".into())));
-        assert_eq!(filter.get_match("also add a there"), None);
-        assert_eq!(filter.get_match("also add b there"), Some(vec!("b".into())));
+        assert_eq!(filter.get_match("insert a here").unwrap(), None);
+        assert_eq!(
+            filter.get_match("insert b here").unwrap(),
+            Some(vec!("b".into()))
+        );
+        assert_eq!(filter.get_match("also add a there").unwrap(), None);
+        assert_eq!(
+            filter.get_match("also add b there").unwrap(),
+            Some(vec!("b".into()))
+        );
 
         // multiple regexes with same patterns
         filter = FilterMethodRegex::default();
@@ -312,19 +331,38 @@ mod tests {
             .push("also add <boubou> here and <name> there".to_string());
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here and bouboubou there"),
+            filter
+                .get_match("insert b here and bouboubou there")
+                .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
-            filter.get_match("also add bouboubou here and b there"),
+            filter
+                .get_match("also add bouboubou here and b there")
+                .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
-        assert_eq!(filter.get_match("insert a here and bouboubou there"), None);
         assert_eq!(
-            filter.get_match("also add bouboubou here and a there"),
+            filter
+                .get_match("insert a here and bouboubou there")
+                .unwrap(),
             None
         );
-        assert_eq!(filter.get_match("insert b here and boubou there"), None);
-        assert_eq!(filter.get_match("also add boubou here and b there"), None);
+        assert_eq!(
+            filter
+                .get_match("also add bouboubou here and a there")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter.get_match("insert b here and boubou there").unwrap(),
+            None
+        );
+        assert_eq!(
+            filter
+                .get_match("also add boubou here and b there")
+                .unwrap(),
+            None
+        );
     }
 }
