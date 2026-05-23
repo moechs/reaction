@@ -49,17 +49,9 @@ pub enum Field {
 pub struct LongField {
     regex: Option<String>,
     exists: Option<bool>,
-    equals: Option<ScalarValue>,
+    equals: Option<Value>,
     #[serde(flatten)]
     inner_fields: HashMap<String, Field>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum ScalarValue {
-    String(String),
-    Bool(bool),
-    Integer(i64),
 }
 
 impl Field {
@@ -92,7 +84,7 @@ impl Field {
                     ComputedField::Regex((
                         regex,
                         // The indexes must be computed after that
-                        patterns.iter().map(|pattern| (pattern.name.clone(), 0)).collect()
+                        patterns.iter().map(|pattern| (pattern.clone(), 0)).collect()
                     )),
                     patterns
                 ))
@@ -171,9 +163,9 @@ impl Field {
 
 #[derive(Debug, Clone)]
 pub enum ComputedField {
-    Regex((Regex, Vec<(String, usize)>)),
+    Regex((Regex, Vec<(Arc<Pattern>, usize)>)),
     Exists(bool),
-    Equals(ScalarValue),
+    Equals(Value),
     Inner(HashMap<String, ComputedField>),
 }
 
@@ -199,7 +191,7 @@ impl ComputedField {
                 patterns[i].1 = used_patterns
                     .iter()
                     .enumerate()
-                    .find(|pattern| &pattern.1.name == &patterns[i].0)
+                    .find(|(_, pattern)| pattern.as_ref() == patterns[i].0.as_ref())
                     .unwrap()
                     .0;
             }
@@ -211,12 +203,55 @@ impl ComputedField {
             .for_each(|field| field.post_compute(used_patterns));
     }
 
-    fn matches(&self, value: Value) -> Option<PatternSet> {
-        todo!()
+    fn matches(&self, actual_value: Option<&Value>, match_: &mut Match) -> bool {
+        match self {
+            ComputedField::Regex((regex, patterns)) => match actual_value {
+                Some(Value::String(actual_value)) => {
+                    if let Some(matches) = regex.captures(actual_value) {
+                        for (pattern, pattern_index) in patterns {
+                            // if the pattern is in an optional part of the regex,
+                            // there may be no captured group for it.
+                            if let Some(match_elt) = matches.name(&pattern.name) {
+                                let mut match_elt = match_elt.as_str().to_string();
+                                pattern.normalize(&mut match_elt);
+                                match_[*pattern_index] = match_elt;
+                            } else {
+                                return false;
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
+            ComputedField::Exists(exists) => *exists == actual_value.is_some(),
+            ComputedField::Equals(scalar_value) => {
+                actual_value.is_some_and(|actual_value| scalar_value == actual_value)
+            }
+            ComputedField::Inner(contract_map) => match actual_value {
+                Some(Value::Object(_)) => {
+                    Self::matches_all(contract_map, actual_value.unwrap(), match_)
+                }
+                _ => false,
+            },
+        }
     }
 
-    fn matches_all(this: &HashMap<String, Self>, values: Value) -> bool {
-        todo!()
+    fn matches_all(
+        this: &HashMap<String, Self>,
+        actual_values: &Value,
+        match_: &mut Match,
+    ) -> bool {
+        for (contract_key, contract_value) in this {
+            let actual_value = actual_values.get(contract_key);
+            let ok = contract_value.matches(actual_value, match_);
+            if !ok {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -238,8 +273,17 @@ impl FilterMethodAs for FilterMethodStruct {
                 .map_err(|err| format!("line is not valid JSON: {err}"))?,
         };
 
-        ComputedField::matches_all(&self.computed_fields, value);
-        todo!()
+        let mut match_: Match = (0..self.patterns.len())
+            .map(|_| String::default())
+            .collect();
+
+        Ok(
+            if ComputedField::matches_all(&self.computed_fields, &value, &mut match_) {
+                Some(match_)
+            } else {
+                None
+            },
+        )
     }
 
     fn hint_regexes(&self) -> Vec<String> {
@@ -258,7 +302,7 @@ mod tests {
         Pattern, Patterns,
         filter::{
             FilterMethodAs,
-            as_struct::{ComputedField, FilterMethodStruct, ScalarValue},
+            as_struct::{ComputedField, FilterMethodStruct},
         },
     };
 
@@ -452,13 +496,10 @@ mod tests {
                     ),
                     ("c".into(), ComputedField::Exists(true)),
                     ("d".into(), ComputedField::Exists(false)),
-                    ("e".into(), ComputedField::Equals(ScalarValue::Integer(1))),
-                    (
-                        "f".into(),
-                        ComputedField::Equals(ScalarValue::String("yay".into()))
-                    ),
-                    ("g".into(), ComputedField::Equals(ScalarValue::Bool(true))),
-                    ("h".into(), ComputedField::Equals(ScalarValue::Bool(false))),
+                    ("e".into(), ComputedField::Equals(1.into())),
+                    ("f".into(), ComputedField::Equals("yay".into())),
+                    ("g".into(), ComputedField::Equals(true.into())),
+                    ("h".into(), ComputedField::Equals(false.into())),
                     (
                         "i".into(),
                         ComputedField::Inner(HashMap::from([
@@ -513,7 +554,7 @@ mod tests {
                     "a".into(),
                     ComputedField::Regex((
                         Regex::new("(?P<name>[a-z]+)").unwrap(),
-                        vec![("name".into(), 0)]
+                        vec![(patterns["name"].clone(), 0)]
                     ))
                 )]),
                 patterns: Arc::new(patterns.into_values().collect()),
@@ -549,7 +590,7 @@ mod tests {
                     "a".into(),
                     ComputedField::Regex((
                         Regex::new("(?P<name>[a-z]+) - (?P<age>\\d+)").unwrap(),
-                        vec![("age".into(), 0), ("name".into(), 1)]
+                        vec![(patterns["age"].clone(), 0), (patterns["name"].clone(), 1)]
                     ))
                 )]),
                 patterns: Arc::new(patterns.into_values().collect()),
@@ -608,14 +649,14 @@ mod tests {
                         "a".into(),
                         ComputedField::Regex((
                             Regex::new("my name is (?P<name>[a-z]+)").unwrap(),
-                            vec![("name".into(), 1)]
+                            vec![(patterns["name"].clone(), 1)]
                         ))
                     ),
                     (
                         "b".into(),
                         ComputedField::Regex((
                             Regex::new("my age is (?P<age>\\d+)").unwrap(),
-                            vec![("age".into(), 0)]
+                            vec![(patterns["age"].clone(), 0)]
                         ))
                     )
                 ]),
@@ -645,5 +686,208 @@ mod tests {
         patterns.extend(Pattern::new_map("age", "\\d+").unwrap());
 
         fms.setup(&patterns).unwrap_err();
+    }
+
+    #[test]
+    fn get_match() {
+        let tests = [
+            (
+                "test regex",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": "^<name>$"
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (r#" {"a": "hello"} "#, Ok(Some(vec!["hello".into()]))),
+                    (
+                        r#" {"a": "hello", "b": 12} "#,
+                        Ok(Some(vec!["hello".into()])),
+                    ),
+                    (r#" {} "#, Ok(None)),
+                    (r#" {"a": "Hello"} "#, Ok(None)),
+                    (r#" {"b": "hello"} "#, Ok(None)),
+                ],
+            ),
+            (
+                "test exists true",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": {
+                                "exists": true
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (r#" {"a": "hello"} "#, Ok(Some(vec![]))),
+                    (r#" {"a": ["hey"], "b": 12} "#, Ok(Some(vec![]))),
+                    (r#" {} "#, Ok(None)),
+                    (r#" {"b": "hello"} "#, Ok(None)),
+                ],
+            ),
+            (
+                "test exists false",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": {
+                                "exists": false
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (r#" {"a": "hello"} "#, Ok(None)),
+                    (r#" {"a": ["hey"], "b": 12} "#, Ok(None)),
+                    (r#" {} "#, Ok(Some(vec![]))),
+                    (r#" {"b": "hello"} "#, Ok(Some(vec![]))),
+                ],
+            ),
+            (
+                "simple equals bool",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": {
+                                "equals": true
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (r#" {"a": true} "#, Ok(Some(vec![]))),
+                    (r#" {"a": false} "#, Ok(None)),
+                    (r#" {} "#, Ok(None)),
+                    (r#" {"b": "hello"} "#, Ok(None)),
+                ],
+            ),
+            (
+                "complex equals",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": {
+                                "equals": [1, null, "prout", {"yay": true}]
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (
+                        r#" {"a": [1, null, "prout", {"yay": true}]} "#,
+                        Ok(Some(vec![])),
+                    ),
+                    (r#" {"a": [1, false, "prout", {"yay": true}]} "#, Ok(None)),
+                    (r#" {"a": [1, null, "prout", {"yay": "true"}]} "#, Ok(None)),
+                    (r#" {"a": "yay"} "#, Ok(None)),
+                    (r#" {} "#, Ok(None)),
+                    (r#" {"b": "hello"} "#, Ok(None)),
+                ],
+            ),
+            (
+                "test regex and exists and equals and inner",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "a": "^<name>$",
+                            "b": {
+                                "c": "[0-9a-f]",
+                                "d": {
+                                    "e": { "exists": true }
+                                },
+                                "f": { "equals": [1,2] },
+                                "g": { "exists": false }
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (
+                        r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":[1,2],"h":"ok"}} "#,
+                        Ok(Some(vec!["prdb".into()])),
+                    ),
+                    (
+                        r#" {"a":"pr2b","b":{"c":"4czb","d":{"e": 0,"z": 1},"f":[1,2],"h":"ok"}} "#,
+                        Ok(None),
+                    ),
+                    (
+                        r#" {"a":"prdb","b":{"c":"4c4b","d":{"E": 0,"z": 1},"f":[1,2],"h":"ok"}} "#,
+                        Ok(None),
+                    ),
+                    (
+                        r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":[1,2,3],"h":"ok"}} "#,
+                        Ok(None),
+                    ),
+                    (
+                        r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":[1,2],"g":"ok"}} "#,
+                        Ok(None),
+                    ),
+                ],
+            ),
+            (
+                "test traefik log",
+                r#"
+                {
+                    "options": {
+                        "fields": {
+                            "ClientHost": "<ip>",
+                            "DownstreamStatus": {
+                                "equals": 401
+                            },
+                            "RequestPath": {
+                                "equals": "/login"
+                            }
+                        }
+                    }
+                }
+                "#,
+                vec![
+                    (
+                        r#" { "ClientAddr": "1.2.3.4:2048", "ClientHost": "1.2.3.4", "ClientPort": "2048", "DownstreamContentSize": 252, "DownstreamStatus": 200, "Duration": 1000, "OriginContentSize": 252, "OriginDuration": 900, "OriginStatus": 206, "Overhead": 10000, "RequestAddr": "domain.name", "RequestContentSize": 0, "RequestCount": 123, "RequestHost": "domain.name", "RequestMethod": "GET", "RequestPath": "/login", "RequestPort": "-", "RequestProtocol": "HTTP/2.0", "RequestScheme": "https", "RetryAttempts": 0, "RouterName": "my-service@docker", "ServiceAddr": "172.1.0.1:80", "ServiceName": "my-service@docker", "downstream_Header1": "...", "downstream_Header2": "...", "entryPointName": "websecure", "level": "info", "msg": "", "origin_Header1": "...", "origin_Header2": "...", "request_Header1": "...", "request_Header2": "...", "time": "YYYY-MM-DDTHH:MM:SS+UT:C0" } "#,
+                        Ok(None),
+                    ),
+                    (
+                        r#" { "ClientAddr": "1.2.3.4:2048", "ClientHost": "1.2.3.4", "ClientPort": "2048", "DownstreamContentSize": 252, "DownstreamStatus": 401, "Duration": 1000, "OriginContentSize": 252, "OriginDuration": 900, "OriginStatus": 206, "Overhead": 10000, "RequestAddr": "domain.name", "RequestContentSize": 0, "RequestCount": 123, "RequestHost": "domain.name", "RequestMethod": "GET", "RequestPath": "/login", "RequestPort": "-", "RequestProtocol": "HTTP/2.0", "RequestScheme": "https", "RetryAttempts": 0, "RouterName": "my-service@docker", "ServiceAddr": "172.1.0.1:80", "ServiceName": "my-service@docker", "downstream_Header1": "...", "downstream_Header2": "...", "entryPointName": "websecure", "level": "info", "msg": "", "origin_Header1": "...", "origin_Header2": "...", "request_Header1": "...", "request_Header2": "...", "time": "YYYY-MM-DDTHH:MM:SS+UT:C0" } "#,
+                        Ok(Some(vec!["1.2.3.4".into()])),
+                    ),
+                ],
+            ),
+        ];
+        for (name, test, tries) in tests {
+            let mut fms: FilterMethodStruct = serde_json::from_str(test).unwrap();
+
+            let mut patterns = Pattern::new_map("name", "[a-z]+").unwrap();
+            patterns.extend(Pattern::new_map("age", "\\d+").unwrap());
+            patterns.insert("ip".into(), {
+                let mut pattern: Pattern = serde_json::from_str(r#"{"type": "ip"}"#).unwrap();
+                pattern.setup("ip").unwrap();
+                pattern.into()
+            });
+            fms.setup(&patterns).unwrap();
+
+            for (arg, result) in tries {
+                assert_eq!(
+                    fms.get_match(arg),
+                    result,
+                    "{name} (arg: {arg}, result: {result:?})"
+                );
+            }
+        }
     }
 }
