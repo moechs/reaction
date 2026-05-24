@@ -1573,9 +1573,6 @@ async fn show_then_flush_triggers() {
             // Then reset them
             bed.reset_out_file().await;
 
-            dbg!(bed.manager.state.lock().await.triggers.tree());
-            dbg!(read_to_string(&bed.out_file).unwrap());
-
             let patterns = match query {
                 Some(q) => &BTreeMap::from([(
                     bed.az_patterns.iter().next().unwrap().1.clone(),

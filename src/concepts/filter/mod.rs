@@ -189,8 +189,6 @@ impl Filter {
             self.retry_period = None;
         }
 
-        dbg!(&self);
-
         match &self.filter_type {
             FilterType::Regex => {
                 if let Some(method_regex) = self.option_regex.take() {
