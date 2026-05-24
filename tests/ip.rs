@@ -1,23 +1,16 @@
-use std::{
-    env,
-    fs::File,
-    io::{IsTerminal, Read, Write},
-    time::Duration,
-};
+use std::{env, io::IsTerminal, time::Duration};
 
 use tempfile::TempDir;
 use tracing::Level;
 
 use reaction::{cli::Format, client::request, daemon::daemon, protocol::Order};
-use tokio::time::sleep;
+use tokio::{
+    fs::{read_to_string, write},
+    time::sleep,
+};
 
-fn file_with_contents(path: &str, contents: &str) {
-    let mut file = File::create(path).unwrap();
-    file.write_all(contents.as_bytes()).unwrap();
-}
-
-fn config_with_cmd(config_path: &str, cmd: &str) {
-    file_with_contents(
+async fn config_with_cmd(config_path: &str, cmd: &str) {
+    write(
         config_path,
         &("
 {
@@ -79,14 +72,9 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
         }
     }
 }"),
-    );
-}
-
-fn get_file_content(path: &str) -> String {
-    let mut out_txt = File::open(path).unwrap();
-    let mut contents = String::new();
-    out_txt.read_to_string(&mut contents).unwrap();
-    contents
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -103,11 +91,11 @@ async fn ip() {
     config_with_cmd(
         config_path,
         "for i in 1.2.3.4 204:31::1 5.5.5.5 1.2.3.4 204:31::1 5.5.5.5; do echo ip $i; sleep 0.01; done; sleep 0.15",
-    );
+    ).await;
 
-    file_with_contents(out_path, "");
-    file_with_contents(ipv4_path, "");
-    file_with_contents(ipv6_path, "");
+    write(out_path, "").await.unwrap();
+    write(ipv4_path, "").await.unwrap();
+    write(ipv6_path, "").await.unwrap();
 
     // Set the logger before running any code from the crate
     tracing_subscriber::fmt::fmt()
@@ -156,7 +144,7 @@ async fn ip() {
     // tokio::time::sleep(Duration::from_secs(100)).await;
 
     assert_eq!(
-        get_file_content(out_path).trim(),
+        read_to_string(out_path).await.unwrap().trim(),
         [
             "1.2.3.4",
             "204:31::/64",
@@ -168,12 +156,12 @@ async fn ip() {
     );
 
     assert_eq!(
-        get_file_content(ipv4_path).trim(),
+        read_to_string(ipv4_path).await.unwrap().trim(),
         ["1.2.3.4", "5.5.5.5", "del 1.2.3.4"].join("\n")
     );
 
     assert_eq!(
-        get_file_content(ipv6_path).trim(),
+        read_to_string(ipv6_path).await.unwrap().trim(),
         ["204:31::/64", "del 204:31::/64"].join("\n")
     );
 }

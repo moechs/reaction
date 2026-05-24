@@ -1,23 +1,16 @@
-use std::{
-    env,
-    fs::File,
-    io::{IsTerminal, Read, Write},
-    time::Duration,
-};
+use std::{env, io::IsTerminal, time::Duration};
 
 use tempfile::TempDir;
 use tracing::Level;
 
 use reaction::{cli::Format, client::request, daemon::daemon, protocol::Order};
-use tokio::time::sleep;
+use tokio::{
+    fs::{read_to_string, write},
+    time::sleep,
+};
 
-fn file_with_contents(path: &str, contents: &str) {
-    let mut file = File::create(path).unwrap();
-    file.write_all(contents.as_bytes()).unwrap();
-}
-
-fn config_with_cmd(config_path: &str, cmd: &str) {
-    file_with_contents(
+async fn config_with_cmd(config_path: &str, cmd: &str) {
+    write(
         config_path,
         &("
 {
@@ -60,14 +53,9 @@ fn config_with_cmd(config_path: &str, cmd: &str) {
         }
     }
 }"),
-    );
-}
-
-fn get_file_content(path: &str) -> String {
-    let mut out_txt = File::open(path).unwrap();
-    let mut contents = String::new();
-    out_txt.read_to_string(&mut contents).unwrap();
-    contents
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -83,10 +71,11 @@ async fn simple() {
     config_with_cmd(
         config_path,
         "for i in 12 24 36 24 36 12 12 24 56 67; do echo here is $i; sleep 0.01; done; sleep 0.15",
-    );
+    )
+    .await;
 
-    file_with_contents(out_path, "");
-    file_with_contents(oneshot_path, "");
+    write(out_path, "").await.unwrap();
+    write(oneshot_path, "").await.unwrap();
 
     // Set the logger before running any code from the crate
     tracing_subscriber::fmt::fmt()
@@ -140,13 +129,13 @@ async fn simple() {
         // 36 is encountered for the second time, then
         // 12 is encountered for the second time, then
         // 24 is flushed
-        get_file_content(out_path).trim(),
+        read_to_string(out_path).await.unwrap().trim(),
         "24\n36\n12\ndel 24".to_owned().trim()
     );
 
     // oneshot actions are also executed
     assert_eq!(
-        get_file_content(oneshot_path).trim(),
+        read_to_string(oneshot_path).await.unwrap().trim(),
         "oneshot 24\noneshot 36\noneshot 12".to_owned().trim()
     );
 
@@ -157,10 +146,11 @@ async fn simple() {
     config_with_cmd(
         config_path,
         "sleep 0.02; for i in 12 24 36 56 67; do echo here is $i; sleep 0.01; done",
-    );
+    )
+    .await;
 
-    file_with_contents(out_path, "");
-    file_with_contents(oneshot_path, "");
+    write(out_path, "").await.unwrap();
+    write(oneshot_path, "").await.unwrap();
 
     let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
     assert!(daemon_exit == 1);
@@ -169,7 +159,7 @@ async fn simple() {
     // 12 trigger from DB
     // 12 match from DB + new match
     // 67 match from DB + new match
-    let content = get_file_content(out_path).trim().to_owned();
+    let content = read_to_string(out_path).await.unwrap().trim().to_owned();
     let scenario1 = "36\n12\n12\n67".trim().to_owned();
     let scenario2 = "12\n36\n12\n67".trim().to_owned();
     assert!(
@@ -185,7 +175,7 @@ async fn simple() {
     // 12 match from DB + new match
     // 67 match from DB + new match
     assert_eq!(
-        get_file_content(oneshot_path).trim(),
+        read_to_string(oneshot_path).await.unwrap().trim(),
         "oneshot 12\noneshot 67".to_owned().trim()
     );
 }
