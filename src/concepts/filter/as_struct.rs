@@ -201,6 +201,30 @@ impl PartialEq for ComputedField {
 #[cfg(test)]
 impl Eq for ComputedField {}
 
+fn regex_matches(
+    regex: &Regex,
+    patterns: &Vec<(Arc<Pattern>, usize)>,
+    actual_value: &str,
+    match_: &mut Match,
+) -> bool {
+    if let Some(matches) = regex.captures(actual_value) {
+        for (pattern, pattern_index) in patterns {
+            // if the pattern is in an optional part of the regex,
+            // there may be no captured group for it.
+            if let Some(match_elt) = matches.name(&pattern.name) {
+                let mut match_elt = match_elt.as_str().to_string();
+                pattern.normalize(&mut match_elt);
+                match_[*pattern_index] = match_elt;
+            } else {
+                return false;
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
 impl ComputedField {
     fn post_compute(&mut self, used_patterns: &PatternSet) {
         if let Self::Regex((_, patterns)) = self {
@@ -224,22 +248,10 @@ impl ComputedField {
         match self {
             ComputedField::Regex((regex, patterns)) => match actual_value {
                 Some(Value::String(actual_value)) => {
-                    if let Some(matches) = regex.captures(actual_value) {
-                        for (pattern, pattern_index) in patterns {
-                            // if the pattern is in an optional part of the regex,
-                            // there may be no captured group for it.
-                            if let Some(match_elt) = matches.name(&pattern.name) {
-                                let mut match_elt = match_elt.as_str().to_string();
-                                pattern.normalize(&mut match_elt);
-                                match_[*pattern_index] = match_elt;
-                            } else {
-                                return false;
-                            }
-                        }
-                        true
-                    } else {
-                        false
-                    }
+                    regex_matches(regex, patterns, actual_value, match_)
+                }
+                Some(Value::Number(actual_value)) => {
+                    regex_matches(regex, patterns, actual_value.as_str(), match_)
                 }
                 _ => false,
             },
@@ -855,6 +867,11 @@ mod tests {
                 vec![
                     (
                         r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":[1,2],"h":"ok"}} "#,
+                        Ok(Some(vec!["prdb".into()])),
+                    ),
+                    (
+                        // regex on a number stringifies it
+                        r#" {"a":"prdb","b":{"c":1234567,"d":{"e": 0,"z": 1},"f":[1,2],"h":"ok"}} "#,
                         Ok(Some(vec!["prdb".into()])),
                     ),
                     (
