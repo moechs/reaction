@@ -54,6 +54,21 @@ pub struct LongField {
     inner_fields: HashMap<String, Field>,
 }
 
+fn prepare_regex(regex: &mut String) {
+    // trim leading '^', will be replaced by multi-line compatible '\A'
+    if regex.starts_with("^") {
+        regex.remove(0);
+    }
+    // trim ending '$', will be replaced by multi-line compatible '\z'
+    if regex.ends_with("$") {
+        regex.remove(regex.len() - 1);
+    }
+    // switch to multiline mode and insert leading '\A'
+    regex.insert_str(0, "(?m)\\A");
+    // insert ending '\z'
+    regex.insert_str(regex.len(), "\\z");
+}
+
 impl Field {
     fn compute(
         self,
@@ -71,12 +86,14 @@ impl Field {
             (
                 0,
                 LongField {
-                    regex: Some(regex),
+                    regex: Some(mut regex),
                     exists: None,
                     equals: None,
                     inner_fields: _,
                 },
             ) => {
+                prepare_regex(&mut regex);
+
                 let (_, regex, patterns) =
                     compute_regex_with_patterns(regex, config_patterns)?;
 
@@ -302,9 +319,18 @@ mod tests {
         Pattern, Patterns,
         filter::{
             FilterMethodAs,
-            as_struct::{ComputedField, FilterMethodStruct},
+            as_struct::{ComputedField, FilterMethodStruct, prepare_regex},
         },
     };
+
+    #[test]
+    fn test_prepare_regex() {
+        for regex in ["my_regex", "^my_regex", "my_regex$", "^my_regex$"] {
+            let mut s = regex.to_string();
+            prepare_regex(&mut s);
+            assert_eq!(&s, "(?m)\\Amy_regex\\z");
+        }
+    }
 
     #[test]
     fn no_lang() {
@@ -378,7 +404,7 @@ mod tests {
             FilterMethodStruct {
                 computed_fields: HashMap::from([(
                     "a".into(),
-                    ComputedField::Regex((Regex::new("it's a regex").unwrap(), vec![]))
+                    ComputedField::Regex((Regex::new("(?m)\\Ait's a regex\\z").unwrap(), vec![]))
                 )]),
                 ..Default::default()
             }
@@ -407,7 +433,7 @@ mod tests {
             FilterMethodStruct {
                 computed_fields: HashMap::from([(
                     "a".into(),
-                    ComputedField::Regex((Regex::new("it's a regex").unwrap(), vec![]))
+                    ComputedField::Regex((Regex::new("(?m)\\Ait's a regex\\z").unwrap(), vec![]))
                 )]),
                 ..Default::default()
             }
@@ -488,11 +514,17 @@ mod tests {
                 computed_fields: HashMap::from([
                     (
                         "a".into(),
-                        ComputedField::Regex((Regex::new("it's a regex").unwrap(), vec![]))
+                        ComputedField::Regex((
+                            Regex::new("(?m)\\Ait's a regex\\z").unwrap(),
+                            vec![]
+                        ))
                     ),
                     (
                         "b".into(),
-                        ComputedField::Regex((Regex::new("it's a regex").unwrap(), vec![]))
+                        ComputedField::Regex((
+                            Regex::new("(?m)\\Ait's a regex\\z").unwrap(),
+                            vec![]
+                        ))
                     ),
                     ("c".into(), ComputedField::Exists(true)),
                     ("d".into(), ComputedField::Exists(false)),
@@ -505,7 +537,10 @@ mod tests {
                         ComputedField::Inner(HashMap::from([
                             (
                                 "b".into(),
-                                ComputedField::Regex((Regex::new("it's a regex").unwrap(), vec![]))
+                                ComputedField::Regex((
+                                    Regex::new("(?m)\\Ait's a regex\\z").unwrap(),
+                                    vec![]
+                                ))
                             ),
                             ("c".into(), ComputedField::Exists(true)),
                             (
@@ -514,7 +549,7 @@ mod tests {
                                     (
                                         "b".into(),
                                         ComputedField::Regex((
-                                            Regex::new("it's a regex").unwrap(),
+                                            Regex::new("(?m)\\Ait's a regex\\z").unwrap(),
                                             vec![]
                                         ))
                                     ),
@@ -553,7 +588,7 @@ mod tests {
                 computed_fields: HashMap::from([(
                     "a".into(),
                     ComputedField::Regex((
-                        Regex::new("(?P<name>[a-z]+)").unwrap(),
+                        Regex::new("(?m)\\A(?P<name>[a-z]+)\\z").unwrap(),
                         vec![(patterns["name"].clone(), 0)]
                     ))
                 )]),
@@ -589,7 +624,7 @@ mod tests {
                 computed_fields: HashMap::from([(
                     "a".into(),
                     ComputedField::Regex((
-                        Regex::new("(?P<name>[a-z]+) - (?P<age>\\d+)").unwrap(),
+                        Regex::new("(?m)\\A(?P<name>[a-z]+) - (?P<age>\\d+)\\z").unwrap(),
                         vec![(patterns["age"].clone(), 0), (patterns["name"].clone(), 1)]
                     ))
                 )]),
@@ -648,14 +683,14 @@ mod tests {
                     (
                         "a".into(),
                         ComputedField::Regex((
-                            Regex::new("my name is (?P<name>[a-z]+)").unwrap(),
+                            Regex::new("(?m)\\Amy name is (?P<name>[a-z]+)\\z").unwrap(),
                             vec![(patterns["name"].clone(), 1)]
                         ))
                     ),
                     (
                         "b".into(),
                         ComputedField::Regex((
-                            Regex::new("my age is (?P<age>\\d+)").unwrap(),
+                            Regex::new("(?m)\\Amy age is (?P<age>\\d+)\\z").unwrap(),
                             vec![(patterns["age"].clone(), 0)]
                         ))
                     )
@@ -697,7 +732,7 @@ mod tests {
                 {
                     "options": {
                         "fields": {
-                            "a": "^<name>$"
+                            "a": "<name>"
                         }
                     }
                 }
@@ -806,7 +841,7 @@ mod tests {
                         "fields": {
                             "a": "^<name>$",
                             "b": {
-                                "c": "[0-9a-f]",
+                                "c": "[0-9a-f]+",
                                 "d": {
                                     "e": { "exists": true }
                                 },
