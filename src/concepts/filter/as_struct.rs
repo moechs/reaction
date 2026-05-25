@@ -7,7 +7,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::concepts::{Match, Pattern, Patterns};
+use crate::concepts::{LineContext, Match, Pattern, Patterns};
 
 use super::{FilterMethodAs, PatternSet, compute_regex_with_patterns};
 
@@ -296,10 +296,16 @@ impl FilterMethodAs for FilterMethodStruct {
         Ok(self.patterns.clone())
     }
 
-    fn get_match(&self, line: &str) -> Result<Option<Match>, String> {
-        let value = match self.options.lang {
-            Lang::JSON => serde_json::from_str::<serde_json::Value>(line)
-                .map_err(|err| format!("line is not valid JSON: {err}"))?,
+    fn get_match(&self, line: &str, context: &mut LineContext) -> Result<Option<Match>, String> {
+        let value = match &context.as_value {
+            Some(value) => value,
+            None => {
+                context.as_value = Some(match self.options.lang {
+                    Lang::JSON => serde_json::from_str::<serde_json::Value>(line)
+                        .map_err(|err| format!("line is not valid JSON: {err}"))?,
+                });
+                context.as_value.as_ref().unwrap()
+            }
         };
 
         let mut match_: Match = (0..self.patterns.len())
@@ -327,7 +333,7 @@ mod tests {
     use regex::Regex;
 
     use crate::concepts::{
-        Pattern, Patterns,
+        LineContext, Pattern, Patterns,
         filter::{
             FilterMethodAs,
             as_struct::{ComputedField, FilterMethodStruct, prepare_regex},
@@ -934,7 +940,7 @@ mod tests {
 
             for (arg, result) in tries {
                 assert_eq!(
-                    fms.get_match(arg),
+                    fms.get_match(arg, &mut LineContext::default()),
                     result,
                     "{name} (arg: {arg}, result: {result:?})"
                 );

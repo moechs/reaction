@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub use action::Action;
 pub use config::{Config, Patterns};
-pub use filter::{Duplicate, Filter};
+pub use filter::{Duplicate, Filter, LineContext};
 pub use pattern::{Pattern, PatternType};
 pub use plugin::Plugin;
 pub use stream::Stream;

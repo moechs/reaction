@@ -294,7 +294,7 @@ mod patternip_tests {
     use tokio::{fs::read_to_string, task::JoinSet};
 
     use crate::{
-        concepts::{Action, Duplicate, Filter, Pattern, now},
+        concepts::{Action, Duplicate, Filter, LineContext, Pattern, now},
         daemon::{React, tests::TestBed},
     };
 
@@ -711,7 +711,9 @@ mod patternip_tests {
                     );
                     let bed = bed.part2(filter, now(), None).await;
                     assert_eq!(
-                        bed.manager.handle_line(&line, now()).await,
+                        bed.manager
+                            .handle_line(&line, now(), &mut LineContext::default())
+                            .await,
                         React::Trigger,
                         "line: {line}"
                     );

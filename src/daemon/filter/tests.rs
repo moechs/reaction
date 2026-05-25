@@ -17,7 +17,7 @@ use super::{
     state::{filter_ordered_times_db_name, filter_triggers_db_name},
 };
 use crate::{
-    concepts::{Action, Duplicate, Filter, Pattern, Patterns, Time, now},
+    concepts::{Action, Duplicate, Filter, LineContext, Pattern, Patterns, Time, now},
     daemon::plugin::Plugins,
     protocol::{Order, PatternStatus},
     tests::TempDatabase,
@@ -186,14 +186,21 @@ async fn three_matches_then_action_then_delayed_action() {
 
         // No match
         assert_eq!(
-            bed.manager.handle_line("test 131", now).await,
+            bed.manager
+                .handle_line("test 131", now, &mut LineContext::default())
+                .await,
             React::NoMatch
         );
         bed.assert_empty_trees().await;
 
         // First match
         let one = vec!["one".to_string()];
-        assert_eq!(bed.manager.handle_line("test one", now).await, React::Match);
+        assert_eq!(
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
+            React::Match
+        );
         {
             let state = bed.manager.state.lock().await;
             assert_eq!(
@@ -211,7 +218,9 @@ async fn three_matches_then_action_then_delayed_action() {
 
         // Second match
         assert_eq!(
-            bed.manager.handle_line("test one", now1s).await,
+            bed.manager
+                .handle_line("test one", now1s, &mut LineContext::default())
+                .await,
             React::Match
         );
         {
@@ -232,7 +241,9 @@ async fn three_matches_then_action_then_delayed_action() {
         // Third match, exec
         let _block = bed.semaphore.acquire().await.unwrap();
         assert_eq!(
-            bed.manager.handle_line("test one", now2s).await,
+            bed.manager
+                .handle_line("test one", now2s, &mut LineContext::default())
+                .await,
             React::Trigger
         );
         {
@@ -314,14 +325,18 @@ async fn one_match_one_action() {
 
         // No match
         assert_eq!(
-            bed.manager.handle_line("test 131", now).await,
+            bed.manager
+                .handle_line("test 131", now, &mut LineContext::default())
+                .await,
             React::NoMatch
         );
         bed.assert_empty_trees().await;
 
         // match
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger
         );
         bed.assert_empty_trees().await;
@@ -367,7 +382,9 @@ async fn one_match_one_delayed_action() {
 
         // No match
         assert_eq!(
-            bed.manager.handle_line("test 131", now).await,
+            bed.manager
+                .handle_line("test 131", now, &mut LineContext::default())
+                .await,
             React::NoMatch
         );
         bed.assert_empty_trees().await;
@@ -375,7 +392,9 @@ async fn one_match_one_delayed_action() {
         // Match
         let one = vec!["one".to_string()];
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger
         );
         {
@@ -465,7 +484,9 @@ async fn one_db_match_one_runtime_match_one_action() {
 
         // match
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger
         );
         bed.assert_empty_trees().await;
@@ -806,13 +827,17 @@ async fn multiple_triggers() {
         let bed = bed.part2(filter, now, None).await;
 
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Match,
             "Duplicate: {dup:?}"
         );
         let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger,
             "Duplicate: {dup:?}"
         );
@@ -830,7 +855,9 @@ async fn multiple_triggers() {
 
         let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Match,
@@ -840,7 +867,9 @@ async fn multiple_triggers() {
 
         let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             match dup {
                 Duplicate::Ignore => React::Match,
                 _ => React::Trigger,
@@ -976,7 +1005,9 @@ async fn extend_trigger_multiple_after_actions() {
 
         let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger,
         );
 
@@ -991,7 +1022,9 @@ async fn extend_trigger_multiple_after_actions() {
 
         let now = crate::concepts::now();
         assert_eq!(
-            bed.manager.handle_line("test one", now).await,
+            bed.manager
+                .handle_line("test one", now, &mut LineContext::default())
+                .await,
             React::Trigger,
         );
 
@@ -1060,7 +1093,9 @@ async fn ip_specific() {
 
     let now = crate::concepts::now();
     assert_eq!(
-        bed.manager.handle_line("test 1.2.3.4", now).await,
+        bed.manager
+            .handle_line("test 1.2.3.4", now, &mut LineContext::default())
+            .await,
         React::Trigger,
     );
 
@@ -1076,7 +1111,9 @@ async fn ip_specific() {
 
     let now = crate::concepts::now();
     assert_eq!(
-        bed.manager.handle_line("test 1:2:3:4:5:6:7:8", now).await,
+        bed.manager
+            .handle_line("test 1:2:3:4:5:6:7:8", now, &mut LineContext::default())
+            .await,
         React::Trigger,
     );
 

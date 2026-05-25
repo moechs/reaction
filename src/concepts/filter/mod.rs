@@ -53,10 +53,17 @@ impl Default for FilterMethod {
     }
 }
 
+/// Trait implemented by both FilterMethods
 pub trait FilterMethodAs {
     fn setup(&mut self, config_patterns: &Patterns) -> Result<Arc<PatternSet>, String>;
-    fn get_match(&self, line: &str) -> Result<Option<Match>, String>;
+    fn get_match(&self, line: &str, context: &mut LineContext) -> Result<Option<Match>, String>;
     fn hint_regexes(&self) -> Option<Vec<String>>;
+}
+
+/// Permits computed values reuse across FilterMethods
+#[derive(Debug, Default)]
+pub struct LineContext {
+    as_value: Option<serde_json::Value>,
 }
 
 // We want patterns to be ordered
@@ -247,10 +254,14 @@ impl Filter {
         }
     }
 
-    pub fn get_match(&self, line: &str) -> Result<Option<Match>, String> {
+    pub fn get_match(
+        &self,
+        line: &str,
+        context: &mut LineContext,
+    ) -> Result<Option<Match>, String> {
         match &self.filter_method {
-            FilterMethod::Regex(method_regex) => method_regex.get_match(line),
-            FilterMethod::Struct(method_struct) => method_struct.get_match(line),
+            FilterMethod::Regex(method_regex) => method_regex.get_match(line, context),
+            FilterMethod::Struct(method_struct) => method_struct.get_match(line, context),
         }
     }
 
@@ -609,35 +620,44 @@ pub mod tests {
         filter.regex().regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here"),
+            filter.get_match("insert b here", &mut LineContext::default()),
             Ok(Some(vec!("b".into())))
         );
-        assert_eq!(filter.get_match("insert a here"), Ok(None));
-        assert_eq!(filter.get_match("youpi b youpi"), Ok(None));
-        assert_eq!(filter.get_match("insert  here"), Ok(None));
+        assert_eq!(
+            filter.get_match("insert a here", &mut LineContext::default()),
+            Ok(None)
+        );
+        assert_eq!(
+            filter.get_match("youpi b youpi", &mut LineContext::default()),
+            Ok(None)
+        );
+        assert_eq!(
+            filter.get_match("insert  here", &mut LineContext::default()),
+            Ok(None)
+        );
 
         // Ok
         assert_eq!(
             filter.get_match_from_patterns(BTreeMap::from([(pattern.clone(), "b".into())])),
-            Ok(vec!("b".into()))
+            Ok(vec!("b".into())),
         );
         // Doesn't match
         assert!(
             filter
                 .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "abc".into())]))
-                .is_err()
+                .is_err(),
         );
         // Ignored match
         assert!(
             filter
                 .get_match_from_patterns(BTreeMap::from([(pattern.clone(), "a".into())]))
-                .is_err()
+                .is_err(),
         );
         // Bad pattern
         assert!(
             filter
                 .get_match_from_patterns(BTreeMap::from([(boubou.clone(), "bou".into())]))
-                .is_err()
+                .is_err(),
         );
         // Bad number of patterns
         assert!(
@@ -646,10 +666,10 @@ pub mod tests {
                     (pattern.clone(), "b".into()),
                     (boubou.clone(), "bou".into()),
                 ]))
-                .is_err()
+                .is_err(),
         );
         // Bad number of patterns
-        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
+        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err(),);
 
         // two patterns in one regex
         filter = Filter::default();
@@ -660,14 +680,26 @@ pub mod tests {
             .push("insert <name> here and <boubou> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here and bouboubou there"),
+            filter.get_match(
+                "insert b here and bouboubou there",
+                &mut LineContext::default()
+            ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
-            filter.get_match("insert a here and bouboubou there"),
+            filter.get_match(
+                "insert a here and bouboubou there",
+                &mut LineContext::default()
+            ),
             Ok(None)
         );
-        assert_eq!(filter.get_match("insert b here and boubou there"), Ok(None));
+        assert_eq!(
+            filter.get_match(
+                "insert b here and boubou there",
+                &mut LineContext::default()
+            ),
+            Ok(None)
+        );
 
         // Ok
         assert_eq!(
@@ -676,7 +708,7 @@ pub mod tests {
                 (boubou.clone(), "bou".into()),
             ])),
             // Reordered by pattern name
-            Ok(vec!("bou".into(), "b".into()))
+            Ok(vec!("bou".into(), "b".into())),
         );
         // Doesn't match
         assert!(
@@ -685,7 +717,7 @@ pub mod tests {
                     (pattern.clone(), "abc".into()),
                     (boubou.clone(), "bou".into()),
                 ]))
-                .is_err()
+                .is_err(),
         );
         // Ignored match
         assert!(
@@ -694,7 +726,7 @@ pub mod tests {
                     (pattern.clone(), "b".into()),
                     (boubou.clone(), "boubou".into()),
                 ]))
-                .is_err()
+                .is_err(),
         );
         // Bad pattern
         assert!(
@@ -703,7 +735,7 @@ pub mod tests {
                     (pattern.clone(), "b".into()),
                     (number_pattern.clone(), "1".into()),
                 ]))
-                .is_err()
+                .is_err(),
         );
         // Bad number of patterns
         assert!(
@@ -713,10 +745,10 @@ pub mod tests {
                     (boubou.clone(), "bou".into()),
                     (number_pattern.clone(), "1".into()),
                 ]))
-                .is_err()
+                .is_err(),
         );
         // Bad number of patterns
-        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err());
+        assert!(filter.get_match_from_patterns(BTreeMap::from([])).is_err(),);
 
         // multiple regexes with same pattern
         filter = Filter::default();
@@ -727,14 +759,20 @@ pub mod tests {
             .regex
             .push("also add <name> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
-        assert_eq!(filter.get_match("insert a here"), Ok(None));
         assert_eq!(
-            filter.get_match("insert b here"),
+            filter.get_match("insert a here", &mut LineContext::default()),
+            Ok(None)
+        );
+        assert_eq!(
+            filter.get_match("insert b here", &mut LineContext::default()),
             Ok(Some(vec!("b".into())))
         );
-        assert_eq!(filter.get_match("also add a there"), Ok(None));
         assert_eq!(
-            filter.get_match("also add b there"),
+            filter.get_match("also add a there", &mut LineContext::default()),
+            Ok(None)
+        );
+        assert_eq!(
+            filter.get_match("also add b there", &mut LineContext::default()),
             Ok(Some(vec!("b".into())))
         );
 
@@ -751,24 +789,45 @@ pub mod tests {
             .push("also add <boubou> here and <name> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here and bouboubou there"),
+            filter.get_match(
+                "insert b here and bouboubou there",
+                &mut LineContext::default()
+            ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
-            filter.get_match("also add bouboubou here and b there"),
+            filter.get_match(
+                "also add bouboubou here and b there",
+                &mut LineContext::default()
+            ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
-            filter.get_match("insert a here and bouboubou there"),
+            filter.get_match(
+                "insert a here and bouboubou there",
+                &mut LineContext::default()
+            ),
             Ok(None)
         );
         assert_eq!(
-            filter.get_match("also add bouboubou here and a there"),
+            filter.get_match(
+                "also add bouboubou here and a there",
+                &mut LineContext::default()
+            ),
             Ok(None)
         );
-        assert_eq!(filter.get_match("insert b here and boubou there"), Ok(None));
         assert_eq!(
-            filter.get_match("also add boubou here and b there"),
+            filter.get_match(
+                "insert b here and boubou there",
+                &mut LineContext::default()
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            filter.get_match(
+                "also add boubou here and b there",
+                &mut LineContext::default()
+            ),
             Ok(None)
         );
     }

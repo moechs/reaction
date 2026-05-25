@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, MutexGuard, Semaphore};
 use tracing::{error, info};
 
 use crate::{
-    concepts::{Action, Duplicate, Filter, Match, Pattern, Time},
+    concepts::{Action, Duplicate, Filter, LineContext, Match, Pattern, Time},
     daemon::plugin::Plugins,
     protocol::{Order, PatternStatus},
 };
@@ -78,8 +78,8 @@ impl FilterManager {
         Ok(this)
     }
 
-    pub async fn handle_line(&self, line: &str, now: Time) -> React {
-        match self.filter.get_match(line) {
+    pub async fn handle_line(&self, line: &str, now: Time, context: &mut LineContext) -> React {
+        match self.filter.get_match(line, context) {
             Ok(Some(match_)) => {
                 if self.handle_match(match_, now).await {
                     React::Trigger

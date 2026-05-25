@@ -12,7 +12,7 @@ use tokio::{
 use tracing::{debug, error, info};
 
 use crate::{
-    concepts::{Filter, Stream, Time, now},
+    concepts::{Filter, LineContext, Stream, Time, now},
     daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
 
@@ -240,8 +240,9 @@ impl StreamManager {
     }
 
     async fn handle_line(&self, line: String, time: Time) {
+        let mut context = LineContext::default();
         for manager in self.matching_filters(&line) {
-            manager.handle_line(&line, time).await;
+            manager.handle_line(&line, time, &mut context).await;
         }
     }
 

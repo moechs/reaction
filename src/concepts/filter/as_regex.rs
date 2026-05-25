@@ -3,7 +3,7 @@ use std::sync::Arc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::concepts::{Match, Patterns, filter::compute_regex_with_patterns};
+use crate::concepts::{LineContext, Match, Patterns, filter::compute_regex_with_patterns};
 
 use super::{FilterMethodAs, PatternSet};
 
@@ -46,7 +46,7 @@ impl FilterMethodAs for FilterMethodRegex {
         Ok(self.patterns.clone())
     }
 
-    fn get_match(&self, line: &str) -> Result<Option<Match>, String> {
+    fn get_match(&self, line: &str, _context: &mut LineContext) -> Result<Option<Match>, String> {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
                 if !self.patterns.is_empty() {
@@ -85,7 +85,7 @@ mod tests {
     use regex::Regex;
 
     use crate::concepts::{
-        Patterns,
+        LineContext, Patterns,
         filter::{FilterMethodAs, as_regex::FilterMethodRegex},
         pattern::tests::{boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore},
     };
@@ -275,12 +275,29 @@ mod tests {
         filter.regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here").unwrap(),
+            filter
+                .get_match("insert b here", &mut LineContext::default())
+                .unwrap(),
             Some(vec!("b".into()))
         );
-        assert_eq!(filter.get_match("insert a here").unwrap(), None);
-        assert_eq!(filter.get_match("youpi b youpi").unwrap(), None);
-        assert_eq!(filter.get_match("insert  here").unwrap(), None);
+        assert_eq!(
+            filter
+                .get_match("insert a here", &mut LineContext::default())
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter
+                .get_match("youpi b youpi", &mut LineContext::default())
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter
+                .get_match("insert  here", &mut LineContext::default())
+                .unwrap(),
+            None
+        );
 
         // two patterns in one regex
         filter = FilterMethodRegex::default();
@@ -290,18 +307,29 @@ mod tests {
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
             filter
-                .get_match("insert b here and bouboubou there")
+                .get_match(
+                    "insert b here and bouboubou there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
             filter
-                .get_match("insert a here and bouboubou there")
+                .get_match(
+                    "insert a here and bouboubou there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             None
         );
         assert_eq!(
-            filter.get_match("insert b here and boubou there").unwrap(),
+            filter
+                .get_match(
+                    "insert b here and boubou there",
+                    &mut LineContext::default()
+                )
+                .unwrap(),
             None
         );
 
@@ -310,14 +338,28 @@ mod tests {
         filter.regex.push("insert <name> here".to_string());
         filter.regex.push("also add <name> there".to_string());
         assert!(filter.setup(&patterns).is_ok());
-        assert_eq!(filter.get_match("insert a here").unwrap(), None);
         assert_eq!(
-            filter.get_match("insert b here").unwrap(),
+            filter
+                .get_match("insert a here", &mut LineContext::default())
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter
+                .get_match("insert b here", &mut LineContext::default())
+                .unwrap(),
             Some(vec!("b".into()))
         );
-        assert_eq!(filter.get_match("also add a there").unwrap(), None);
         assert_eq!(
-            filter.get_match("also add b there").unwrap(),
+            filter
+                .get_match("also add a there", &mut LineContext::default())
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            filter
+                .get_match("also add b there", &mut LineContext::default())
+                .unwrap(),
             Some(vec!("b".into()))
         );
 
@@ -332,35 +374,55 @@ mod tests {
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
             filter
-                .get_match("insert b here and bouboubou there")
+                .get_match(
+                    "insert b here and bouboubou there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
             filter
-                .get_match("also add bouboubou here and b there")
+                .get_match(
+                    "also add bouboubou here and b there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
         );
         assert_eq!(
             filter
-                .get_match("insert a here and bouboubou there")
+                .get_match(
+                    "insert a here and bouboubou there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("also add bouboubou here and a there")
+                .get_match(
+                    "also add bouboubou here and a there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             None
         );
         assert_eq!(
-            filter.get_match("insert b here and boubou there").unwrap(),
+            filter
+                .get_match(
+                    "insert b here and boubou there",
+                    &mut LineContext::default()
+                )
+                .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("also add boubou here and b there")
+                .get_match(
+                    "also add boubou here and b there",
+                    &mut LineContext::default()
+                )
                 .unwrap(),
             None
         );
