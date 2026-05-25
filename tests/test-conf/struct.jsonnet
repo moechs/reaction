@@ -24,7 +24,6 @@
           type: 'struct',
           options: {
             lang: 'json',
-
             fields: {
               client_ip: {
                 regex: '<ip>',
@@ -33,7 +32,6 @@
                 exists: false,
               },
             },
-
           },
           actions: {
             // Don't mix code and data at home!
@@ -42,6 +40,26 @@
             // This is OK only for testing purposes.
             action1: {
               cmd: ['sh', '-c', 'echo <ip> >> ./out.txt'],
+            },
+          },
+        },
+        filter2: {
+          type: 'struct',
+          options: {
+            lang: 'json',
+            fields: {
+              client_ip: {
+                regex: '<ip>',
+              },
+            },
+          },
+          actions: {
+            // Don't mix code and data at home!
+            // You may permit arbitrary execution from vilains,
+            // if your regex is permissive enough.
+            // This is OK only for testing purposes.
+            action1: {
+              cmd: ['sh', '-c', 'echo <ip> >> ./out2.txt'],
             },
           },
         },

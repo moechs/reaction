@@ -56,7 +56,7 @@ impl Default for FilterMethod {
 pub trait FilterMethodAs {
     fn setup(&mut self, config_patterns: &Patterns) -> Result<Arc<PatternSet>, String>;
     fn get_match(&self, line: &str) -> Result<Option<Match>, String>;
-    fn hint_regexes(&self) -> Vec<String>;
+    fn hint_regexes(&self) -> Option<Vec<String>>;
 }
 
 // We want patterns to be ordered
@@ -240,7 +240,7 @@ impl Filter {
         Ok(())
     }
 
-    pub fn hint_regexes(&self) -> Vec<String> {
+    pub fn hint_regexes(&self) -> Option<Vec<String>> {
         match &self.filter_method {
             FilterMethod::Regex(method_regex) => method_regex.hint_regexes(),
             FilterMethod::Struct(method_struct) => method_struct.hint_regexes(),

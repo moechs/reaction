@@ -315,9 +315,8 @@ impl FilterMethodAs for FilterMethodStruct {
         )
     }
 
-    fn hint_regexes(&self) -> Vec<String> {
-        // TODO generate smarter hints
-        vec![".".into()]
+    fn hint_regexes(&self) -> Option<Vec<String>> {
+        None
     }
 }
 

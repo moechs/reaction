@@ -22,5 +22,8 @@ fn filter_struct() -> Result<(), Box<dyn Error>> {
     let expected = "198.51.100.12\n198.51.100.15\n";
     tmp_dir.child("out.txt").assert(expected);
 
+    let expected = "198.51.100.12\n198.51.100.13\n198.51.100.14\n198.51.100.15\n";
+    tmp_dir.child("out2.txt").assert(expected);
+
     Ok(())
 }

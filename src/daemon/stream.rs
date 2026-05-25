@@ -45,6 +45,7 @@ pub fn reader_to_stream(
 
 pub struct StreamManager {
     regex_index_to_filter_manager: Vec<FilterManager>,
+    no_regex_filter_managers: Vec<FilterManager>,
     stream: &'static Stream,
     stream_plugin: Option<StreamImpl>,
     shutdown: ShutdownToken,
@@ -72,23 +73,34 @@ impl StreamManager {
             None
         };
 
+        let find_filter = |filter_name| {
+            filter_managers
+                .iter()
+                .find(|(filter, _)| filter_name == &filter.name)
+                .unwrap()
+                .1
+                .clone()
+        };
+
         let regex_index_to_filter_manager = stream
             .regex_index_to_filter_name
             .iter()
-            .map(|filter_name| {
-                filter_managers
-                    .iter()
-                    .find(|(filter, _)| filter_name == &filter.name)
-                    .unwrap()
-                    .1
-                    .clone()
-            })
+            .map(find_filter)
+            .collect();
+
+        let no_regex_filter_managers = stream
+            .filters
+            .iter()
+            .filter(|(_, filter)| filter.hint_regexes().is_none())
+            .map(|(_, filter)| &filter.name)
+            .map(find_filter)
             .collect();
 
         debug!("successfully initialized stream {}", stream.name);
 
         Ok(StreamManager {
             regex_index_to_filter_manager,
+            no_regex_filter_managers,
             stream,
             stream_plugin,
             shutdown,
@@ -238,6 +250,7 @@ impl StreamManager {
         matches
             .into_iter()
             .map(|match_| &self.regex_index_to_filter_manager[match_])
+            .chain(self.no_regex_filter_managers.iter())
             .collect()
     }
 }

@@ -73,8 +73,8 @@ impl FilterMethodAs for FilterMethodRegex {
         Ok(None)
     }
 
-    fn hint_regexes(&self) -> Vec<String> {
-        self.regex.clone()
+    fn hint_regexes(&self) -> Option<Vec<String>> {
+        Some(self.regex.clone())
     }
 }
 

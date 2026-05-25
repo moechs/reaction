@@ -100,10 +100,14 @@ impl Stream {
             .filters
             .values()
             .flat_map(|filter| {
-                filter
-                    .hint_regexes()
-                    .into_iter()
-                    .map(|regex| (regex, filter.name.clone()))
+                if let Some(hints) = filter.hint_regexes() {
+                    hints
+                        .into_iter()
+                        .map(|regex| (regex, filter.name.clone()))
+                        .collect()
+                } else {
+                    vec![]
+                }
             })
             .collect();
 
