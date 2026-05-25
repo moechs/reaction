@@ -105,9 +105,13 @@ impl StreamManager {
     pub async fn start(mut self) {
         // First start FilterManagers persisted actions
         let now = now();
+
+        let unique_filter_managers: BTreeSet<_> =
+            self.regex_index_to_filter_manager.iter().collect();
+
         join_all(
-            self.regex_index_to_filter_manager
-                .iter()
+            unique_filter_managers
+                .into_iter()
                 .map(|filter_manager| filter_manager.start(now)),
         )
         .await;

@@ -26,7 +26,10 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
             + "'],
             filters: {
                 filter1: {
-                    regex: ['here is <num>'],
+                    regex: [
+                        'here is <num>',
+                        'regex that wont match <num>',
+                    ],
                     retry: 2,
                     retryperiod: '2s',
                     duplicate: 'rerun',
