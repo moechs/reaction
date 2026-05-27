@@ -78,7 +78,12 @@ impl FilterManager {
         Ok(this)
     }
 
-    pub async fn handle_line(&self, line: &str, now: Time, context: &mut LineContext) -> React {
+    pub async fn handle_line<'a>(
+        &self,
+        line: &'a str,
+        now: Time,
+        context: &mut LineContext<'a>,
+    ) -> React {
         match self.filter.get_match(line, context) {
             Ok(Some(match_)) => {
                 if self.handle_match(match_, now).await {

@@ -46,7 +46,11 @@ impl FilterMethodAs for FilterMethodRegex {
         Ok(self.patterns.clone())
     }
 
-    fn get_match(&self, line: &str, _context: &mut LineContext) -> Result<Option<Match>, String> {
+    fn get_match<'a>(
+        &self,
+        line: &'a str,
+        _context: &mut LineContext<'a>,
+    ) -> Result<Option<Match>, String> {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
                 if !self.patterns.is_empty() {

@@ -56,14 +56,18 @@ impl Default for FilterMethod {
 /// Trait implemented by both FilterMethods
 pub trait FilterMethodAs {
     fn setup(&mut self, config_patterns: &Patterns) -> Result<Arc<PatternSet>, String>;
-    fn get_match(&self, line: &str, context: &mut LineContext) -> Result<Option<Match>, String>;
+    fn get_match<'a>(
+        &self,
+        line: &'a str,
+        context: &mut LineContext<'a>,
+    ) -> Result<Option<Match>, String>;
     fn hint_regexes(&self) -> Option<Vec<String>>;
 }
 
 /// Permits computed values reuse across FilterMethods
 #[derive(Debug, Default)]
-pub struct LineContext {
-    as_value: Option<serde_json::Value>,
+pub struct LineContext<'a> {
+    as_value: Option<serde_json_borrow::Value<'a>>,
 }
 
 // We want patterns to be ordered
@@ -254,10 +258,10 @@ impl Filter {
         }
     }
 
-    pub fn get_match(
+    pub fn get_match<'a>(
         &self,
-        line: &str,
-        context: &mut LineContext,
+        line: &'a str,
+        context: &mut LineContext<'a>,
     ) -> Result<Option<Match>, String> {
         match &self.filter_method {
             FilterMethod::Regex(method_regex) => method_regex.get_match(line, context),

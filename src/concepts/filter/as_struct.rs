@@ -5,7 +5,8 @@ use std::{
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::Value as JValue;
+use serde_json_borrow::Value as BValue;
 
 use crate::concepts::{LineContext, Match, Pattern, Patterns};
 
@@ -49,7 +50,7 @@ pub enum Field {
 pub struct LongField {
     regex: Option<String>,
     exists: Option<bool>,
-    equals: Option<Value>,
+    equals: Option<JValue>,
     #[serde(flatten)]
     inner_fields: HashMap<String, Field>,
 }
@@ -182,7 +183,7 @@ impl Field {
 pub enum ComputedField {
     Regex((Regex, Vec<(Arc<Pattern>, usize)>)),
     Exists(bool),
-    Equals(Value),
+    Equals(JValue),
     Inner(HashMap<String, ComputedField>),
 }
 
@@ -244,25 +245,19 @@ impl ComputedField {
             .for_each(|field| field.post_compute(used_patterns));
     }
 
-    fn matches(&self, actual_value: Option<&Value>, match_: &mut Match) -> bool {
+    fn matches(&self, actual_value: &BValue, match_: &mut Match) -> bool {
         match self {
             ComputedField::Regex((regex, patterns)) => match actual_value {
-                Some(Value::String(actual_value)) => {
-                    regex_matches(regex, patterns, actual_value, match_)
-                }
-                Some(Value::Number(actual_value)) => {
-                    regex_matches(regex, patterns, actual_value.as_str(), match_)
+                BValue::Str(actual_value) => regex_matches(regex, patterns, actual_value, match_),
+                BValue::Number(actual_value) => {
+                    regex_matches(regex, patterns, &actual_value.to_string(), match_)
                 }
                 _ => false,
             },
-            ComputedField::Exists(exists) => *exists == actual_value.is_some(),
-            ComputedField::Equals(scalar_value) => {
-                actual_value.is_some_and(|actual_value| scalar_value == actual_value)
-            }
+            ComputedField::Exists(exists) => *exists == (actual_value != &BValue::Null),
+            ComputedField::Equals(scalar_value) => &JValue::from(actual_value) == scalar_value,
             ComputedField::Inner(contract_map) => match actual_value {
-                Some(Value::Object(_)) => {
-                    Self::matches_all(contract_map, actual_value.unwrap(), match_)
-                }
+                BValue::Object(_) => Self::matches_all(contract_map, actual_value, match_),
                 _ => false,
             },
         }
@@ -270,11 +265,11 @@ impl ComputedField {
 
     fn matches_all(
         this: &HashMap<String, Self>,
-        actual_values: &Value,
+        actual_values: &BValue,
         match_: &mut Match,
     ) -> bool {
         for (contract_key, contract_value) in this {
-            let actual_value = actual_values.get(contract_key);
+            let actual_value = actual_values.get(contract_key.as_str());
             let ok = contract_value.matches(actual_value, match_);
             if !ok {
                 return false;
@@ -296,13 +291,17 @@ impl FilterMethodAs for FilterMethodStruct {
         Ok(self.patterns.clone())
     }
 
-    fn get_match(&self, line: &str, context: &mut LineContext) -> Result<Option<Match>, String> {
+    fn get_match<'a>(
+        &self,
+        line: &'a str,
+        context: &mut LineContext<'a>,
+    ) -> Result<Option<Match>, String> {
         let value = match &context.as_value {
             Some(value) => value,
             None => {
                 context.as_value = Some(match self.options.lang {
-                    Lang::JSON => serde_json::from_str::<serde_json::Value>(line)
-                        .map_err(|err| format!("line is not valid JSON: {err}"))?,
+                    Lang::JSON => serde_json::from_str::<BValue>(line)
+                        .map_err(|err| format!("line is not valid JSON: {}", err))?,
                 });
                 context.as_value.as_ref().unwrap()
             }
@@ -889,6 +888,10 @@ mod tests {
                     ),
                     (
                         r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":[1,2,3],"h":"ok"}} "#,
+                        Ok(None),
+                    ),
+                    (
+                        r#" {"a":"prdb","b":{"c":"4c4b","d":{"e": 0,"z": 1},"f":1.2,"h":"ok"}} "#,
                         Ok(None),
                     ),
                     (

@@ -44,6 +44,7 @@ regex = "1.10.4"
 # Configuration languages, ser/deserialisation
 serde.workspace = true
 serde_json.workspace = true
+serde_json_borrow = "0.9.0"
 serde_yaml = "0.9.34"
 jrsonnet-evaluator = "0.4.2"
 # Error macro
@@ -93,7 +94,7 @@ chrono = { version = "0.4.38", features = ["std", "clock", "serde"] }
 futures = "0.3.30"
 remoc = { version = "0.18.3" }
 serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.117", features = ["arbitrary_precision"] }
+serde_json = { version = "1.0.117" }
 tempfile = "3.12.0"
 thiserror = "1.0.63"
 tokio = { version = "1.40.0" }
