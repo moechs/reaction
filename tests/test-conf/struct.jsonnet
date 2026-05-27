@@ -9,11 +9,11 @@
         'sh',
         '-c',
         |||
-          echo '{"useless_field":"what is the meaning of life","client_ip":"198.51.100.12"}'
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.12"}'
           sleep 0.01
-          echo '{"useless_field":"what is the meaning of life","client_ip":"198.51.100.13", "allowlisted": true}'
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.13", "allowlisted": true}'
           sleep 0.01
-          echo '{"useless_field":"what is the meaning of life","client_ip":"198.51.100.14", "allowlisted": null}'
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.14", "allowlisted": null}'
           sleep 0.01
           echo '{"client_ip":"198.51.100.15"}'
           sleep 0.01
