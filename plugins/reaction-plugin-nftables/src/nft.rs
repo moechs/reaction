@@ -1,5 +1,6 @@
 use std::{
     ffi::{CStr, CString},
+    os::raw::c_char,
     thread,
 };
 
@@ -71,7 +72,7 @@ struct NftCommand {
     ret: oneshot::Sender<Result<String, String>>,
 }
 
-fn to_rust_string(c_ptr: *const i8) -> Option<String> {
+fn to_rust_string(c_ptr: *const c_char) -> Option<String> {
     if c_ptr.is_null() {
         None
     } else {
