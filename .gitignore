@@ -1,7 +1,5 @@
 /reaction
 reaction.db
-reaction.db.old
-/data
 /reaction*.sock
 /reaction.lock
 /result
@@ -12,5 +10,4 @@ reaction.db.old
 *.swp
 /target
 /local
-.ccls-cache
 .direnv
