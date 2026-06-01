@@ -155,11 +155,15 @@ pub trait PluginInfo {
     ///
     /// Example implementation:
     /// ```
+    /// # use std::collections::BTreeSet;
+    /// # use reaction_plugin::{Hello, Manifest};
+    /// # fn manifest() -> Result<Manifest, ()> {
     /// Ok(Manifest {
     ///     hello: Hello::new(),
     ///     streams: BTreeSet::from(["mystreamtype".into()]),
     ///     actions: BTreeSet::from(["myactiontype".into()]),
     /// })
+    /// # }
     /// ```
     ///
     /// First function called.
@@ -216,19 +220,28 @@ pub trait PluginInfo {
 /// would result in the following `StreamConfig`:
 ///
 /// ```
+/// # use std::collections::BTreeMap;
+/// # use serde_json::{Value,json};
+/// # use reaction_plugin::StreamConfig;
+/// # fn test() -> StreamConfig {
 /// StreamConfig {
-///   stream_name: "mystream",
-///   stream_type: "mystreamtype",
-///   config: Value::Object(BTreeMap::from([
-///     ("key", Value::String("value")),
-///     ("num", Value::Integer(3)),
-///   ])),
+///   stream_name: "mystream".into(),
+///   stream_type: "mystreamtype".into(),
+///   config: json!({
+///     "key": "value",
+///     "num": 3,
+///   }).into(),
 /// }
+/// # }
 /// ```
 ///
 /// Don't hesitate to take advantage of [`serde_json::from_value`], to deserialize the [`Value`] into a Rust struct:
 ///
 /// ```
+/// # use serde::Deserialize;
+/// # use serde_json::{Value};
+/// # use reaction_plugin::StreamConfig;
+/// #
 /// #[derive(Deserialize)]
 /// struct MyStreamOptions {
 ///   key: String,
@@ -276,19 +289,31 @@ pub struct StreamConfig {
 /// would result in the following `ActionConfig`:
 ///
 /// ```rust
+/// # use std::collections::BTreeMap;
+/// # use serde_json::{Value,json};
+/// # use reaction_plugin::ActionConfig;
+/// # fn test() -> ActionConfig {
 /// ActionConfig {
-///   action_name: "myaction",
-///   action_type: "myactiontype",
-///   config: Value::Object(BTreeMap::from([
-///     ("boolean", Value::Boolean(true)),
-///     ("array", Value::Array([Value::String("item")])),
-///   ])),
+///   stream_name: "mystream".into(),
+///   filter_name: "myfilter".into(),
+///   action_name: "myaction".into(),
+///   action_type: "myactiontype".into(),
+///   config: json!({
+///     "boolean": true,
+///     "array": ["item"],
+///   }).into(),
+///   patterns: Default::default()
 /// }
+/// # }
 /// ```
 ///
 /// Don't hesitate to take advantage of [`serde_json::from_value`], to deserialize the [`Value`] into a Rust struct:
 ///
 /// ```rust
+/// # use serde::Deserialize;
+/// # use serde_json::{Value};
+/// # use reaction_plugin::ActionConfig;
+/// #
 /// #[derive(Deserialize)]
 /// struct MyActionOptions {
 ///   boolean: bool,

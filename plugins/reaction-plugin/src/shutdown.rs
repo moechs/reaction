@@ -4,6 +4,7 @@
 //!
 //! You can have it as an attribute of your plugin struct.
 //! ```
+//! # use reaction_plugin::shutdown::ShutdownController;
 //! struct MyPlugin {
 //!   shutdown: ShutdownController
 //! }
@@ -11,7 +12,7 @@
 //!
 //! You can then give a [`ShutdownToken`] to other tasks when creating them:
 //!
-//! ```
+//! ```ignore
 //! impl PluginInfo for MyPlugin {
 //!     async fn start(&mut self) -> RemoteResult<()> {
 //!         let token = self.shutdown.token();
@@ -27,7 +28,7 @@
 //! On closing, calling [`ShutdownController::ask_shutdown`] will inform all tasks waiting on [`ShutdownToken::wait`] that it's time to leave.
 //! Then we can wait for [`ShutdownController::wait_all_task_shutdown`] to complete.
 //!
-//! ```
+//! ```ignore
 //! impl PluginInfo for MyPlugin {
 //!     async fn close(self) -> RemoteResult<()> {
 //!         self.shutdown.ask_shutdown();
