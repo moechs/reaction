@@ -54,18 +54,13 @@ impl FilterMethodAs for FilterMethodRegex {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
                 if !self.patterns.is_empty() {
-                    let mut result = Match::new();
-                    for pattern in self.patterns.as_ref() {
-                        // if the pattern is in an optional part of the regex,
-                        // there may be no captured group for it.
-                        if let Some(match_) = matches.name(&pattern.name)
-                            && !pattern.is_ignore(match_.as_str())
-                        {
-                            let mut match_ = match_.as_str().to_string();
-                            pattern.normalize(&mut match_);
-                            result.push(match_);
-                        }
-                    }
+                    let result: Match = self
+                        .patterns
+                        .iter()
+                        .map(|pattern| pattern.get_match(&matches))
+                        .filter(Option::is_some)
+                        .map(Option::unwrap)
+                        .collect();
                     if result.len() == self.patterns.len() {
                         return Ok(Some(result));
                     }

@@ -210,11 +210,7 @@ fn regex_matches(
 ) -> bool {
     if let Some(matches) = regex.captures(actual_value) {
         for (pattern, pattern_index) in patterns {
-            // if the pattern is in an optional part of the regex,
-            // there may be no captured group for it.
-            if let Some(match_elt) = matches.name(&pattern.name) {
-                let mut match_elt = match_elt.as_str().to_string();
-                pattern.normalize(&mut match_elt);
+            if let Some(match_elt) = pattern.get_match(&matches) {
                 match_[*pattern_index] = match_elt;
             } else {
                 return false;

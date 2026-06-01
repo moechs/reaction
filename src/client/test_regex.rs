@@ -43,11 +43,11 @@ pub fn test_regex(
             let mut result = Vec::new();
             if !used_patterns.is_empty() {
                 for pattern in used_patterns.iter() {
-                    if let Some(match_) = matches.name(&pattern.name) {
-                        result.push(match_.as_str().to_string());
+                    if let Some(match_) = pattern.get_match(&matches) {
                         if pattern.is_ignore(match_.as_str()) {
                             ignored = true;
                         }
+                        result.push(match_);
                     }
                 }
                 if !ignored {

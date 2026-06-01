@@ -1,7 +1,11 @@
 {
   concurrency: 0,
   patterns: {
-    ip: { type: 'ip' },
+    ip: {
+      type: 'ip',
+      ignore: ['198.51.100.11'],
+      ignorecidr: ['198.51.100.2/31'],
+    },
   },
   streams: {
     stream1: {
@@ -9,6 +13,9 @@
         'sh',
         '-c',
         |||
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.2"}'
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.3"}'
+          echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.11"}'
           echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.12"}'
           sleep 0.01
           echo '{"useless_field":"what is the meaning of life","n":12,"f":34.56,"client_ip":"198.51.100.13", "allowlisted": true}'

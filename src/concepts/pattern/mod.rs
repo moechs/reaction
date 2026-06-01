@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use regex::{Regex, RegexSet};
+use regex::{Captures, Regex, RegexSet};
 use serde::{Deserialize, Serialize};
 
 mod ip;
@@ -145,6 +145,21 @@ impl Pattern {
         self.ignore.iter().any(|ignore| ignore == match_)
             || self.compiled_ignore_regex.is_match(match_)
             || self.ip.is_ignore(match_)
+    }
+
+    /// compiles is_match, is_ignore and normalize
+    pub fn get_match(&self, captures: &Captures<'_>) -> Option<String> {
+        // if the pattern is in an optional part of the regex,
+        // there may be no captured group for it.
+        if let Some(match_) = captures.name(&self.name)
+            && !self.is_ignore(match_.as_str())
+        {
+            let mut match_ = match_.as_str().to_string();
+            self.normalize(&mut match_);
+            Some(match_)
+        } else {
+            None
+        }
     }
 }
 
