@@ -19,6 +19,8 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
         ip: {
             type: 'ip',
             ipv6mask: 64,
+            ignore: ['2.3.4.5'],
+            ignorecidr:['fe80::/16'],
         },
     },
     streams: {
@@ -90,7 +92,7 @@ async fn ip() {
 
     config_with_cmd(
         config_path,
-        "for i in 1.2.3.4 204:31::1 5.5.5.5 1.2.3.4 204:31::1 5.5.5.5; do echo ip $i; sleep 0.01; done; sleep 0.15",
+        "for i in 2.3.4.5 fe80::1; do echo ip $i; echo ip $i; done; for i in 1.2.3.4 204:31::1 5.5.5.5 1.2.3.4 204:31::1 5.5.5.5; do echo ip $i; sleep 0.01; done; sleep 0.15",
     ).await;
 
     write(out_path, "").await.unwrap();
