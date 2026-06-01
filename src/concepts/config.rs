@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use reaction_plugin::time::parse_duration;
+use reaction_plugin::time::{deser_opt_duration, print_duration, ser_opt_duration};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -25,10 +25,13 @@ pub struct Config {
     pub concurrency: usize,
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
-    #[serde(default = "one_day", skip_serializing_if = "is_one_day")]
-    pub state_rotation_interval: Option<String>,
-    #[serde(skip)]
-    pub state_rotation_duration: Option<Duration>,
+    #[serde(
+        default = "one_day",
+        skip_serializing_if = "is_one_day",
+        deserialize_with = "deser_opt_duration",
+        serialize_with = "ser_opt_duration"
+    )]
+    pub state_rotation_interval: Option<Duration>,
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub plugins: BTreeMap<String, Plugin>,
@@ -53,10 +56,10 @@ fn dot() -> String {
     ".".into()
 }
 
-fn one_day() -> Option<String> {
-    Some("1d".into())
+fn one_day() -> Option<Duration> {
+    Some(Duration::from_hours(24))
 }
-fn is_one_day(interval: &Option<String>) -> bool {
+fn is_one_day(interval: &Option<Duration>) -> bool {
     interval == &one_day()
 }
 
@@ -135,15 +138,13 @@ impl Config {
             self.concurrency = num_cpus::get();
         }
 
-        if let Some(state_rotation_interval) = self.state_rotation_interval.as_ref() {
-            let duration = parse_duration(state_rotation_interval)
-                .map_err(|err| format!("failed to parse state_rotation_interval: {}", err))?;
-            if duration < Duration::from_mins(30) {
+        if let Some(interval) = self.state_rotation_interval.as_ref() {
+            if interval < &Duration::from_mins(30) {
                 return Err(format!(
-                    "state_rotation_interval minimum value is set to 30 mins, but you set it to '{state_rotation_interval}'"
+                    "state_rotation_interval minimum value is set to 30 mins, but you set it to '{}'",
+                    print_duration(interval)
                 ));
             }
-            self.state_rotation_duration = Some(duration);
         }
 
         // Nullify this useless field
@@ -851,7 +852,7 @@ mod tests {
         );
         assert!(cfg_org.setup().is_ok());
         assert_eq!(
-            cfg_org.state_rotation_duration,
+            cfg_org.state_rotation_interval,
             Some(Duration::from_hours(24))
         );
     }
@@ -867,7 +868,7 @@ mod tests {
         );
         assert!(cfg_org.setup().is_ok());
         assert_eq!(
-            cfg_org.state_rotation_duration,
+            cfg_org.state_rotation_interval,
             Some(Duration::from_hours(6))
         );
     }
@@ -882,6 +883,6 @@ mod tests {
             }"#,
         );
         assert!(cfg_org.setup().is_ok());
-        assert_eq!(cfg_org.state_rotation_duration, None);
+        assert_eq!(cfg_org.state_rotation_interval, None);
     }
 }

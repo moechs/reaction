@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use reaction_plugin::time::parse_duration;
+use reaction_plugin::time::{deser_opt_duration, ser_opt_duration};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -113,10 +113,14 @@ pub struct Filter {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<u32>,
-    #[serde(rename = "retryperiod", skip_serializing_if = "Option::is_none")]
-    pub retry_period: Option<String>,
-    #[serde(skip)]
-    pub retry_duration: Option<Duration>,
+    #[serde(
+        rename = "retryperiod",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deser_opt_duration",
+        serialize_with = "ser_opt_duration"
+    )]
+    pub retry_period: Option<Duration>,
 
     #[serde(default)]
     pub duplicate: Duplicate,
@@ -192,14 +196,6 @@ impl Filter {
             return Err("retry must be >= 2. Remove 'retry' and 'retryperiod' to trigger at the first occurence.".into());
         }
 
-        if let Some(retry_period) = &self.retry_period {
-            self.retry_duration = Some(
-                parse_duration(retry_period)
-                    .map_err(|err| format!("failed to parse retry period: {}", err))?,
-            );
-            self.retry_period = None;
-        }
-
         match &self.filter_type {
             FilterType::Regex => {
                 if let Some(method_regex) = self.option_regex.take() {
@@ -240,13 +236,12 @@ impl Filter {
             .values()
             .any(|action| action.ipv4only || action.ipv6only);
 
-        self.longuest_action_duration =
-            self.actions
-                .values()
-                .fold(Duration::from_secs(0), |acc, v| {
-                    v.after_duration
-                        .map_or(acc, |v| if v > acc { v } else { acc })
-                });
+        self.longuest_action_duration = self
+            .actions
+            .values()
+            .fold(Duration::from_secs(0), |acc, v| {
+                v.after.map_or(acc, |v| if v > acc { v } else { acc })
+            });
 
         Ok(())
     }
@@ -364,9 +359,9 @@ impl Filter {
 
         // Sort by after
         actions.sort_by(|a, b| {
-            a.after_duration
+            a.after
                 .unwrap_or_default()
-                .cmp(&b.after_duration.unwrap_or_default())
+                .cmp(&b.after.unwrap_or_default())
         });
         actions
     }
@@ -442,6 +437,8 @@ impl Filter {
         duplicate: Duplicate,
         config_patterns: &Patterns,
     ) -> Self {
+        use reaction_plugin::time::parse_duration;
+
         let mut filter = Self {
             actions: actions.into_iter().map(|a| (a.name.clone(), a)).collect(),
             option_regex: Some(FilterMethodRegex {
@@ -449,7 +446,7 @@ impl Filter {
                 ..Default::default()
             }),
             retry,
-            retry_period: retry_period.map(|s| s.into()),
+            retry_period: retry_period.map(|s| parse_duration(s).unwrap()),
             duplicate,
             ..Default::default()
         };
@@ -492,6 +489,8 @@ impl Filter {
 
 #[cfg(test)]
 pub mod tests {
+    use reaction_plugin::time::parse_duration;
+
     use crate::concepts::action::tests::{ok_action, ok_action_with_after};
     use crate::concepts::pattern::PatternIp;
     use crate::concepts::pattern::tests::{
@@ -542,19 +541,13 @@ pub mod tests {
 
         // retry_period but no retry
         filter = ok_filter();
-        filter.retry_period = Some("2d".into());
-        assert!(filter.setup(&name, &name, &empty_patterns).is_err());
-
-        // invalid retry_period
-        filter = ok_filter();
-        filter.retry = Some(2);
-        filter.retry_period = Some("2".into());
+        filter.retry_period = parse_duration("2d").ok();
         assert!(filter.setup(&name, &name, &empty_patterns).is_err());
 
         // ok
         filter = ok_filter();
         filter.retry = Some(2);
-        filter.retry_period = Some("2d".into());
+        filter.retry_period = parse_duration("2d").ok();
         assert!(filter.setup(&name, &name, &empty_patterns).is_ok());
     }
 
@@ -573,7 +566,7 @@ pub mod tests {
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, Duration::default());
 
-        let minute_action = ok_action_with_after(minute_str.clone(), &minute_str);
+        let minute_action = ok_action_with_after(&minute_str, &minute_str);
 
         // duration 60
         filter = ok_filter();
@@ -583,7 +576,7 @@ pub mod tests {
         filter.setup(&name, &name, &empty_patterns).unwrap();
         assert_eq!(filter.longuest_action_duration, minute);
 
-        let two_minutes_action = ok_action_with_after(two_minutes_str.clone(), &two_minutes_str);
+        let two_minutes_action = ok_action_with_after(&two_minutes_str, &two_minutes_str);
 
         // duration 120
         filter = ok_filter();

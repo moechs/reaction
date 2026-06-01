@@ -1,6 +1,9 @@
 use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc, time::Duration};
 
-use reaction_plugin::{ActionConfig, time::parse_duration};
+use reaction_plugin::{
+    ActionConfig,
+    time::{deser_opt_duration, ser_opt_duration},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
@@ -14,10 +17,13 @@ pub struct Action {
     pub cmd: Vec<String>,
 
     // TODO one shot time deserialization
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub after: Option<String>,
-    #[serde(skip)]
-    pub after_duration: Option<Duration>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deser_opt_duration",
+        serialize_with = "ser_opt_duration"
+    )]
+    pub after: Option<Duration>,
 
     #[serde(
         rename = "onexit",
@@ -108,13 +114,7 @@ impl Action {
             return Err("can't define a cmd and a plugin type".into());
         }
 
-        if let Some(after) = &self.after {
-            self.after_duration = Some(
-                parse_duration(after)
-                    .map_err(|err| format!("failed to parse after time: {}", err))?,
-            );
-            self.after = None;
-        } else if self.on_exit {
+        if self.on_exit && self.after.is_none() {
             return Err("cannot have `onexit: true`, without an `after` directive".into());
         }
 
@@ -220,9 +220,11 @@ impl Action {
         config_patterns: &super::Patterns,
         ip_only: u8,
     ) -> Self {
+        use reaction_plugin::time::parse_duration;
+
         let mut action = Self {
             cmd: cmd.into_iter().map(|s| s.into()).collect(),
-            after: after.map(|s| s.into()),
+            after: after.map(|s| parse_duration(s).unwrap()),
             on_exit,
             ipv4only: ip_only == 4,
             ipv6only: ip_only == 6,
@@ -247,6 +249,8 @@ impl Action {
 #[cfg(test)]
 pub mod tests {
 
+    use reaction_plugin::time::parse_duration;
+
     use super::*;
 
     pub fn ok_action() -> Action {
@@ -256,10 +260,10 @@ pub mod tests {
         }
     }
 
-    pub fn ok_action_with_after(d: String, name: &str) -> Action {
+    pub fn ok_action_with_after(d: &str, name: &str) -> Action {
         let mut action = Action {
             cmd: vec!["command".into()],
-            after: Some(d),
+            after: parse_duration(d).ok(),
             ..Default::default()
         };
         action

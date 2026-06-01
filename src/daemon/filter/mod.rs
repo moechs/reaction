@@ -231,7 +231,7 @@ impl FilterManager {
                     let pattern_status = cs.entry(m.clone()).or_default();
 
                     for action in self.filter.filtered_actions_from_match(&m) {
-                        let action_time = t + action.after_duration.unwrap_or_default();
+                        let action_time = t + action.after.unwrap_or_default();
                         if action_time > now {
                             // Insert action
                             pattern_status
@@ -281,7 +281,7 @@ impl FilterManager {
 
         // Scheduling each action
         for action in actions {
-            let exec_time = t + action.after_duration.unwrap_or_default();
+            let exec_time = t + action.after.unwrap_or_default();
             let m = m.clone();
 
             if exec_time <= now {

@@ -173,7 +173,7 @@ async fn daemon_start(
     plugins.manager();
 
     // Start db rotation at regular interval
-    state_rotation(shutdown.clone(), config.state_rotation_duration, db_rotate);
+    state_rotation(shutdown.clone(), config.state_rotation_interval, db_rotate);
 
     // Start Stream managers
     let stream_task_handles = stream_managers.into_iter().filter_map(|stream_manager| {
@@ -190,10 +190,10 @@ async fn daemon_start(
 
 fn state_rotation(
     shutdown: ShutdownToken,
-    state_rotation_duration: Option<Duration>,
+    state_rotation_interval: Option<Duration>,
     mut db: DatabaseRotate,
 ) {
-    if let Some(duration) = state_rotation_duration {
+    if let Some(duration) = state_rotation_interval {
         let mut interval = interval(duration);
         tokio::spawn(async move {
             // skip the first interval, that ticks immediately

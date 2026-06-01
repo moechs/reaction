@@ -8,7 +8,11 @@ use std::{
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionConfig, ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamConfig,
-    StreamImpl, line::PatternLine, main_loop, shutdown::ShutdownController, time::parse_duration,
+    StreamImpl,
+    line::PatternLine,
+    main_loop,
+    shutdown::ShutdownController,
+    time::{deser_duration, ser_duration},
 };
 use remoc::{rch::mpsc, rtc};
 use serde::{Deserialize, Serialize};
@@ -52,7 +56,8 @@ struct StreamOptions {
     /// Other nodes which are part of the cluster.
     nodes: Vec<NodeOption>,
     /// Max duration before we drop pending messages to a node we can't connect to.
-    message_timeout: String,
+    #[serde(serialize_with = "ser_duration", deserialize_with = "deser_duration")]
+    message_timeout: Duration,
 }
 
 fn ipv4_unspecified() -> Option<Ipv4Addr> {
@@ -130,9 +135,6 @@ impl PluginInfo for Plugin {
 
             let mut nodes = BTreeMap::default();
 
-            let message_timeout = parse_duration(&options.message_timeout)
-                .map_err(|err| format!("invalid message_timeout: {err}"))?;
-
             if options.bind_ipv4.is_none() && options.bind_ipv6.is_none() {
                 Err(
                     "At least one of bind_ipv4 and bind_ipv6 must be enabled. Unset at least one of them or set at least one of them to an IP.",
@@ -176,8 +178,8 @@ impl PluginInfo for Plugin {
                 listen_port: options.listen_port,
                 bind_ipv4: options.bind_ipv4,
                 bind_ipv6: options.bind_ipv6,
+                message_timeout: options.message_timeout,
                 secret_key,
-                message_timeout,
                 nodes,
                 tx,
             };

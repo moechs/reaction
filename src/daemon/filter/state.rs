@@ -64,7 +64,7 @@ impl State {
         let ordered_times = db
             .open_tree(
                 filter_ordered_times_db_name(filter),
-                filter.retry_duration.unwrap_or_default(),
+                filter.retry_period.unwrap_or_default(),
                 |(key, value)| Ok((to_time(&key)?, to_match(&value)?)),
             )
             .await?;
@@ -198,7 +198,7 @@ impl State {
     }
 
     pub async fn clear_past_matches(&mut self, now: Time) {
-        let retry_duration = self.filter.retry_duration.unwrap_or_default();
+        let retry_duration = self.filter.retry_period.unwrap_or_default();
         while self
             .ordered_times
             .first_key_value()
