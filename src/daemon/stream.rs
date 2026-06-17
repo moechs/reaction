@@ -4,15 +4,16 @@ use std::{
 };
 
 use futures::{FutureExt, Stream as AsyncStream, StreamExt, future::join_all};
-use reaction_plugin::{StreamImpl, shutdown::ShutdownToken};
+use reaction_plugin::{StreamImpl, shutdown::ShutdownToken, time::print_duration};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStderr, ChildStdout, Command},
+    time::sleep,
 };
 use tracing::{debug, error, info};
 
 use crate::{
-    concepts::{Filter, LineContext, Stream, Time, now},
+    concepts::{Behavior, Filter, FinallyBehavior, LineContext, Stream, Time, now},
     daemon::{filter::FilterManager, plugin::Plugins, utils::kill_child},
 };
 
@@ -171,6 +172,35 @@ impl StreamManager {
     }
 
     async fn start_cmd(&self) {
+        self.start_cmd_no_restart().await;
+
+        let eof = &self.stream.eof;
+        match eof.behavior {
+            Behavior::Ignore => {}
+            Behavior::Exit => self.shutdown.ask_shutdown(),
+            Behavior::Restart => {
+                let mut retries = 0;
+                while eof.retry == 0 || retries < eof.retry {
+                    retries += 1;
+
+                    info!(
+                        "{}: cmd exited, sleeping {} before retry n°{retries}",
+                        self.stream.name,
+                        print_duration(eof.after.as_ref().unwrap()),
+                    );
+                    sleep(eof.after.unwrap()).await;
+
+                    self.start_cmd_no_restart().await;
+                }
+
+                if eof.finally == Some(FinallyBehavior::Exit) {
+                    self.shutdown.ask_shutdown();
+                }
+            }
+        }
+    }
+
+    async fn start_cmd_no_restart(&self) {
         let mut child = match Command::new(&self.stream.cmd[0])
             .args(&self.stream.cmd[1..])
             .stdin(Stdio::null())

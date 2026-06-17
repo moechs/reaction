@@ -12,17 +12,17 @@ use super::{Filter, Patterns, merge_attrs};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Eof {
-    behavior: Behavior,
+    pub behavior: Behavior,
     #[serde(
         default,
         serialize_with = "ser_opt_duration",
         deserialize_with = "deser_opt_duration"
     )]
-    after: Option<Duration>,
+    pub after: Option<Duration>,
     #[serde(default)]
-    retry: u32,
+    pub retry: u32,
     #[serde(default)]
-    finally: Option<FinallyBehavior>,
+    pub finally: Option<FinallyBehavior>,
 }
 
 impl Eof {

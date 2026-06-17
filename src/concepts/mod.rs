@@ -14,7 +14,7 @@ pub use config::{Config, Patterns};
 pub use filter::{Duplicate, Filter, LineContext};
 pub use pattern::{Pattern, PatternType};
 pub use plugin::Plugin;
-pub use stream::Stream;
+pub use stream::{Behavior, Eof, FinallyBehavior, Stream};
 pub use treedb::time::{Time, now};
 
 pub type Match = Vec<String>;
