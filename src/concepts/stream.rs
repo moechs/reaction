@@ -1,11 +1,99 @@
-use std::{cmp::Ordering, collections::BTreeMap, hash::Hash};
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Display, hash::Hash, time::Duration};
 
-use reaction_plugin::StreamConfig;
+use reaction_plugin::{
+    StreamConfig,
+    time::{deser_opt_duration, ser_opt_duration},
+};
 use regex::RegexSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Filter, Patterns, merge_attrs};
+
+#[derive(Default, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Eof {
+    behavior: Behavior,
+    #[serde(
+        default,
+        serialize_with = "ser_opt_duration",
+        deserialize_with = "deser_opt_duration"
+    )]
+    after: Option<Duration>,
+    #[serde(default)]
+    retry: u32,
+    #[serde(default)]
+    finally: Option<FinallyBehavior>,
+}
+
+impl Eof {
+    pub fn is_default(&self) -> bool {
+        *self == Eof::default()
+    }
+
+    pub fn setup(&mut self) -> Result<(), String> {
+        match self.behavior {
+            Behavior::Restart => {
+                if let Some(finally) = &self.finally
+                    && self.retry == 0
+                {
+                    return Err(format!(
+                        "eof.finally is set to {finally} but there is no retry limit (eof.retry == 0). finally will never happen!"
+                    ));
+                }
+                if self.finally.is_none() && self.retry != 0 {
+                    return Err(format!(
+                        "eof.finally is not set but there is a retry limit (eof.retry != 0). you must tell what happen after the retries!"
+                    ));
+                }
+
+                if self.after.is_none() {
+                    self.after = Some(Duration::from_secs(5));
+                }
+            }
+            _ => {
+                if self.retry != 0 {
+                    return Err("eof.retry is set but eof.behavior is not set to 'restart'".into());
+                }
+                if self.after.is_some() {
+                    return Err("eof.after is set but eof.behavior is not set to 'restart'".into());
+                }
+                if self.finally.is_some() {
+                    return Err(
+                        "eof.finally is set but eof.behavior is not set to 'restart'".into(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum Behavior {
+    #[default]
+    #[serde(rename = "ignore")]
+    Ignore,
+    #[serde(rename = "exit")]
+    Exit,
+    #[serde(rename = "restart")]
+    Restart,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum FinallyBehavior {
+    #[serde(rename = "ignore")]
+    Ignore,
+    #[serde(rename = "exit")]
+    Exit,
+}
+impl Display for FinallyBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FinallyBehavior::Ignore => write!(f, "ignore"),
+            FinallyBehavior::Exit => write!(f, "exit"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Default))]
@@ -13,6 +101,8 @@ use super::{Filter, Patterns, merge_attrs};
 pub struct Stream {
     #[serde(default)]
     pub cmd: Vec<String>,
+    #[serde(default, skip_serializing_if = "Eof::is_default")]
+    pub eof: Eof,
 
     #[serde(default)]
     pub filters: BTreeMap<String, Filter>,
@@ -40,6 +130,7 @@ impl Stream {
     pub fn merge(&mut self, other: Stream) -> Result<(), String> {
         self.cmd = merge_attrs(self.cmd.clone(), other.cmd, Vec::default(), "cmd")?;
         self.stream_type = merge_attrs(self.stream_type.clone(), other.stream_type, None, "type")?;
+        self.eof = merge_attrs(self.eof.clone(), other.eof, Eof::default(), "eof")?;
 
         for (key, filter) in other.filters.into_iter() {
             if self.filters.insert(key.clone(), filter).is_some() {
@@ -73,6 +164,8 @@ impl Stream {
         if self.name.contains('.') {
             return Err("character '.' is not allowed in stream name".into());
         }
+
+        self.eof.setup()?;
 
         if !self.is_plugin() {
             if self.cmd.is_empty() {
@@ -188,5 +281,132 @@ mod tests {
         // stream ok
         stream = ok_stream();
         assert!(stream.setup(name, &BTreeMap::new()).is_ok());
+    }
+
+    #[test]
+    fn eof() {
+        let stream_template = r#"
+            "cmd": ["true"],
+            "filters": {
+                "f1": {
+                    "regex": ["^$"],
+                    "actions": {
+                        "a1": {
+                            "cmd": ["true"]
+                        }
+                    }
+                }
+            }
+        "#;
+
+        // behavior is mandatory
+        serde_json::from_str::<Stream>(&format!(
+            r#"
+                {{
+                    "eof": {{}},
+                    {stream_template}
+                }}
+            "#
+        ))
+        .unwrap_err();
+
+        for error_config in [
+            // retry but behavior is not restart
+            r#"
+                "eof": {
+                    "behavior": "ignore",
+                    "retry": 2
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "exit",
+                    "retry": 2
+                }
+            "#,
+            // after but behavior is not restart
+            r#"
+                "eof": {
+                    "behavior": "exit",
+                    "after": "10s"
+                }
+            "#,
+            // finally but behavior is not restart
+            r#"
+                "eof": {
+                    "behavior": "exit",
+                    "retry": 10,
+                    "finally": "exit"
+                }
+            "#,
+            // finally but no retry
+            r#"
+                "eof": {
+                    "behavior": "restart",
+                    "finally": "ignore"
+                }
+            "#,
+        ] {
+            let mut stream = serde_json::from_str::<Stream>(&format!(
+                r#"
+                {{
+                    {error_config},
+                    {stream_template}
+                }}
+            "#
+            ))
+            .unwrap();
+            stream.setup("s1", &BTreeMap::default()).unwrap_err();
+        }
+
+        for ok_config in [
+            r#"
+                "eof": {
+                    "behavior": "ignore"
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "exit"
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "restart"
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "restart",
+                    "after": "1min"
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "restart",
+                    "retry": 1,
+                    "finally": "ignore"
+                }
+            "#,
+            r#"
+                "eof": {
+                    "behavior": "restart",
+                    "after": "1min",
+                    "retry": 10,
+                    "finally": "exit"
+                }
+            "#,
+        ] {
+            let mut stream = serde_json::from_str::<Stream>(&format!(
+                r#"
+                {{
+                    {ok_config},
+                    {stream_template}
+                }}
+            "#
+            ))
+            .unwrap();
+            stream.setup("s1", &BTreeMap::default()).unwrap();
+        }
     }
 }
