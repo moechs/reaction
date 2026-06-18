@@ -119,8 +119,11 @@ impl StreamManager {
         // First start FilterManagers persisted actions
         let now = now();
 
-        let unique_filter_managers: BTreeSet<_> =
-            self.regex_index_to_filter_manager.iter().collect();
+        let unique_filter_managers: BTreeSet<_> = self
+            .regex_index_to_filter_manager
+            .iter()
+            .chain(self.no_regex_filter_managers.iter())
+            .collect();
 
         join_all(
             unique_filter_managers

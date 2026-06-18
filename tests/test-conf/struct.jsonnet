@@ -29,6 +29,7 @@
       ],
       filters: {
         filter1: {
+          duplicate: 'rerun',
           type: 'struct',
           options: {
             lang: 'json',
@@ -48,6 +49,11 @@
             // This is OK only for testing purposes.
             action1: {
               cmd: ['sh', '-c', 'echo <ip> >> ./out.txt'],
+            },
+            // This action is just here to enable persistance on the filter
+            action2: {
+              cmd: ['true'],
+              after: '1d',
             },
           },
         },
