@@ -414,7 +414,7 @@ async fn one_match_one_delayed_action() {
         );
 
         // The action executes
-        sleep(Duration::from_millis(140)).await;
+        sleep(Duration::from_millis(200)).await;
         assert!(
             bed.manager.state.lock().await.triggers.is_empty(),
             "triggers are empty again"

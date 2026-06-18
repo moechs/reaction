@@ -5,6 +5,9 @@
   streams: {
     s1: {
       cmd: ['sh', '-c', 'sleep 1'],
+      eof: {
+        behavior: 'exit',
+      },
       filters: {
         f1: {
           regex: ['here is <num>'],

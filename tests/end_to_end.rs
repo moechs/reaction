@@ -141,7 +141,7 @@ fn capture_streams_stderr() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn manualy_trigger_filter() -> Result<(), Box<dyn Error>> {
+fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
     let tmp_dir = assert_fs::TempDir::new()?;
 
     tmp_dir

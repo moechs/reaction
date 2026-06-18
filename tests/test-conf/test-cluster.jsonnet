@@ -21,6 +21,9 @@
   streams: {
     s0: {
       cmd: ['bash', '-c', 'sleep 1; for i in $(seq 4); do echo $i; sleep 0.1; done'],
+      eof: {
+        behavior: 'ignore',
+      },
       filters: {
         f0: {
           regex: ['^<num>$'],

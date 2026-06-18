@@ -11,6 +11,9 @@
   streams: {
     binary: {
       cmd: ['sh', '-c', 'for n in $(seq 3); do printf "\\n\\x1babc\\xe2 \\x05"; done; printf "\\n"; sleep 0.2'],
+      eof: {
+        behavior: 'exit',
+      },
       filters: {
         filt1: {
           regex: [

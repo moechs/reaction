@@ -27,6 +27,9 @@
           sleep 0.01
         |||,
       ],
+      eof: {
+        behavior: 'ignore',
+      },
       filters: {
         filter1: {
           duplicate: 'rerun',

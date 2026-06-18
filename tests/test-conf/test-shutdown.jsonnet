@@ -35,10 +35,16 @@ local dummy_filter = {
     exit_on_sigint: {
       cmd: build_cmd('log_term', exit=true),
       filters: dummy_filter,
+      eof: {
+        behavior: 'exit',
+      },
     },
     exit_on_sigkill: {
       cmd: build_cmd('log_kill', exit=false),
       filters: dummy_filter,
+      eof: {
+        behavior: 'exit',
+      },
     },
   },
 }

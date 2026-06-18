@@ -23,6 +23,9 @@ local echo(message, before='true') = [
   streams: {
     s1: {
       cmd: ['sh', '-c', 'seq 2 | while read i; do echo runtime $i; sleep 0.1; done'],
+      eof: {
+        behavior: 'ignore',
+      },
       filters: {
         f1: {
           duplicate: 'rerun',

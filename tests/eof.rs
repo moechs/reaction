@@ -37,6 +37,9 @@ async fn config_with_eof(config_path: &str, eof: &str) {
         },
         stream2: {
             cmd: ['sleep', 'infinity'],
+            eof: {
+                behavior: 'ignore',
+            },
             filters: {
                 filter1: {
                     regex: ['^$'],

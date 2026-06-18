@@ -29,6 +29,9 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
             .to_owned()
             + cmd
             + "'],
+            eof: {
+                behavior: 'exit',
+            },
             filters: {
                 filter1: {
                     regex: ['ip <ip>'],

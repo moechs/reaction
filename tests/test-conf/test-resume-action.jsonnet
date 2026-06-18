@@ -14,6 +14,9 @@
   streams: {
     s1: {
       cmd: ['sh', '-c', 'sleep 2; echo T 10.1.0.1; sleep 0.2; echo T 10.1.0.1; sleep 0.8'],
+      eof: {
+        behavior: 'exit',
+      },
       filters: {
         f1: {
           regex: ['T <ip>'],

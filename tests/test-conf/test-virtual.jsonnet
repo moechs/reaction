@@ -20,6 +20,9 @@
   streams: {
     s0: {
       cmd: ['bash', '-c', 'for i in $(seq 4); do echo $i; sleep 0.1; done; sleep 1.2'],
+      eof: {
+        behavior: 'ignore',
+      },
       filters: {
         f0: {
           regex: ['^<num>$'],

@@ -70,11 +70,11 @@ impl Eof {
 
 #[derive(Default, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Behavior {
-    #[default]
     #[serde(rename = "ignore")]
     Ignore,
     #[serde(rename = "exit")]
     Exit,
+    #[default]
     #[serde(rename = "restart")]
     Restart,
 }
