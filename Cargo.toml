@@ -1,6 +1,6 @@
 [package]
 name = "reaction"
-version = "2.4.1"
+version = "2.5.0"
 edition = "2024"
 authors = ["ppom <reaction@ppom.me>"]
 license = "AGPL-3.0"
