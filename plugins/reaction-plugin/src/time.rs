@@ -48,7 +48,9 @@ pub fn parse_duration(d: &str) -> Result<Duration, String> {
 }
 
 pub fn print_duration(val: &Duration) -> String {
-    let (u, n) = if val.as_millis() % 1000 != 0 {
+    let (u, n) = if val.is_zero() {
+        ("s", 0)
+    } else if val.as_millis() % 1000 != 0 {
         ("ms", val.as_millis())
     } else if val.as_secs() % (3600 * 24) == 0 {
         ("d", (val.as_secs() / (3600 * 24)) as u128)
