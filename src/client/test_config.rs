@@ -27,7 +27,7 @@ pub fn test_config(
     // discarded)
     let cfg_str = match format {
         Format::JSON => serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string()),
-        Format::YAML => serde_yaml::to_string(&cfg).map_err(|e| e.to_string()),
+        Format::YAML => serde_saphyr::to_string(&cfg).map_err(|e| e.to_string()),
     }
     .map_err(|e| format!("Error serializing back the configuration: {e}"))?;
 

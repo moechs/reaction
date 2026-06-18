@@ -62,7 +62,7 @@ ignorecidr:
 ",
         ]
         .into_iter()
-        .map(serde_yaml::from_str::<Pattern>)
+        .map(serde_saphyr::from_str::<Pattern>)
         .map(Result::unwrap)
         .zip(["ip", "ipv4", "ipv4_mask24", "ipv6", "ipv6_mask64"])
         .map(|(mut pat, name)| {

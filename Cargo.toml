@@ -43,10 +43,11 @@ num_cpus = "1.16.0"
 regex = "1.10.4"
 # Configuration languages, ser/deserialisation
 serde.workspace = true
+serde-saphyr = "0.0.27"
 serde_json.workspace = true
 serde_json_borrow = "0.9.0"
-serde_yaml = "0.9.34"
-jrsonnet-evaluator = "0.4.2"
+jrsonnet-evaluator = "0.5.0-pre98"
+jrsonnet-stdlib = "0.5.0-pre98"
 # Error macro
 thiserror.workspace = true
 # Async runtime & helpers
@@ -70,7 +71,7 @@ regex = "1.10.4"
 tracing = "0.1.40"
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = "0.10.1"
 treedb.workspace = true
 treedb.features = ["test"]
 tempfile.workspace = true
@@ -93,7 +94,7 @@ assert_fs = "1.1.3"
 chrono = { version = "0.4.38", features = ["std", "clock", "serde"] }
 futures = "0.3.30"
 remoc = { version = "0.18.3" }
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { version = "1.0.203", features = ["derive", "rc"] }
 serde_json = { version = "1.0.117" }
 tempfile = "3.12.0"
 thiserror = "1.0.63"

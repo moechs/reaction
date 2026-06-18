@@ -49,7 +49,7 @@ fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> 
     let cs = cs.clean();
     let encoded = match format {
         Format::JSON => serde_json::to_string_pretty(&cs)?,
-        Format::YAML => serde_yaml::to_string(&cs)?,
+        Format::YAML => serde_saphyr::to_string(&cs)?,
     };
     println!("{}", encoded);
     Ok(())

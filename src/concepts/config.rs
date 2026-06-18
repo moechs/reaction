@@ -333,7 +333,7 @@ impl Config {
     fn _load_file(path: &Path, format: Format) -> Result<Self, ConfigError> {
         let cfg: Self = match format {
             Format::Json => serde_json::from_reader(File::open(path)?)?,
-            Format::Yaml => serde_yaml::from_reader(File::open(path)?)?,
+            Format::Yaml => serde_saphyr::from_reader(File::open(path)?)?,
             Format::Jsonnet => serde_json::from_str(&jsonnet::from_path(path)?)?,
         };
         Ok(cfg)
@@ -371,32 +371,39 @@ enum ConfigError {
     #[error("{0}")]
     JSON(#[from] serde_json::Error),
     #[error("{0}")]
-    YAML(#[from] serde_yaml::Error),
+    YAML(#[from] serde_saphyr::Error),
 }
 
 mod jsonnet {
     use std::path::Path;
 
-    use jrsonnet_evaluator::{EvaluationState, FileImportResolver, error::LocError};
+    use jrsonnet_evaluator::{
+        FileImportResolver, State, StateBuilder, error::Error, manifest::JsonFormat,
+        trace::PathResolver,
+    };
 
     use super::ConfigError;
 
     pub fn from_path(path: &Path) -> Result<String, ConfigError> {
-        let state = EvaluationState::default();
-        state.with_stdlib();
-        state.set_import_resolver(Box::<FileImportResolver>::default());
-        // state.set_import_resolver(Box::new(FileImportResolver {
-        //     library_paths: Vec::new(),
-        // }));
+        let mut state_builder = StateBuilder::default();
+        state_builder.import_resolver(FileImportResolver::new(match path.parent() {
+            Some(dir) => vec![dir.into()],
+            None => vec![],
+        }));
+        state_builder.context_initializer(jrsonnet_stdlib::ContextInitializer::new(
+            PathResolver::Relative(path.to_owned()),
+        ));
+        let state = state_builder.build();
+        let _entered = state.enter();
 
         match evaluate(path, &state) {
             Ok(val) => Ok(val),
-            Err(err) => Err(ConfigError::Any(state.stringify_err(&err))),
+            Err(err) => Err(ConfigError::Any(err.to_string())),
         }
     }
-    fn evaluate(path: &Path, state: &EvaluationState) -> Result<String, LocError> {
-        let val = state.evaluate_file_raw(path)?;
-        let result = state.manifest(val)?;
+    fn evaluate(path: &Path, state: &State) -> Result<String, Error> {
+        let val = state.import(path)?;
+        let result = val.manifest(JsonFormat::default())?;
         Ok(result.to_string())
     }
 }

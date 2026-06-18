@@ -42,7 +42,10 @@ fn filter_struct() -> Result<(), Box<dyn Error>> {
         "198.51.100.15\n198.51.100.12\n198.51.100.12\n198.51.100.15\n",
     ];
     let output = read_to_string(tmp_dir.child("out.txt"))?;
-    assert!(output == expected[0] || output == expected[1]);
+    assert!(
+        output == expected[0] || output == expected[1],
+        "actual output: {output:?}, expected one of: {expected:?}"
+    );
 
     let expected = "198.51.100.12\n198.51.100.13\n198.51.100.14\n198.51.100.15\n".to_owned();
     tmp_dir.child("out2.txt").assert(expected);

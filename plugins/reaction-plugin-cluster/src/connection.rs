@@ -19,7 +19,7 @@ use treedb::{
 };
 
 use crate::{
-    cluster::{ALPN, UtcLine, connect_config},
+    cluster::{ALPN, UtcLine},
     key::Show,
 };
 
@@ -611,43 +611,39 @@ fn try_connect(
             if keep_trying {
                 eprintln!("DEBUG cluster {cluster_name}: node {node_id}: trying to connect...");
                 let connect = tokio::select! {
-                    // conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
-                    conn = endpoint.connect_with_opts(remote.clone(), ALPN[0], connect_config()) => Some(conn),
+                    conn = endpoint.connect(remote.clone(), ALPN[0]) => Some(conn),
                     _ = order_stop.recv() => None,
                 };
                 if let Some(connect) = connect {
                     let res = match connect {
-                        Ok(connecting) => match connecting.await {
-                            Ok(connection) => {
-                                eprintln!(
-                                    "DEBUG cluster {cluster_name}: node {node_id}: created connection"
-                                );
-                                match open_channels(
-                                    connection,
-                                    last_connection_id,
-                                    &cluster_name,
-                                    &node_id,
-                                )
-                                .await
-                                {
-                                    Ok(own_connection) => {
-                                        if let Err(err) = connection_tx
-                                            .send(ConnOrConn::OwnConnection(own_connection))
-                                            .await
-                                        {
-                                            eprintln!(
-                                                "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
-                                            );
-                                        }
-                                        // successfully opened connection
-                                        keep_trying = false;
-                                        Ok(())
+                        Ok(connection) => {
+                            eprintln!(
+                                "DEBUG cluster {cluster_name}: node {node_id}: created connection"
+                            );
+                            match open_channels(
+                                connection,
+                                last_connection_id,
+                                &cluster_name,
+                                &node_id,
+                            )
+                            .await
+                            {
+                                Ok(own_connection) => {
+                                    if let Err(err) = connection_tx
+                                        .send(ConnOrConn::OwnConnection(own_connection))
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "DEBUG cluster {cluster_name}: node {node_id}: quitting because ConnectionManager has quit: {err}"
+                                        );
                                     }
-                                    Err(err) => Err(err.to_string()),
+                                    // successfully opened connection
+                                    keep_trying = false;
+                                    Ok(())
                                 }
+                                Err(err) => Err(err.to_string()),
                             }
-                            Err(err) => Err(err.to_string()),
-                        },
+                        }
                         Err(err) => Err(err.to_string()),
                     };
                     if let Err(err) = res {

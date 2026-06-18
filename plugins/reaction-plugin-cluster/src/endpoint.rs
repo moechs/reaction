@@ -72,13 +72,13 @@ impl EndpointManager {
         // FIXME a malicious actor could maybe prevent a node from connecting to
         // its cluster by sending lots of invalid slow connection requests?
         // This function could be moved to a new 'oneshot' task instead
-        let remote_address = incoming.remote_address();
-        let remote_address_validated = incoming.remote_address_validated();
+        let remote_address = incoming.remote_addr();
+        let remote_address_validated = incoming.remote_addr_validated();
         let connection = match incoming.await {
             Ok(connection) => connection,
             Err(err) => {
                 if remote_address_validated {
-                    eprintln!("INFO refused connection from {}: {err}", remote_address)
+                    eprintln!("INFO refused connection from {remote_address:?}: {err}")
                 } else {
                     eprintln!("INFO refused connection: {err}")
                 }
@@ -91,7 +91,7 @@ impl EndpointManager {
         match self.connections_tx.get(&remote_id) {
             None => {
                 eprintln!(
-                    "WARN cluster {}: incoming connection from node '{}', ip: {} is not in our list, refusing incoming connection.",
+                    "WARN cluster {}: incoming connection from node '{}', ip: {:?} is not in our list, refusing incoming connection.",
                     self.cluster_name,
                     remote_id.show(),
                     remote_address

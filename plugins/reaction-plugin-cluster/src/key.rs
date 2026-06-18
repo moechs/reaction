@@ -16,7 +16,7 @@ pub async fn secret_key(dir: &str, cluster_name: &str) -> Result<SecretKey, Stri
     if let Some(key) = get_secret_key(&path).await? {
         Ok(key)
     } else {
-        let key = SecretKey::generate(&mut rand::rng());
+        let key = SecretKey::generate();
         set_secret_key(&path, &key).await?;
         Ok(key)
     }
@@ -178,7 +178,7 @@ mod tests {
         let tmp_dir_str = tmp_dir.to_str().unwrap();
 
         let path = format!("{tmp_dir_str}/secret");
-        let key = SecretKey::generate(&mut rand::rng());
+        let key = SecretKey::generate();
 
         assert!(set_secret_key(&path, &key).await.is_ok());
         let read_file = read_to_string(&path).await;
