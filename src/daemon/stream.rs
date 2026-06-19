@@ -175,35 +175,38 @@ impl StreamManager {
     }
 
     async fn start_cmd(&self) {
-        self.start_cmd_no_restart().await;
+        if !self.start_cmd_no_restart().await {
+            let eof = &self.stream.eof;
+            match eof.behavior {
+                Behavior::Ignore => {}
+                Behavior::Exit => self.shutdown.ask_shutdown(),
+                Behavior::Restart => {
+                    let mut retries = 0;
+                    while eof.retry == 0 || retries < eof.retry {
+                        retries += 1;
 
-        let eof = &self.stream.eof;
-        match eof.behavior {
-            Behavior::Ignore => {}
-            Behavior::Exit => self.shutdown.ask_shutdown(),
-            Behavior::Restart => {
-                let mut retries = 0;
-                while eof.retry == 0 || retries < eof.retry {
-                    retries += 1;
+                        info!(
+                            "{}: cmd exited, sleeping {} before retry n°{retries}",
+                            self.stream.name,
+                            print_duration(eof.after.as_ref().unwrap()),
+                        );
+                        sleep(eof.after.unwrap()).await;
 
-                    info!(
-                        "{}: cmd exited, sleeping {} before retry n°{retries}",
-                        self.stream.name,
-                        print_duration(eof.after.as_ref().unwrap()),
-                    );
-                    sleep(eof.after.unwrap()).await;
+                        if self.start_cmd_no_restart().await {
+                            return;
+                        }
+                    }
 
-                    self.start_cmd_no_restart().await;
-                }
-
-                if eof.finally == Some(FinallyBehavior::Exit) {
-                    self.shutdown.ask_shutdown();
+                    if eof.finally == Some(FinallyBehavior::Exit) {
+                        self.shutdown.ask_shutdown();
+                    }
                 }
             }
         }
     }
 
-    async fn start_cmd_no_restart(&self) {
+    /// Returns true if it has quit because of a shutdown request
+    async fn start_cmd_no_restart(&self) -> bool {
         let mut child = match Command::new(&self.stream.cmd[0])
             .args(&self.stream.cmd[1..])
             .stdin(Stdio::null())
@@ -214,7 +217,7 @@ impl StreamManager {
             Ok(child) => child,
             Err(err) => {
                 error!("could not execute stream {} cmd: {}", self.stream.name, err);
-                return;
+                return false;
             }
         };
 
@@ -226,23 +229,25 @@ impl StreamManager {
         // we know there is an stderr because we asked for Stdio::piped()
         let child_stderr = child.stderr.take().unwrap();
 
-        tokio::join!(
+        let (shutdown, _) = tokio::join!(
             self.handle_child(child),
             self.handle_io(child_stdout, child_stderr),
         );
+        shutdown
     }
 
-    async fn handle_child(&self, mut child: Child) {
+    async fn handle_child(&self, mut child: Child) -> bool {
         // wait either for the child process to exit on its own or for the shutdown signal
         futures::select! {
             _ = child.wait().fuse() => {
                 error!("stream {} exited: its command returned.", self.stream.name);
-                return;
+                return false;
             }
             _ = self.shutdown.wait().fuse() => {}
         }
 
         kill_child(child, format!("stream {}", self.stream.name), 15).await;
+        true
     }
 
     async fn handle_io(&self, child_stdout: ChildStdout, child_stderr: ChildStderr) {
