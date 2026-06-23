@@ -21,6 +21,9 @@
   streams: {
     s0: {
       cmd: ['bash', '-c', 'sleep 1; for i in $(seq 4); do echo 192.0.2.$i; echo 2001:db8:$i:a31b::$i; sleep 0.1; done; sleep 3'],
+      eof: {
+        behavior: 'exit',
+      },
       filters: {
         f0: {
           regex: ['^<ip>$'],

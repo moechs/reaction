@@ -4,7 +4,7 @@ use reaction_plugin::{Exec, shutdown::ShutdownToken, time::parse_duration};
 use remoc::rch::mpsc as remocMpsc;
 use serde::{Deserialize, Serialize};
 
-use crate::ipset::{CreateSet, IpSet, Order, SetChain, Version};
+use crate::ipset::{CreateSet, IpSet, IpSetError, Order, SetChain, Version};
 
 #[derive(Default, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum IpVersion {
@@ -180,19 +180,38 @@ impl Set {
         ] {
             if let Some(set) = set {
                 // create set
-                ipset
+                match ipset
                     .order(Order::CreateSet(CreateSet {
                         name: set.clone(),
                         version,
                         timeout: self.timeout,
                     }))
                     .await
-                    .map_err(|err| (0, err.to_string()))?;
+                {
+                    Ok(_) => Ok(()),
+                    Err(IpSetError::Thread(err)) => Err(IpSetError::Thread(err)),
+                    Err(IpSetError::IpSet(())) => {
+                        // If creation fails, that may be because it already exists.
+                        // Try deleting it and re-creating it, so we're sure it's up-to-date
+                        // And with rules inserted exactly once in iptables chains.
+                        self.destroy(ipset, None).await;
+                        ipset
+                            .order(Order::CreateSet(CreateSet {
+                                name: set.clone(),
+                                version,
+                                timeout: self.timeout,
+                            }))
+                            .await
+                    }
+                }
+                .map_err(|err| (0, err.to_string()))?;
+
                 // insert set in chains
                 for (i, chain) in self.chains.iter().enumerate() {
                     ipset
                         .order(Order::InsertSet(SetChain {
                             set: set.clone(),
+                            version,
                             chain: chain.clone(),
                             target: self.target.clone(),
                         }))
@@ -205,7 +224,10 @@ impl Set {
     }
 
     pub async fn destroy(&self, ipset: &mut IpSet, until: Option<usize>) {
-        for set in [&self.sets.ipv4, &self.sets.ipv6] {
+        for (set, version) in [
+            (&self.sets.ipv4, Version::IPv4),
+            (&self.sets.ipv6, Version::IPv6),
+        ] {
             if let Some(set) = set {
                 for chain in self
                     .chains
@@ -215,6 +237,8 @@ impl Set {
                     let _ = ipset
                         .order(Order::RemoveSet(SetChain {
                             set: set.clone(),
+                            version,
+
                             chain: chain.clone(),
                             target: self.target.clone(),
                         }))

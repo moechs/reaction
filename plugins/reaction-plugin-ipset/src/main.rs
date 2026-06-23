@@ -118,7 +118,7 @@ impl PluginInfo for Plugin {
         if let Some((last_set, failed_step, err)) = first_error {
             eprintln!("DEBUG last_set: {last_set} failed_step: {failed_step} err: {err}");
             for (curr_set, set) in self.sets.iter().enumerate().take(last_set + 1) {
-                let until = if last_set == curr_set {
+                let until = if last_set == curr_set && failed_step > 0 {
                     Some(failed_step)
                 } else {
                     None

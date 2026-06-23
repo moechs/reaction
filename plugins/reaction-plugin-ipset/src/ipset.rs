@@ -30,6 +30,7 @@ pub struct CreateSet {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SetChain {
     pub set: String,
+    pub version: Version,
     pub chain: String,
     pub target: String,
 }
@@ -97,10 +98,7 @@ impl From<IpSetError> for String {
 
 pub type OrderType = (Order, oneshot::Sender<Result<(), ()>>);
 
-struct Set {
-    session: Session<HashNet>,
-    version: Version,
-}
+pub type Set = Session<HashNet>;
 
 #[derive(Default)]
 struct IPsetManager {
@@ -141,16 +139,18 @@ impl IPsetManager {
                     })
                     .map_err(|err| eprintln!("ERROR Could not create set {name}: {err}"))?;
 
-                self.sessions.insert(name, Set { session, version });
+                self.sessions.insert(name, session);
             }
             Order::DestroySet(set) => {
-                if let Some(mut session) = self.sessions.remove(&set) {
-                    eprintln!("INFO destroying {} set {set}", session.version);
-                    session
-                        .session
-                        .destroy()
-                        .map_err(|err| eprintln!("ERROR Could not destroy set {set}: {err}"))?;
-                }
+                eprintln!("INFO destroying set {set}");
+                let mut session = self
+                    .sessions
+                    .remove(&set)
+                    .unwrap_or_else(|| Session::new(set.clone()));
+
+                session
+                    .destroy()
+                    .map_err(|err| eprintln!("ERROR Could not destroy set {set}: {err}"))?;
             }
 
             Order::InsertSet(options) => self.insert_remove_set(options, true)?,
@@ -177,9 +177,9 @@ impl IPsetManager {
             .map_err(|err| format!("`{ip}` is not recognized as an IP: {err}"))?;
 
         if insert {
-            session.session.add(net_data, &[])
+            session.add(net_data, &[])
         } else {
-            session.session.del(net_data)
+            session.del(net_data)
         }
         .map_err(|err| format!("Could not add `{ip}` to set {set}: {err}"))?;
 
@@ -191,15 +191,12 @@ impl IPsetManager {
             .map_err(|err| eprintln!("ERROR {err}"))
     }
     fn _insert_remove_set(&self, options: SetChain, insert: bool) -> Result<(), String> {
-        let SetChain { set, chain, target } = options;
-
-        let version = self
-            .sessions
-            .get(&set)
-            .ok_or(format!(
-                "No set managed by this plugin with this name: {set}"
-            ))?
-            .version;
+        let SetChain {
+            set,
+            version,
+            chain,
+            target,
+        } = options;
 
         let (verb, verbing, from) = if insert {
             ("insert", "inserting", "in")
