@@ -143,6 +143,7 @@ use serde_json::{Number, Value as JValue};
 use tokio::io::{stdin, stdout};
 
 pub mod line;
+pub mod merge;
 pub mod shutdown;
 pub mod time;
 
@@ -170,6 +171,9 @@ pub trait PluginInfo {
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError>;
 
     /// Load all plugin stream and action configurations.
+    /// `options` are top-level configurations added at the root of the plugin itself.
+    /// This is a Vec because it can be defined in multiple files. See the [`Value::merge`] helper to join those options.
+    ///
     /// Must error if config is invalid.
     ///
     /// The plugin should not start running mutable commands here:
@@ -183,6 +187,7 @@ pub trait PluginInfo {
         &mut self,
         streams: Vec<StreamConfig>,
         actions: Vec<ActionConfig>,
+        options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)>;
 
     /// Notify the plugin that setup is finished, permitting a last occasion to report an error that'll make reaction exit.
