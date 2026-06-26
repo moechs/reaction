@@ -1,0 +1,25 @@
+[package]
+name = "reaction-plugin-httpsoftban"
+description = "HTTP soft ban plugin for reaction"
+version = "0.0.1"
+edition = "2024"
+authors = ["ppom <reaction@ppom.me>"]
+license = "AGPL-3.0"
+homepage = "https://reaction.ppom.me"
+repository = "https://framagit.org/ppom/reaction"
+keywords = ["security", "waf", "fail2ban", "http", "monitoring"]
+default-run = "reaction-plugin-httpsoftban"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+remoc.workspace = true
+reaction-plugin.path = "../reaction-plugin"
+serde.workspace = true
+serde_json.workspace = true
+
+[package.metadata.deb]
+section = "net"
+assets = [
+	[ "target/release/reaction-plugin-httpsoftban", "/usr/bin/reaction-plugin-httpsoftban", "755" ],
+]
+depends = ["reaction"]
