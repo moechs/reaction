@@ -33,11 +33,10 @@ See https://blog.ppom.me/en-reaction-v2.
 YAML and [JSONnet](https://jsonnet.org/) (more powerful) are supported.
 both are extensions of JSON, so JSON is transitively supported.
 
-- See [reaction.yml](./config/example.yml) or [reaction.jsonnet](./config/example.jsonnet) for a fully explained reference (ipv4 + ipv6)
-- See the [wiki](https://reaction.ppom.me) for multiple examples, security recommendations and FAQ.
-- See [server.jsonnet](https://reaction.ppom.me/configurations/ppom/server.jsonnet.html) for a real-world configuration
+- See the [wiki](https://reaction.ppom.me/intro/) for configuration reference, multiple examples, security recommendations and FAQ.
+- See [server.jsonnet](https://reaction.ppom.me/examples/configurations/ppom/server-jsonnet/) for a real-world configuration
 - See [reaction.service](./config/reaction.service) for a systemd service file
-- This minimal example (ipv4 only) shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/security.html) part of the wiki before starting 🆙):
+- This minimal example (ipv4 only) shows what's needed to prevent brute force attacks on an ssh server (please read at least the [Security](https://reaction.ppom.me/good-practices/security/) part of the wiki before starting 🆙):
 
 <details open>
 
@@ -136,8 +135,8 @@ local banFor(time) = {
 
 </details>
 
-> It is recommended to setup reaction with [`nftables`](https://reaction.ppom.me/actions/nftables.html)
-> or [`ipset` + `iptables`](https://reaction.ppom.me/actions/ipset.html), which are much more performant
+> It is recommended to setup reaction with [`nftables`](https://reaction.ppom.me/examples/actions/nftables/)
+> or [`ipset` + `iptables`](https://reaction.ppom.me/examples/actions/ipset/), which are much more performant
 > solutions than `iptables` alone.
 
 ### Database
@@ -184,7 +183,7 @@ reaction is packaged, but the [**module**](https://framagit.org/ppom/nixos/-/blo
 
 #### OpenBSD
 
-See the [wiki](https://reaction.ppom.me/configurations/OpenBSD.html).
+See the [wiki](https://reaction.ppom.me/examples/configurations/openbsd/).
 
 ### Compilation
 
