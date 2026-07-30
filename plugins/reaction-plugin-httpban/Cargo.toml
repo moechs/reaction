@@ -17,6 +17,9 @@ reaction-plugin.path = "../reaction-plugin"
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [package.metadata.deb]
 section = "net"
 assets = [

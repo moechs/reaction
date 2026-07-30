@@ -34,6 +34,7 @@ impl MainOptions {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ComputedMainOptions {
     pub backends: BTreeMap<String, ComputedBackend>,
     pub domains: BTreeMap<String, ComputedDomain>,
@@ -41,12 +42,10 @@ pub struct ComputedMainOptions {
 
 #[derive(Serialize, Deserialize)]
 pub struct Backend {
-    #[serde(skip)]
-    pub name: String,
-
     pub host: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ComputedBackend {
     pub name: String,
     pub host: String,
@@ -54,6 +53,7 @@ pub struct ComputedBackend {
 
 #[derive(Serialize, Deserialize)]
 pub struct Domain {
+    #[serde(default)]
     pub case: CaseOrCases,
     pub default: CaseOptions,
 }
@@ -68,7 +68,7 @@ impl Domain {
             cases: {
                 let mut cases = BTreeMap::default();
                 match self.case {
-                    CaseOrCases::None(_) => (),
+                    // CaseOrCases::None => (),
                     CaseOrCases::Case(case) => {
                         cases.insert(case.set, case.options.setup()?);
                     }
@@ -92,6 +92,7 @@ impl Domain {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ComputedDomain {
     pub name: String,
     pub cases: BTreeMap<String, ComputedCaseOptions>,
@@ -99,10 +100,16 @@ pub struct ComputedDomain {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum CaseOrCases {
-    None(()),
     Case(Case),
     Cases(Vec<Case>),
+}
+
+impl Default for CaseOrCases {
+    fn default() -> Self {
+        Self::Cases(vec![])
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -115,7 +122,7 @@ pub struct Case {
 #[derive(Serialize, Deserialize)]
 pub struct CaseOptions {
     backend: Option<String>,
-    code: Option<String>,
+    code: Option<u16>,
     page: Option<String>,
     inline: Option<String>,
 }
@@ -164,19 +171,213 @@ impl CaseOptions {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ComputedCaseOptions {
     Backend(BackendSpecifier),
     Static(StaticResponse),
 }
 
 // TODO parse the path
+#[derive(Debug, PartialEq, Eq)]
 pub struct BackendSpecifier {
     backend: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct StaticResponse {
-    code: String,
+    code: u16,
     data: Vec<u8>,
 }
 
 // TODO test config loading
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, io::Write};
+
+    use serde_json::json;
+    use tempfile::NamedTempFile;
+
+    use crate::config::{
+        BackendSpecifier, ComputedBackend, ComputedCaseOptions, ComputedDomain,
+        ComputedMainOptions, MainOptions, StaticResponse,
+    };
+
+    #[test]
+    fn big_config() {
+        let html_data = "<html>
+<head><title>No way!</title></head>
+<body>You can't see this page</body>
+</html>";
+
+        let mut html_file = NamedTempFile::with_suffix(".html").unwrap();
+        html_file.write_all(html_data.as_bytes()).unwrap();
+
+        let html_path = html_file.into_temp_path();
+
+        let config = json!({
+          "backends": {
+            "funkwhale": {
+              "host": "http://localhost:8999",
+            },
+            "vault": {
+              "host": "http://localhost:8998",
+            },
+            "iocaine": {
+              "host": "unix:///run/iocaine/iocaine.sock",
+            },
+            "nginx": {
+              "host": "unix:///run/nginx/nginx.sock",
+            },
+          },
+          "domains": {
+            "music.ppom.me": {
+              "case": [
+                {
+                  "set": "pubapps",
+                  "code": 404,
+                  "page": *html_path,
+                },
+              ],
+              "default": {
+                "backend": "funkwhale",
+              },
+            },
+            "ppom.me/vault": {
+              "case": [
+                {
+                  "set": "privapps",
+                  "code": 403,
+                  "inline": "Unauthorized uwu",
+                },
+                {
+                  "set": "pubapps",
+                  "backend": "iocaine",
+                },
+              ],
+              "default": {
+                "backend": "vault",
+              },
+            },
+            "ppom.me": {
+              "default": {
+                "backend": "nginx",
+              },
+            },
+            "tokipona.ppom.me": {
+              "case": {
+                "set": "pubsites",
+                "backend": "iocaine",
+              },
+              "default": {
+                "backend": "nginx",
+              },
+            },
+          },
+        });
+
+        let config: MainOptions = serde_json::from_value(config).unwrap();
+        let computed_config = config.setup().unwrap();
+        let target_config = ComputedMainOptions {
+            backends: BTreeMap::from([
+                (
+                    "funkwhale".into(),
+                    ComputedBackend {
+                        name: "funkwhale".into(),
+                        host: "http://localhost:8999".into(),
+                    },
+                ),
+                (
+                    "vault".into(),
+                    ComputedBackend {
+                        name: "vault".into(),
+                        host: "http://localhost:8998".into(),
+                    },
+                ),
+                (
+                    "iocaine".into(),
+                    ComputedBackend {
+                        name: "iocaine".into(),
+                        host: "unix:///run/iocaine/iocaine.sock".into(),
+                    },
+                ),
+                (
+                    "nginx".into(),
+                    ComputedBackend {
+                        name: "nginx".into(),
+                        host: "unix:///run/nginx/nginx.sock".into(),
+                    },
+                ),
+            ]),
+            domains: BTreeMap::from([
+                (
+                    "music.ppom.me".into(),
+                    ComputedDomain {
+                        name: "music.ppom.me".into(),
+                        cases: BTreeMap::from([(
+                            "pubapps".into(),
+                            ComputedCaseOptions::Static(StaticResponse {
+                                code: 404,
+                                data: html_data.into(),
+                            }),
+                        )]),
+                        default: ComputedCaseOptions::Backend(BackendSpecifier {
+                            backend: "funkwhale".into(),
+                        }),
+                    },
+                ),
+                (
+                    "ppom.me/vault".into(),
+                    ComputedDomain {
+                        name: "ppom.me/vault".into(),
+                        cases: BTreeMap::from([
+                            (
+                                "privapps".into(),
+                                ComputedCaseOptions::Static(StaticResponse {
+                                    code: 403,
+                                    data: "Unauthorized uwu".into(),
+                                }),
+                            ),
+                            (
+                                "pubapps".into(),
+                                ComputedCaseOptions::Backend(BackendSpecifier {
+                                    backend: "iocaine".into(),
+                                }),
+                            ),
+                        ]),
+                        default: ComputedCaseOptions::Backend(BackendSpecifier {
+                            backend: "vault".into(),
+                        }),
+                    },
+                ),
+                (
+                    "ppom.me".into(),
+                    ComputedDomain {
+                        name: "ppom.me".into(),
+                        cases: BTreeMap::default(),
+                        default: ComputedCaseOptions::Backend(BackendSpecifier {
+                            backend: "nginx".into(),
+                        }),
+                    },
+                ),
+                (
+                    "tokipona.ppom.me".into(),
+                    ComputedDomain {
+                        name: "tokipona.ppom.me".into(),
+                        cases: BTreeMap::from([(
+                            "pubsites".into(),
+                            ComputedCaseOptions::Backend(BackendSpecifier {
+                                backend: "iocaine".into(),
+                            }),
+                        )]),
+                        default: ComputedCaseOptions::Backend(BackendSpecifier {
+                            backend: "nginx".into(),
+                        }),
+                    },
+                ),
+            ]),
+        };
+
+        assert_eq!(computed_config, target_config);
+    }
+}
