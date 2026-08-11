@@ -43,7 +43,7 @@ num_cpus = "1.16.0"
 regex = "1.10.4"
 # Configuration languages, ser/deserialisation
 serde.workspace = true
-serde-saphyr = "0.0.27"
+serde-saphyr = "0.0.25"
 serde_json.workspace = true
 serde_json_borrow = "0.9.0"
 jrsonnet-evaluator = "0.5.0-pre98"
@@ -96,7 +96,7 @@ remoc = { version = "0.18.3" }
 serde = { version = "1.0.203", features = ["derive", "rc"] }
 serde_json = { version = "1.0.117" }
 tempfile = "3.12.0"
-thiserror = "1.0.63"
+thiserror = "2.0.18"
 tokio = { version = "1.40.0" }
 tokio-util = { version = "0.7.12" }
 tracing = "0.1.40"
