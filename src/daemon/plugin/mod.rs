@@ -322,6 +322,14 @@ impl Plugins {
             let action_names: Vec<String> =
                 actions.iter().map(|action| action.to_string()).collect();
 
+            let top_options = plugin
+                .plugin
+                .options
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect();
+
             let (stream_impls, action_impls) = plugin
                 .load_config(
                     streams
@@ -332,6 +340,7 @@ impl Plugins {
                         .into_iter()
                         .map(Action::to_action_config)
                         .collect::<Result<Vec<ActionConfig>, String>>()?,
+                    top_options,
                 )
                 .await
                 .map_err(|err| {

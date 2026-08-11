@@ -16,6 +16,7 @@ use std::os::openbsd::fs::MetadataExt;
 use std::os::solaris::fs::MetadataExt;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::{
     fs,
     process::{Child, Command},
@@ -86,6 +87,9 @@ pub struct Plugin {
     pub name: String,
 
     pub path: String,
+    /// User options
+    #[serde(default)]
+    pub options: Vec<Value>,
     /// Check that plugin file owner is root
     #[serde(default = "_true")]
     pub check_root: bool,
