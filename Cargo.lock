@@ -3454,7 +3454,6 @@ dependencies = [
  "nix",
  "num_cpus",
  "predicates",
- "rand 0.10.1",
  "reaction-plugin",
  "regex",
  "remoc",
@@ -3504,7 +3503,6 @@ dependencies = [
 name = "reaction-plugin-ipset"
 version = "1.0.1"
 dependencies = [
- "futures",
  "ipset",
  "reaction-plugin",
  "remoc",
@@ -4721,7 +4719,6 @@ name = "treedb"
 version = "1.0.0"
 dependencies = [
  "chrono",
- "futures",
  "serde",
  "serde_json",
  "tempfile",

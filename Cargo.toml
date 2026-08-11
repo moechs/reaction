@@ -71,7 +71,6 @@ regex = "1.10.4"
 tracing = "0.1.40"
 
 [dev-dependencies]
-rand = "0.10.1"
 treedb.workspace = true
 treedb.features = ["test"]
 tempfile.workspace = true
