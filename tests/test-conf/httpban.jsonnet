@@ -97,7 +97,7 @@
               // l'action c'est d'ajouter l'IP à tel set.
               type: 'httpban',
               options: {
-                add: ['pubapps'],
+                add: 'pubapps',
               },
             },
             a1: {
@@ -105,7 +105,7 @@
               // l'action c'est de retirer l'IP de tel set.
               type: 'httpban',
               options: {
-                remove: ['pubapps'],
+                remove: 'pubapps',
               },
             },
           },

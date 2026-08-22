@@ -3,6 +3,53 @@ use std::{collections::BTreeMap, fs::File, io::Read};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
+pub struct ActionOptions {
+    /// The set we will add this IP to
+    pub add: Option<String>,
+    /// The set we will remove this IP from
+    pub remove: Option<String>,
+    /// The pattern name of the IP.
+    /// Defaults to "ip"
+    #[serde(default = "serde_ip")]
+    pub pattern: String,
+}
+fn serde_ip() -> String {
+    "ip".into()
+}
+impl ActionOptions {
+    pub fn setup(self) -> Result<ComputedActionOptions, &'static str> {
+        if let Some(set) = self.add {
+            if self.remove.is_none() {
+                Ok(ComputedActionOptions {
+                    action: AddRemove::Add,
+                    pattern: self.pattern,
+                    set,
+                })
+            } else {
+                Err("can't add AND remove in the same action")
+            }
+        } else if let Some(set) = self.remove {
+            Ok(ComputedActionOptions {
+                action: AddRemove::Remove,
+                pattern: self.pattern,
+                set,
+            })
+        } else {
+            Err("must either add or remove the IP from a set")
+        }
+    }
+}
+pub struct ComputedActionOptions {
+    pub action: AddRemove,
+    pub set: String,
+    pub pattern: String,
+}
+pub enum AddRemove {
+    Add,
+    Remove,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct MainOptions {
     pub backends: BTreeMap<String, Backend>,
     pub domains: BTreeMap<String, Domain>,

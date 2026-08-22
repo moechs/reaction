@@ -6,7 +6,7 @@ use reaction_plugin::{
 };
 use remoc::rtc;
 
-use crate::config::MainOptions;
+use crate::config::{ActionOptions, MainOptions};
 
 mod config;
 
@@ -41,7 +41,9 @@ impl PluginInfo for MyPlugin {
         let options: MainOptions =
             serde_json::from_value(options.into()).map_err(|err| format!("{err}"))?;
 
-        let computed_options = options.setup()?;
+        let computed_main_options = options.setup()?;
+
+        let mut computed_action_options = Vec::new();
 
         for ActionConfig {
             stream_name,
@@ -57,9 +59,41 @@ impl PluginInfo for MyPlugin {
             }
 
             let name = format!("{stream_name}.{filter_name}.{action_name}");
+
+            let options: ActionOptions = serde_json::from_value(config.into())
+                .map_err(|err| format!("invalid options for action {name}: {err}"))?;
+
+            let computed = options
+                .setup()
+                .map_err(|err| format!("invalid action {name}: {err}"))?;
+
+            computed_action_options.push(computed);
         }
 
-        // TODO check that all sets referenced by domains or by actions are used by the each others.
+        // check that all sets referenced by domains or by actions are used by the each others.
+        {
+            let domain_sets: BTreeSet<&String> = computed_main_options
+                .domains
+                .values()
+                .flat_map(|domain| domain.cases.keys())
+                .collect();
+
+            let action_sets: BTreeSet<&String> = computed_action_options
+                .iter()
+                .map(|action| &action.set)
+                .collect();
+
+            let mut errors = Vec::new();
+            errors.extend(domain_sets.difference(&action_sets).map(|set|
+                format!("Set {set} is referenced by a domain, but is not referenced in any action, so it would stay empty forever and never match")
+            ));
+            errors.extend(action_sets.difference(&domain_sets).map(|set| format!("Set {set} is referenced by an action, but is not used in any domain, so it would never be actually used")));
+            if !errors.is_empty() {
+                return Err(errors.join("\n").into());
+            }
+        }
+
+        // TODO construct and return ActionImpls
 
         Ok((vec![], vec![]))
     }
