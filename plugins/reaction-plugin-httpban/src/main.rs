@@ -6,8 +6,12 @@ use reaction_plugin::{
 };
 use remoc::rtc;
 
-use crate::config::{ActionOptions, MainOptions};
+use crate::{
+    action::ip_sets_from_names,
+    config::{ActionOptions, MainOptions},
+};
 
+mod action;
 mod config;
 
 #[tokio::main]
@@ -43,7 +47,15 @@ impl PluginInfo for MyPlugin {
 
         let computed_main_options = options.setup()?;
 
+        let ip_sets = ip_sets_from_names(
+            computed_main_options
+                .domains
+                .values()
+                .flat_map(|domain| domain.cases.keys().cloned()),
+        );
+
         let mut computed_action_options = Vec::new();
+        let mut action_sets = BTreeSet::new();
 
         for ActionConfig {
             stream_name,
@@ -63,8 +75,15 @@ impl PluginInfo for MyPlugin {
             let options: ActionOptions = serde_json::from_value(config.into())
                 .map_err(|err| format!("invalid options for action {name}: {err}"))?;
 
+            if let Some(set) = &options.add {
+                action_sets.insert(set.clone());
+            }
+            if let Some(set) = &options.remove {
+                action_sets.insert(set.clone());
+            }
+
             let computed = options
-                .setup()
+                .setup(&patterns, &ip_sets)
                 .map_err(|err| format!("invalid action {name}: {err}"))?;
 
             computed_action_options.push(computed);
@@ -72,15 +91,10 @@ impl PluginInfo for MyPlugin {
 
         // check that all sets referenced by domains or by actions are used by the each others.
         {
-            let domain_sets: BTreeSet<&String> = computed_main_options
+            let domain_sets: BTreeSet<String> = computed_main_options
                 .domains
                 .values()
-                .flat_map(|domain| domain.cases.keys())
-                .collect();
-
-            let action_sets: BTreeSet<&String> = computed_action_options
-                .iter()
-                .map(|action| &action.set)
+                .flat_map(|domain| domain.cases.keys().cloned())
                 .collect();
 
             let mut errors = Vec::new();

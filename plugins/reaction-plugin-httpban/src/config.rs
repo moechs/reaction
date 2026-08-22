@@ -1,6 +1,13 @@
-use std::{collections::BTreeMap, fs::File, io::Read};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::Read,
+    sync::{Arc, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
+
+use crate::action::{IpSets, JointSets};
 
 #[derive(Serialize, Deserialize)]
 pub struct ActionOptions {
@@ -17,31 +24,42 @@ fn serde_ip() -> String {
     "ip".into()
 }
 impl ActionOptions {
-    pub fn setup(self) -> Result<ComputedActionOptions, &'static str> {
-        if let Some(set) = self.add {
+    pub fn setup(
+        self,
+        patterns: &Vec<String>,
+        ip_sets: &IpSets,
+    ) -> Result<ComputedActionOptions, String> {
+        let set_name = if let Some(set) = self.add {
             if self.remove.is_none() {
-                Ok(ComputedActionOptions {
-                    action: AddRemove::Add,
-                    pattern: self.pattern,
-                    set,
-                })
+                Ok(set)
             } else {
                 Err("can't add AND remove in the same action")
             }
         } else if let Some(set) = self.remove {
-            Ok(ComputedActionOptions {
-                action: AddRemove::Remove,
-                pattern: self.pattern,
-                set,
-            })
+            Ok(set)
         } else {
             Err("must either add or remove the IP from a set")
+        }?;
+
+        // FIXME comment gérer cette éreur qui devrait être remontée plus tard ?
+        let set = ip_sets
+            .get(&set_name)
+            .ok_or_else(|| format!("No set named {set_name} in domains"))?;
+
+        if !patterns.contains(&self.pattern) {
+            return Err(format!("No pattern named {} in filter", self.pattern));
         }
+
+        Ok(ComputedActionOptions {
+            action: AddRemove::Remove,
+            pattern: self.pattern,
+            set: set.clone(),
+        })
     }
 }
 pub struct ComputedActionOptions {
     pub action: AddRemove,
-    pub set: String,
+    pub set: Arc<RwLock<JointSets>>,
     pub pattern: String,
 }
 pub enum AddRemove {
