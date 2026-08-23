@@ -32,7 +32,12 @@ impl PluginInfo for Plugin {
         &mut self,
         streams: Vec<StreamConfig>,
         actions: Vec<ActionConfig>,
+        options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
+        if !options.is_empty() {
+            return Err("No top-level options are allowed for this plugin at the time".into());
+        }
+
         let mut ret_streams = Vec::with_capacity(streams.len());
         let mut ret_actions = Vec::with_capacity(actions.len());
 

@@ -39,6 +39,7 @@ async fn run_with_self() {
                     .into(),
                     patterns: vec!["test".into()],
                 }],
+                vec![],
             )
             .await
             .unwrap();

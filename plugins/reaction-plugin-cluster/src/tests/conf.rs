@@ -24,6 +24,7 @@ async fn conf_stream() {
                     stream_type: "clust".into(),
                     config: stream_ok().into(),
                 }],
+                vec![],
                 vec![]
             )
             .await
@@ -115,7 +116,8 @@ async fn conf_stream() {
                         stream_type: "cluster".into(),
                         config: json.into(),
                     }],
-                    vec![]
+                    vec![],
+                    vec![],
                 )
                 .await
         ));
@@ -146,7 +148,8 @@ async fn conf_action() {
                     })
                     .into(),
                     patterns: patterns.clone(),
-                }]
+                }],
+                vec![]
             )
             .await
             .is_err()
@@ -220,6 +223,7 @@ async fn conf_action() {
                     config: json.clone().into(),
                     patterns: patterns.clone(),
                 }],
+                vec![],
             )
             .await;
 
@@ -247,6 +251,7 @@ async fn conf_send() {
                 config: stream_ok().into(),
             }],
             vec![],
+            vec![],
         )
         .await;
     assert!(res.is_ok(), "{:?}", res.map(drop));
@@ -267,6 +272,7 @@ async fn conf_send() {
                 config: json!({ "send": "message", "to": "stream" }).into(),
                 patterns: vec![],
             }],
+            vec![],
         )
         .await;
     assert!(res.is_ok(), "{:?}", res.map(drop));
@@ -287,6 +293,7 @@ async fn conf_send() {
                 config: json!({ "send": "message", "to": "stream1" }).into(),
                 patterns: vec![],
             }],
+            vec![],
         )
         .await;
     assert!(res.is_err(), "{:?}", res.map(drop));

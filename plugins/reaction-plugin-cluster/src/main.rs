@@ -8,7 +8,7 @@ use std::{
 use iroh::{EndpointAddr, PublicKey, SecretKey, TransportAddr};
 use reaction_plugin::{
     ActionConfig, ActionImpl, Exec, Hello, Line, Manifest, PluginInfo, RemoteResult, StreamConfig,
-    StreamImpl,
+    StreamImpl, Value,
     line::PatternLine,
     main_loop,
     shutdown::ShutdownController,
@@ -116,9 +116,14 @@ impl PluginInfo for Plugin {
         &mut self,
         streams: Vec<StreamConfig>,
         actions: Vec<ActionConfig>,
+        options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
         let mut ret_streams = Vec::with_capacity(streams.len());
         let mut ret_actions = Vec::with_capacity(actions.len());
+
+        if !options.is_empty() {
+            return Err("No top-level options are allowed for this plugin at the time".into());
+        }
 
         for StreamConfig {
             stream_name,

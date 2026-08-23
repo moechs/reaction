@@ -155,14 +155,18 @@ async fn two_nodes_simultaneous_startup() {
         let ((mut stream_a, action_a), (mut stream_b, action_b)) = if separate_plugin {
             let mut plugin_a = Plugin::default();
             let (sa, aa) = stream_action("a", 0, &POOL[0..2]).await;
-            let (mut streams_a, mut actions_a) =
-                plugin_a.load_config(vec![sa], vec![aa]).await.unwrap();
+            let (mut streams_a, mut actions_a) = plugin_a
+                .load_config(vec![sa], vec![aa], vec![])
+                .await
+                .unwrap();
             plugin_a.start().await.unwrap();
 
             let mut plugin_b = Plugin::default();
             let (sb, ab) = stream_action("b", 1, &POOL[0..2]).await;
-            let (mut streams_b, mut actions_b) =
-                plugin_b.load_config(vec![sb], vec![ab]).await.unwrap();
+            let (mut streams_b, mut actions_b) = plugin_b
+                .load_config(vec![sb], vec![ab], vec![])
+                .await
+                .unwrap();
             plugin_b.start().await.unwrap();
             (
                 (streams_a.remove(0), actions_a.remove(0)),
@@ -173,7 +177,7 @@ async fn two_nodes_simultaneous_startup() {
             let a = stream_action("a", 0, &POOL[0..2]).await;
             let b = stream_action("b", 1, &POOL[0..2]).await;
             let (mut streams, mut actions) = plugin
-                .load_config(vec![a.0, b.0], vec![a.1, b.1])
+                .load_config(vec![a.0, b.0], vec![a.1, b.1], vec![])
                 .await
                 .unwrap();
             plugin.start().await.unwrap();
@@ -258,7 +262,7 @@ async fn n_nodes_simultaneous_startup() {
             )
             .await;
             let (mut stream, mut action) = plugin
-                .load_config(vec![stream], vec![action])
+                .load_config(vec![stream], vec![action], vec![])
                 .await
                 .unwrap();
             plugin.start().await.unwrap();

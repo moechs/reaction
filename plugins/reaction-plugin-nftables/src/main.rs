@@ -10,7 +10,7 @@ use nftables::{
 };
 use reaction_plugin::{
     ActionConfig, ActionImpl, Hello, Manifest, PluginInfo, RemoteResult, StreamConfig, StreamImpl,
-    shutdown::ShutdownController,
+    Value, shutdown::ShutdownController,
 };
 use remoc::rtc;
 
@@ -53,7 +53,12 @@ impl PluginInfo for Plugin {
         &mut self,
         streams: Vec<StreamConfig>,
         actions: Vec<ActionConfig>,
+        options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
+        if !options.is_empty() {
+            return Err("No top-level options are allowed for this plugin at the time".into());
+        }
+
         if !streams.is_empty() {
             return Err("This plugin can't handle any stream type".into());
         }

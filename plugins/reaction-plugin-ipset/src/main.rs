@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use reaction_plugin::{
     ActionConfig, ActionImpl, Hello, Manifest, PluginInfo, RemoteError, RemoteResult, StreamConfig,
-    StreamImpl,
+    StreamImpl, Value,
     shutdown::{ShutdownController, ShutdownToken},
 };
 use remoc::rtc;
@@ -45,9 +45,14 @@ impl PluginInfo for Plugin {
         &mut self,
         streams: Vec<StreamConfig>,
         actions: Vec<ActionConfig>,
+        options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
         if !streams.is_empty() {
             return Err("This plugin can't handle any stream type".into());
+        }
+
+        if !options.is_empty() {
+            return Err("No top-level options are allowed for this plugin at the time".into());
         }
 
         let mut ret_actions = Vec::with_capacity(actions.len());
