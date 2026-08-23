@@ -2,10 +2,11 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::Read,
-    ops::Index,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
+use pingora_core::protocols::l4::socket::SocketAddr;
 use reaction_plugin::Exec;
 use remoc::rch::mpsc;
 use serde::{Deserialize, Serialize};
@@ -90,15 +91,19 @@ impl MainOptions {
                 .backends
                 .into_iter()
                 .map(|(k, b)| {
-                    (
+                    Ok((
                         k.clone(),
                         ComputedBackend {
                             name: k,
-                            host: b.host,
+                            addr: SocketAddr::from_str(&b.host).map_err(|err| {
+                                format!(
+                                    "Invalid backend address: {err}. Format is either unix:PATH or IP:PORT"
+                                )
+                            })?,
                         },
-                    )
+                    ))
                 })
-                .collect(),
+                .collect::<Result<_, String>>()?,
             // TODO check that backend exist
             domains: self
                 .domains
@@ -124,7 +129,7 @@ pub struct Backend {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ComputedBackend {
     pub name: String,
-    pub host: String,
+    pub addr: SocketAddr,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -269,8 +274,14 @@ pub struct StaticResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, io::Write};
+    use std::{
+        collections::BTreeMap,
+        io::Write,
+        net::{Ipv4Addr, SocketAddr as StdInetSocketAddr, SocketAddrV4},
+        os::unix::net::SocketAddr as StdUnixSocketAddr,
+    };
 
+    use pingora_core::protocols::l4::socket::SocketAddr;
     use serde_json::json;
     use tempfile::NamedTempFile;
 
@@ -295,16 +306,16 @@ mod tests {
           "port": 2048,
           "backends": {
             "funkwhale": {
-              "host": "http://localhost:8999",
+              "host": "127.0.0.1:8999",
             },
             "vault": {
-              "host": "http://localhost:8998",
+              "host": "127.0.0.1:8998",
             },
             "iocaine": {
-              "host": "unix:///run/iocaine/iocaine.sock",
+              "host": "unix:/run/iocaine/iocaine.sock",
             },
             "nginx": {
-              "host": "unix:///run/nginx/nginx.sock",
+              "host": "unix:/run/nginx/nginx.sock",
             },
           },
           "domains": {
@@ -362,28 +373,38 @@ mod tests {
                     "funkwhale".into(),
                     ComputedBackend {
                         name: "funkwhale".into(),
-                        host: "http://localhost:8999".into(),
+                        addr: SocketAddr::Inet(StdInetSocketAddr::V4(SocketAddrV4::new(
+                            Ipv4Addr::from_octets([127, 0, 0, 1]),
+                            8999,
+                        ))),
                     },
                 ),
                 (
                     "vault".into(),
                     ComputedBackend {
                         name: "vault".into(),
-                        host: "http://localhost:8998".into(),
+                        addr: SocketAddr::Inet(StdInetSocketAddr::V4(SocketAddrV4::new(
+                            Ipv4Addr::from_octets([127, 0, 0, 1]),
+                            8998,
+                        ))),
                     },
                 ),
                 (
                     "iocaine".into(),
                     ComputedBackend {
                         name: "iocaine".into(),
-                        host: "unix:///run/iocaine/iocaine.sock".into(),
+                        addr: SocketAddr::Unix(
+                            StdUnixSocketAddr::from_pathname("/run/iocaine/iocaine.sock").unwrap(),
+                        ),
                     },
                 ),
                 (
                     "nginx".into(),
                     ComputedBackend {
                         name: "nginx".into(),
-                        host: "unix:///run/nginx/nginx.sock".into(),
+                        addr: SocketAddr::Unix(
+                            StdUnixSocketAddr::from_pathname("/run/nginx/nginx.sock").unwrap(),
+                        ),
                     },
                 ),
             ]),

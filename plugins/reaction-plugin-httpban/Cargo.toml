@@ -19,6 +19,8 @@ serde_json.workspace = true
 prefix-trie = "0.10.1"
 ipnet = "2.12.1"
 pingora-proxy = "0.8.1"
+pingora-core = "0.8.1"
+async-trait = "0.1.92"
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -13,6 +13,7 @@ use crate::{
 
 mod action;
 mod config;
+mod proxy;
 
 #[tokio::main]
 async fn main() {
