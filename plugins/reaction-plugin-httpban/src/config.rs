@@ -33,14 +33,14 @@ impl ActionOptions {
         ip_sets: &IpSets,
         rx: mpsc::Receiver<Exec>,
     ) -> Result<ComputedActionOptions, Option<String>> {
-        let set_name = if let Some(set) = self.add {
+        let (set_name, action) = if let Some(set) = self.add {
             if self.remove.is_none() {
-                Ok(set)
+                Ok((set, AddRemove::Add))
             } else {
                 Err(Some("can't add AND remove in the same action".into()))
             }
         } else if let Some(set) = self.remove {
-            Ok(set)
+            Ok((set, AddRemove::Remove))
         } else {
             Err(Some("must either add or remove the IP from a set".into()))
         }?;
@@ -57,7 +57,7 @@ impl ActionOptions {
             .0;
 
         Ok(ComputedActionOptions {
-            action: AddRemove::Remove,
+            action,
             pattern,
             set: set.clone(),
             rx,
@@ -77,6 +77,7 @@ pub enum AddRemove {
 
 #[derive(Serialize, Deserialize)]
 pub struct MainOptions {
+    pub port: u16,
     pub backends: BTreeMap<String, Backend>,
     pub domains: BTreeMap<String, Domain>,
 }
@@ -84,6 +85,7 @@ pub struct MainOptions {
 impl MainOptions {
     pub fn setup(self) -> Result<ComputedMainOptions, String> {
         Ok(ComputedMainOptions {
+            port: self.port,
             backends: self
                 .backends
                 .into_iter()
@@ -109,6 +111,7 @@ impl MainOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ComputedMainOptions {
+    pub port: u16,
     pub backends: BTreeMap<String, ComputedBackend>,
     pub domains: BTreeMap<String, ComputedDomain>,
 }
@@ -289,6 +292,7 @@ mod tests {
         let html_path = html_file.into_temp_path();
 
         let config = json!({
+          "port": 2048,
           "backends": {
             "funkwhale": {
               "host": "http://localhost:8999",
@@ -352,6 +356,7 @@ mod tests {
         let config: MainOptions = serde_json::from_value(config).unwrap();
         let computed_config = config.setup().unwrap();
         let target_config = ComputedMainOptions {
+            port: 2048,
             backends: BTreeMap::from([
                 (
                     "funkwhale".into(),

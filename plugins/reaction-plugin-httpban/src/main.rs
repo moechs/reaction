@@ -117,6 +117,10 @@ impl PluginInfo for MyPlugin {
             }
         }
 
+        for action in computed_action_options {
+            tokio::spawn(async move { action.serve().await });
+        }
+
         Ok((vec![], ret_actions))
     }
 
