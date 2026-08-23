@@ -2,9 +2,12 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::Read,
+    ops::Index,
     sync::{Arc, RwLock},
 };
 
+use reaction_plugin::Exec;
+use remoc::rch::mpsc;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{IpSets, JointSets};
@@ -28,39 +31,44 @@ impl ActionOptions {
         self,
         patterns: &Vec<String>,
         ip_sets: &IpSets,
-    ) -> Result<ComputedActionOptions, String> {
+        rx: mpsc::Receiver<Exec>,
+    ) -> Result<ComputedActionOptions, Option<String>> {
         let set_name = if let Some(set) = self.add {
             if self.remove.is_none() {
                 Ok(set)
             } else {
-                Err("can't add AND remove in the same action")
+                Err(Some("can't add AND remove in the same action".into()))
             }
         } else if let Some(set) = self.remove {
             Ok(set)
         } else {
-            Err("must either add or remove the IP from a set")
+            Err(Some("must either add or remove the IP from a set".into()))
         }?;
 
-        // FIXME comment gérer cette éreur qui devrait être remontée plus tard ?
-        let set = ip_sets
-            .get(&set_name)
-            .ok_or_else(|| format!("No set named {set_name} in domains"))?;
+        // We error but we mark the error as skipable
+        // The mismatch between action and domain sets will be catch later by the caller
+        let set = ip_sets.get(&set_name).ok_or(None)?;
 
-        if !patterns.contains(&self.pattern) {
-            return Err(format!("No pattern named {} in filter", self.pattern));
-        }
+        let pattern = patterns
+            .iter()
+            .enumerate()
+            .find(|p| &self.pattern == p.1)
+            .ok_or_else(|| Some(format!("No pattern named {} in filter", self.pattern)))?
+            .0;
 
         Ok(ComputedActionOptions {
             action: AddRemove::Remove,
-            pattern: self.pattern,
+            pattern,
             set: set.clone(),
+            rx,
         })
     }
 }
 pub struct ComputedActionOptions {
     pub action: AddRemove,
     pub set: Arc<RwLock<JointSets>>,
-    pub pattern: String,
+    pub pattern: usize,
+    pub rx: mpsc::Receiver<Exec>,
 }
 pub enum AddRemove {
     Add,

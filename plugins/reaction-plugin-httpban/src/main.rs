@@ -56,6 +56,7 @@ impl PluginInfo for MyPlugin {
 
         let mut computed_action_options = Vec::new();
         let mut action_sets = BTreeSet::new();
+        let mut ret_actions = Vec::new();
 
         for ActionConfig {
             stream_name,
@@ -82,11 +83,20 @@ impl PluginInfo for MyPlugin {
                 action_sets.insert(set.clone());
             }
 
-            let computed = options
-                .setup(&patterns, &ip_sets)
-                .map_err(|err| format!("invalid action {name}: {err}"))?;
+            let (tx, rx) = remoc::rch::mpsc::channel(1);
 
-            computed_action_options.push(computed);
+            match options.setup(&patterns, &ip_sets, rx) {
+                Ok(computed) => {
+                    computed_action_options.push(computed);
+                    ret_actions.push(ActionImpl { tx });
+                }
+                Err(err) => match err {
+                    Some(err) => Err(format!("invalid action {name}: {err}"))?,
+                    None => {
+                        // That's fine, we will return an error later about the set mismatch between domains and actions
+                    }
+                },
+            }
         }
 
         // check that all sets referenced by domains or by actions are used by the each others.
@@ -107,9 +117,7 @@ impl PluginInfo for MyPlugin {
             }
         }
 
-        // TODO construct and return ActionImpls
-
-        Ok((vec![], vec![]))
+        Ok((vec![], ret_actions))
     }
 
     async fn start(&mut self) -> RemoteResult<()> {
