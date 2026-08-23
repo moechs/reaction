@@ -14,14 +14,20 @@ async fn conf_stream() {
                     stream_type: "nftables".into(),
                     config: Value::Null
                 }],
-                vec![]
+                vec![],
+                vec![],
             )
             .await
             .is_err()
     );
 
     // Empty config is ok
-    assert!(Plugin::default().load_config(vec![], vec![]).await.is_ok());
+    assert!(
+        Plugin::default()
+            .load_config(vec![], vec![], vec![])
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -124,6 +130,7 @@ async fn conf_action_standalone() {
                     config: conf.clone().into(),
                     patterns: patterns.clone(),
                 }],
+                vec![],
             )
             .await;
 
@@ -210,6 +217,7 @@ async fn conf_action_merge() {
                     patterns: vec!["ip".into()],
                 },
             ],
+            vec![],
         )
         .await;
 
@@ -241,6 +249,7 @@ async fn conf_action_merge() {
                     patterns: vec!["ip".into()],
                 },
             ],
+            vec![],
         )
         .await;
     assert!(res.is_err(), "res: {:?}", res.map(drop));

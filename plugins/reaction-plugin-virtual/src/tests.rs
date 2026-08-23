@@ -16,7 +16,8 @@ async fn conf_stream() {
                     stream_type: "virtu".into(),
                     config: Value::Null
                 }],
-                vec![]
+                vec![],
+                vec![],
             )
             .await
             .is_err()
@@ -30,6 +31,7 @@ async fn conf_stream() {
                     stream_type: "virtual".into(),
                     config: Value::Null
                 }],
+                vec![],
                 vec![]
             )
             .await
@@ -44,6 +46,7 @@ async fn conf_stream() {
                     stream_type: "virtual".into(),
                     config: json!({}).into(),
                 }],
+                vec![],
                 vec![]
             )
             .await
@@ -59,6 +62,7 @@ async fn conf_stream() {
                     stream_type: "virtual".into(),
                     config: json!({"key": "value" }).into(),
                 }],
+                vec![],
                 vec![]
             )
             .await
@@ -94,7 +98,8 @@ async fn conf_action() {
                     action_type: "virtu".into(),
                     config: Value::Null,
                     patterns: patterns.clone(),
-                }]
+                }],
+                vec![],
             )
             .await
             .is_err()
@@ -110,7 +115,8 @@ async fn conf_action() {
                     action_type: "virtual".into(),
                     config: valid_conf.into(),
                     patterns: patterns.clone()
-                }]
+                }],
+                vec![],
             )
             .await
             .is_ok()
@@ -128,7 +134,8 @@ async fn conf_action() {
                         action_type: "virtual".into(),
                         config: conf.clone().into(),
                         patterns: patterns.clone()
-                    }]
+                    }],
+                    vec![],
                 )
                 .await
                 .is_err(),
@@ -156,7 +163,8 @@ async fn conf_send() {
                     action_type: "virtual".into(),
                     config: json!({ "send": "message", "to": "stream" }).into(),
                     patterns: vec![],
-                }]
+                }],
+                vec![],
             )
             .await
             .is_ok(),
@@ -178,7 +186,8 @@ async fn conf_send() {
                     action_type: "virtual".into(),
                     config: json!({ "send": "message", "to": "stream1" }).into(),
                     patterns: vec![],
-                }]
+                }],
+                vec![],
             )
             .await
             .is_err(),
@@ -223,6 +232,7 @@ async fn run_simple() {
                 config: json!({ "send": "message <test>", "to": "stream" }).into(),
                 patterns: vec!["test".into()],
             }],
+            vec![],
         )
         .await
         .unwrap();
@@ -278,6 +288,7 @@ async fn run_two_actions() {
                     patterns: vec!["a".into(), "b".into()],
                 },
             ],
+            vec![],
         )
         .await
         .unwrap();
