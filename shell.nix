@@ -8,6 +8,7 @@ pkgs.mkShell {
     clang
     pkg-config
     cargo-deb
+    cmakeMinimal
   ];
   src = null;
   shellHook = ''
