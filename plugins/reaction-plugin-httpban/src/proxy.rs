@@ -1,6 +1,10 @@
 use async_trait::async_trait;
-use pingora_core::{BError, upstreams::peer::HttpPeer};
-use pingora_proxy::{ProxyHttp, Session};
+use pingora_core::{
+    BError,
+    server::{Server, configuration::ServerConf},
+    upstreams::peer::HttpPeer,
+};
+use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
 use crate::config::ComputedMainOptions;
 
@@ -11,8 +15,21 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new(config: ComputedMainOptions) -> Self {
-        Proxy { config }
+    pub fn new(config: ComputedMainOptions, grace1: Option<u64>, grace2: Option<u64>) -> Server {
+        let proxy = Proxy { config };
+        let mut server = Server::new_with_opt_and_conf(
+            None,
+            ServerConf {
+                daemon: false,
+                grace_period_seconds: grace1,
+                graceful_shutdown_timeout_seconds: grace2,
+                ..Default::default()
+            },
+        );
+        server.bootstrap();
+        let my_proxy = http_proxy_service(&server.configuration, proxy);
+        server.add_service(my_proxy);
+        server
     }
 }
 

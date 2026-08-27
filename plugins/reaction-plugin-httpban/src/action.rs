@@ -1,38 +1,52 @@
 use std::{
-    collections::BTreeMap,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
     net::IpAddr,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use prefix_trie::PrefixSet;
 use reaction_plugin::Exec;
+use tokio::sync::RwLock;
 
-use crate::config::{AddRemove, ComputedActionOptions};
+use crate::config::{AddRemove, ComputedAction};
 
-// TODO if high-latency is detected, we should change to an RwLock from tokio
-pub type IpSets = BTreeMap<String, Arc<RwLock<JointSets>>>;
+pub type IpSets = HashMap<String, IpSet>;
+pub type IpSet = Arc<RwLock<DualStackSet>>;
 
-pub struct JointSets {
+pub struct DualStackSet {
+    pub name: String,
     ipv4: PrefixSet<Ipv4Net>,
     ipv6: PrefixSet<Ipv6Net>,
 }
 
-pub fn ip_sets_from_names(names: impl Iterator<Item = String>) -> IpSets {
+impl DualStackSet {
+    pub fn new(name: String) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
+            name,
+            ipv4: PrefixSet::new(),
+            ipv6: PrefixSet::new(),
+        }))
+    }
+}
+
+impl Debug for DualStackSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JointSets")
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
+pub fn ip_sets_from_names(names: &HashSet<String>) -> IpSets {
     names
-        .map(|set| {
-            (
-                set,
-                Arc::new(RwLock::new(JointSets {
-                    ipv4: PrefixSet::new(),
-                    ipv6: PrefixSet::new(),
-                })),
-            )
-        })
+        .iter()
+        .map(|set| (set.clone(), DualStackSet::new(set.clone())))
         .collect()
 }
 
-impl ComputedActionOptions {
+impl ComputedAction {
     pub async fn serve(mut self) {
         loop {
             match self.rx.recv().await {
@@ -45,7 +59,7 @@ impl ComputedActionOptions {
                 }
                 // ok
                 Ok(Some(exec)) => {
-                    if let Err(err) = self.handle_exec(exec) {
+                    if let Err(err) = self.handle_exec(exec).await {
                         eprintln!("ERROR {err}");
                         break;
                     }
@@ -54,7 +68,7 @@ impl ComputedActionOptions {
         }
     }
 
-    fn handle_exec(&mut self, exec: Exec) -> Result<(), String> {
+    async fn handle_exec(&mut self, exec: Exec) -> Result<(), String> {
         let ipstr = exec
             .match_
             .get(self.pattern)
@@ -70,10 +84,7 @@ impl ComputedActionOptions {
             }
         };
 
-        let mut set = self
-            .set
-            .write()
-            .map_err(|_| "ERROR action: part of the process has crashed, quitting")?;
+        let mut set = self.set.write().await;
 
         match ip {
             IpNet::V4(ipv4) => match self.action {
