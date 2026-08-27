@@ -1,14 +1,23 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Duration};
 
+use async_trait::async_trait;
+use pingora_core::server::{
+    RunArgs, Server, ShutdownSignal, ShutdownSignalWatch, UnixShutdownSignalWatch,
+    configuration::ServerConf,
+};
+use pingora_proxy::http_proxy_service;
 use reaction_plugin::{
     ActionConfig, ActionImpl, Hello, Manifest, PluginInfo, RemoteResult, StreamConfig, StreamImpl,
     Value,
 };
 use remoc::rtc;
+use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     action::ip_sets_from_names,
     config::{ActionOptions, MainOptions},
+    proxy::Proxy,
 };
 
 mod action;
@@ -22,7 +31,10 @@ async fn main() {
 }
 
 #[derive(Default)]
-struct MyPlugin {}
+struct MyPlugin {
+    server: Option<Server>,
+    token: CancellationToken,
+}
 
 impl PluginInfo for MyPlugin {
     async fn manifest(&mut self) -> Result<Manifest, rtc::CallError> {
@@ -122,15 +134,63 @@ impl PluginInfo for MyPlugin {
             tokio::spawn(async move { action.serve().await });
         }
 
+        let proxy = Proxy::new(computed_main_options);
+        let mut server = Server::new_with_opt_and_conf(
+            None,
+            ServerConf {
+                daemon: false,
+                grace_period_seconds: Some(2),
+                graceful_shutdown_timeout_seconds: Some(2),
+                ..Default::default()
+            },
+        );
+        server.bootstrap();
+        let my_proxy = http_proxy_service(&server.configuration, proxy);
+        server.add_service(my_proxy);
+        self.server = Some(server);
+
         Ok((vec![], ret_actions))
     }
 
     async fn start(&mut self) -> RemoteResult<()> {
-        todo!()
+        let (token, shutdown) = Shutdown::new();
+        self.token = token;
+
+        self.server
+            .take()
+            .ok_or_else(|| format!("plugin has not been initialized. this is a bug!"))?
+            .run(RunArgs {
+                shutdown_signal: Box::new(shutdown),
+            });
+        Ok(())
     }
 
     async fn close(self) -> RemoteResult<()> {
-        todo!()
+        self.token.cancel();
+        // FIXME hook on the cancellation instead of sleeping 4 seconds
+        sleep(Duration::from_secs(4)).await;
+        Ok(())
     }
-    // ...
+}
+
+pub struct Shutdown {
+    token: CancellationToken,
+    unix: UnixShutdownSignalWatch,
+}
+impl Shutdown {
+    pub fn new() -> (CancellationToken, Self) {
+        let token = CancellationToken::new();
+        let unix = UnixShutdownSignalWatch;
+        (token.clone(), Self { token, unix })
+    }
+}
+#[async_trait]
+impl ShutdownSignalWatch for Shutdown {
+    async fn recv(&self) -> ShutdownSignal {
+        let cancel = self.token.clone().cancelled_owned();
+        tokio::select! {
+            _ = cancel => ShutdownSignal::GracefulTerminate,
+            ret = self.unix.recv() => ret,
+        }
+    }
 }

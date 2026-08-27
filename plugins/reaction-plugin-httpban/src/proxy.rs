@@ -10,6 +10,12 @@ pub struct Proxy {
     config: ComputedMainOptions,
 }
 
+impl Proxy {
+    pub fn new(config: ComputedMainOptions) -> Self {
+        Proxy { config }
+    }
+}
+
 #[async_trait]
 impl ProxyHttp for Proxy {
     type CTX = ProxyCtx;

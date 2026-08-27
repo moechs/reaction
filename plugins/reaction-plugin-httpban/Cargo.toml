@@ -12,6 +12,7 @@ default-run = "reaction-plugin-httpban"
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-util.workspace = true
 remoc.workspace = true
 reaction-plugin.path = "../reaction-plugin"
 serde.workspace = true
