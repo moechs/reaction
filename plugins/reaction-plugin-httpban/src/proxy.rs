@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use pingora_core::{
-    BError,
+    BError, ErrorSource, ErrorType, RetryType,
     server::{Server, configuration::ServerConf},
     upstreams::peer::HttpPeer,
 };
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
-use crate::config::ComputedMainOptions;
+use crate::config::{ComputedDomain, ComputedMainOptions};
 
 pub type ProxyCtx = ();
 
@@ -52,10 +52,33 @@ impl ProxyHttp for Proxy {
 
     async fn request_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<bool, BError> {
         // if plain text response, do here
+        let still_here = session.read_request().await?;
+        if !still_here {
+            return Ok(false);
+        }
+
+        let uri = session.req_header().as_owned_parts().uri;
+        let host = uri.host().ok_or_else(|| {
+            Box::new(pingora_core::Error {
+                etype: ErrorType::InvalidHTTPHeader,
+                esource: ErrorSource::Downstream,
+                retry: RetryType::Decided(false),
+                cause: Some("Missing 'Host' header".into()),
+                context: None,
+            })
+        })?;
+        let path = uri.path();
+        let domain = self.config.resolve_domain(host, path);
+        todo!();
+    }
+}
+
+impl ComputedMainOptions {
+    async fn resolve_domain(&self, host: &str, path: &str) -> Result<&ComputedDomain, BError> {
         todo!()
     }
 }
