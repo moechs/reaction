@@ -13,6 +13,142 @@ use serde::{Deserialize, Serialize};
 
 use crate::action::{IpSet, IpSets, ip_sets_from_names};
 
+// User-facing config Structs
+
+#[derive(Serialize, Deserialize)]
+pub struct ActionOptions {
+    /// The set we will add this IP to
+    pub add: Option<String>,
+    /// The set we will remove this IP from
+    pub remove: Option<String>,
+    /// The pattern name of the IP.
+    /// Defaults to "ip"
+    #[serde(default = "serde_ip")]
+    pub pattern: String,
+}
+fn serde_ip() -> String {
+    "ip".into()
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MainOptions {
+    // pub port: u16,
+    pub backends: HashMap<String, Backend>,
+    pub domains: HashMap<String, Domain>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Backend {
+    pub host: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Domain {
+    #[serde(default)]
+    pub case: CaseOrCases,
+    pub default: CaseOptions,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CaseOrCases {
+    Case(Case),
+    Cases(Vec<Case>),
+}
+
+impl Default for CaseOrCases {
+    fn default() -> Self {
+        Self::Cases(vec![])
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Case {
+    pub set: String,
+    #[serde(flatten)]
+    options: CaseOptions,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CaseOptions {
+    backend: Option<String>,
+    code: Option<u16>,
+    page: Option<String>,
+    inline: Option<String>,
+}
+
+// Computed Structs
+
+#[cfg_attr(test, derive(Debug))]
+pub struct ComputedAction {
+    pub action: AddRemove,
+    pub set: IpSet,
+    pub pattern: usize,
+    pub rx: mpsc::Receiver<Exec>,
+}
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub enum AddRemove {
+    Add,
+    Remove,
+}
+
+#[cfg(test)]
+impl PartialEq for ComputedAction {
+    fn eq(&self, other: &Self) -> bool {
+        self.action == other.action
+            && self.pattern == other.pattern
+            && self.set.blocking_read().name == other.set.blocking_read().name
+    }
+}
+#[cfg(test)]
+impl Eq for ComputedAction {}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub struct ComputedMainOptions {
+    // pub port: u16,
+    pub backends: ComputedBackends,
+    pub domains: ComputedDomains,
+}
+pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
+pub type ComputedDomains = HashMap<String, HashMap<String, ComputedDomain>>;
+
+#[derive(Debug)]
+pub struct ComputedBackend {
+    pub name: String,
+    pub addr: HttpPeer,
+}
+#[cfg(test)]
+impl PartialEq for ComputedBackend {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+#[cfg(test)]
+impl Eq for ComputedBackend {}
+
+#[derive(Debug)]
+pub struct ComputedDomain {
+    pub name: String,
+    pub cases: Vec<(IpSet, ComputedCaseOptions)>,
+    pub default: ComputedCaseOptions,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub enum ComputedCaseOptions {
+    Backend(Arc<ComputedBackend>),
+    Static(StaticResponse),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StaticResponse {
+    code: u16,
+    data: Vec<u8>,
+}
+
+// Functions
+
 pub fn load_config(
     streams: Vec<StreamConfig>,
     actions: Vec<ActionConfig>,
@@ -102,20 +238,6 @@ pub fn load_config(
     Ok((computed_main_options, computed_action_options, ret_actions))
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ActionOptions {
-    /// The set we will add this IP to
-    pub add: Option<String>,
-    /// The set we will remove this IP from
-    pub remove: Option<String>,
-    /// The pattern name of the IP.
-    /// Defaults to "ip"
-    #[serde(default = "serde_ip")]
-    pub pattern: String,
-}
-fn serde_ip() -> String {
-    "ip".into()
-}
 impl ActionOptions {
     pub fn setup(
         self,
@@ -153,37 +275,6 @@ impl ActionOptions {
             rx,
         })
     }
-}
-
-#[cfg_attr(test, derive(Debug))]
-pub struct ComputedAction {
-    pub action: AddRemove,
-    pub set: IpSet,
-    pub pattern: usize,
-    pub rx: mpsc::Receiver<Exec>,
-}
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-pub enum AddRemove {
-    Add,
-    Remove,
-}
-
-#[cfg(test)]
-impl PartialEq for ComputedAction {
-    fn eq(&self, other: &Self) -> bool {
-        self.action == other.action
-            && self.pattern == other.pattern
-            && self.set.blocking_read().name == other.set.blocking_read().name
-    }
-}
-#[cfg(test)]
-impl Eq for ComputedAction {}
-
-#[derive(Serialize, Deserialize)]
-pub struct MainOptions {
-    // pub port: u16,
-    pub backends: HashMap<String, Backend>,
-    pub domains: HashMap<String, Domain>,
 }
 
 impl MainOptions {
@@ -227,42 +318,6 @@ impl MainOptions {
             domains,
         })
     }
-}
-
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub struct ComputedMainOptions {
-    // pub port: u16,
-    pub backends: ComputedBackends,
-    pub domains: ComputedDomains,
-}
-pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
-pub type ComputedDomains = HashMap<String, HashMap<String, ComputedDomain>>;
-
-#[derive(Serialize, Deserialize)]
-pub struct Backend {
-    pub host: String,
-}
-
-#[derive(Debug)]
-pub struct ComputedBackend {
-    pub name: String,
-    pub addr: HttpPeer,
-}
-#[cfg(test)]
-impl PartialEq for ComputedBackend {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-#[cfg(test)]
-impl Eq for ComputedBackend {}
-
-#[derive(Serialize, Deserialize)]
-pub struct Domain {
-    #[serde(default)]
-    pub case: CaseOrCases,
-    pub default: CaseOptions,
 }
 
 impl Domain {
@@ -322,13 +377,6 @@ impl Domain {
     }
 }
 
-#[derive(Debug)]
-pub struct ComputedDomain {
-    pub name: String,
-    pub cases: Vec<(IpSet, ComputedCaseOptions)>,
-    pub default: ComputedCaseOptions,
-}
-
 #[cfg(test)]
 impl PartialEq for ComputedDomain {
     fn eq(&self, other: &Self) -> bool {
@@ -348,34 +396,6 @@ impl PartialEq for ComputedDomain {
 }
 #[cfg(test)]
 impl Eq for ComputedDomain {}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CaseOrCases {
-    Case(Case),
-    Cases(Vec<Case>),
-}
-
-impl Default for CaseOrCases {
-    fn default() -> Self {
-        Self::Cases(vec![])
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Case {
-    pub set: String,
-    #[serde(flatten)]
-    options: CaseOptions,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CaseOptions {
-    backend: Option<String>,
-    code: Option<u16>,
-    page: Option<String>,
-    inline: Option<String>,
-}
 
 impl CaseOptions {
     pub fn setup(self, backends: &ComputedBackends) -> Result<ComputedCaseOptions, String> {
@@ -426,32 +446,16 @@ impl CaseOptions {
     }
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub enum ComputedCaseOptions {
-    Backend(Arc<ComputedBackend>),
-    Static(StaticResponse),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct StaticResponse {
-    code: u16,
-    data: Vec<u8>,
-}
-
-// TODO test config loading
-
 #[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
         io::Write,
-        net::{Ipv4Addr, SocketAddr as StdInetSocketAddr, SocketAddrV4},
-        os::unix::net::SocketAddr as StdUnixSocketAddr,
+        net::{Ipv4Addr, SocketAddr, SocketAddrV4},
         sync::Arc,
     };
 
-    use pingora_core::{protocols::l4::socket::SocketAddr, upstreams::peer::HttpPeer};
+    use pingora_core::upstreams::peer::HttpPeer;
     use reaction_plugin::ActionConfig;
     use remoc::rch::mpsc;
     use serde_json::json;
@@ -505,7 +509,7 @@ mod tests {
 
         let ipsets = HashMap::from([("pubsites", DualStackSet::new("pubsites".into()))]);
 
-        let backends = HashMap::from([(
+        let target_backends = HashMap::from([(
             "nginx".into(),
             Arc::new(ComputedBackend {
                 name: "nginx".into(),
@@ -513,7 +517,7 @@ mod tests {
             }),
         )]);
 
-        let domains = HashMap::from([(
+        let target_domains = HashMap::from([(
             "tokipona.ppom.me".into(),
             HashMap::from([(
                 "".into(),
@@ -521,17 +525,21 @@ mod tests {
                     name: "tokipona.ppom.me".into(),
                     cases: vec![(
                         ipsets.get("pubsites").unwrap().clone(),
-                        ComputedCaseOptions::Backend(backends.get("iocaine").unwrap().clone()),
+                        ComputedCaseOptions::Backend(
+                            target_backends.get("iocaine").unwrap().clone(),
+                        ),
                     )],
-                    default: ComputedCaseOptions::Backend(backends.get("nginx").unwrap().clone()),
+                    default: ComputedCaseOptions::Backend(
+                        target_backends.get("nginx").unwrap().clone(),
+                    ),
                 },
             )]),
         )]);
 
         let target_config = ComputedMainOptions {
             // port: 2048,
-            backends,
-            domains,
+            backends: target_backends,
+            domains: target_domains,
         };
 
         assert_eq!(computed_config, target_config);
@@ -685,7 +693,7 @@ mod tests {
                 Arc::new(ComputedBackend {
                     name: "funkwhale".into(),
                     addr: HttpPeer::new(
-                        StdInetSocketAddr::V4(SocketAddrV4::new(
+                        SocketAddr::V4(SocketAddrV4::new(
                             Ipv4Addr::from_octets([127, 0, 0, 1]),
                             8999,
                         )),
@@ -699,7 +707,7 @@ mod tests {
                 Arc::new(ComputedBackend {
                     name: "vault".into(),
                     addr: HttpPeer::new(
-                        StdInetSocketAddr::V4(SocketAddrV4::new(
+                        SocketAddr::V4(SocketAddrV4::new(
                             Ipv4Addr::from_octets([127, 0, 0, 1]),
                             8998,
                         )),
