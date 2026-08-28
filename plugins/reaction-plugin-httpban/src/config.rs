@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use pingora_core::protocols::l4::socket::SocketAddr;
+use pingora_core::{protocols::l4::socket::SocketAddr, upstreams::peer::HttpPeer};
 use reaction_plugin::{ActionConfig, ActionImpl, Exec, StreamConfig, Value};
 use remoc::rch::mpsc;
 use serde::{Deserialize, Serialize};
@@ -189,22 +189,27 @@ pub struct MainOptions {
 impl MainOptions {
     pub fn setup(self, ipsets: &IpSets) -> Result<ComputedMainOptions, String> {
         let backends = self
-                .backends
-                .into_iter()
-                .map(|(k, b)| {
-                    Ok((
-                        k.clone(),
-                        ComputedBackend {
-                            name: k,
-                            addr: SocketAddr::from_str(&b.host).map_err(|err| {
-                                format!(
-                                    "Invalid backend address: {err}. Format is either unix:PATH or IP:PORT"
-                                )
-                            })?,
-                        }.into(),
-                    ))
-                })
-                .collect::<Result<_, String>>()?;
+            .backends
+            .into_iter()
+            .map(|(k, b)| {
+                let socket = SocketAddr::from_str(&b.host).map_err(|err| {
+                    format!("Invalid backend address: {err}. Format is either unix:PATH or IP:PORT")
+                })?;
+                Ok((
+                    k.clone(),
+                    ComputedBackend {
+                        name: k,
+                        // addr: socket,
+                        addr: match socket {
+                            SocketAddr::Inet(socket) => HttpPeer::new(socket, false, "".into()),
+                            SocketAddr::Unix(_) => HttpPeer::new_uds(&b.host, false, "".into())
+                                .map_err(|err| err.to_string())?,
+                        },
+                    }
+                    .into(),
+                ))
+            })
+            .collect::<Result<_, String>>()?;
 
         let mut domains = HashMap::new();
 
@@ -239,11 +244,19 @@ pub struct Backend {
     pub host: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ComputedBackend {
     pub name: String,
-    pub addr: SocketAddr,
+    pub addr: HttpPeer,
 }
+#[cfg(test)]
+impl PartialEq for ComputedBackend {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+#[cfg(test)]
+impl Eq for ComputedBackend {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Domain {
@@ -413,7 +426,8 @@ impl CaseOptions {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum ComputedCaseOptions {
     Backend(Arc<ComputedBackend>),
     Static(StaticResponse),
@@ -437,7 +451,7 @@ mod tests {
         sync::Arc,
     };
 
-    use pingora_core::protocols::l4::socket::SocketAddr;
+    use pingora_core::{protocols::l4::socket::SocketAddr, upstreams::peer::HttpPeer};
     use reaction_plugin::ActionConfig;
     use remoc::rch::mpsc;
     use serde_json::json;
@@ -495,9 +509,7 @@ mod tests {
             "nginx".into(),
             Arc::new(ComputedBackend {
                 name: "nginx".into(),
-                addr: SocketAddr::Unix(
-                    StdUnixSocketAddr::from_pathname("/run/nginx/nginx.sock").unwrap(),
-                ),
+                addr: HttpPeer::new_uds("/run/nginx/nginx.sock", false, "".into()).unwrap(),
             }),
         )]);
 
@@ -672,38 +684,42 @@ mod tests {
                 "funkwhale".into(),
                 Arc::new(ComputedBackend {
                     name: "funkwhale".into(),
-                    addr: SocketAddr::Inet(StdInetSocketAddr::V4(SocketAddrV4::new(
-                        Ipv4Addr::from_octets([127, 0, 0, 1]),
-                        8999,
-                    ))),
+                    addr: HttpPeer::new(
+                        StdInetSocketAddr::V4(SocketAddrV4::new(
+                            Ipv4Addr::from_octets([127, 0, 0, 1]),
+                            8999,
+                        )),
+                        false,
+                        "".into(),
+                    ),
                 }),
             ),
             (
                 "vault".into(),
                 Arc::new(ComputedBackend {
                     name: "vault".into(),
-                    addr: SocketAddr::Inet(StdInetSocketAddr::V4(SocketAddrV4::new(
-                        Ipv4Addr::from_octets([127, 0, 0, 1]),
-                        8998,
-                    ))),
+                    addr: HttpPeer::new(
+                        StdInetSocketAddr::V4(SocketAddrV4::new(
+                            Ipv4Addr::from_octets([127, 0, 0, 1]),
+                            8998,
+                        )),
+                        false,
+                        "".into(),
+                    ),
                 }),
             ),
             (
                 "iocaine".into(),
                 Arc::new(ComputedBackend {
                     name: "iocaine".into(),
-                    addr: SocketAddr::Unix(
-                        StdUnixSocketAddr::from_pathname("/run/iocaine/iocaine.sock").unwrap(),
-                    ),
+                    addr: HttpPeer::new_uds("/run/iocaine/iocaine.sock", false, "".into()).unwrap(),
                 }),
             ),
             (
                 "nginx".into(),
                 Arc::new(ComputedBackend {
                     name: "nginx".into(),
-                    addr: SocketAddr::Unix(
-                        StdUnixSocketAddr::from_pathname("/run/nginx/nginx.sock").unwrap(),
-                    ),
+                    addr: HttpPeer::new_uds("/run/nginx/nginx.sock", false, "".into()).unwrap(),
                 }),
             ),
         ]);
