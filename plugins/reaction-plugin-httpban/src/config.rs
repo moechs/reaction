@@ -120,10 +120,9 @@ impl ComputedAction {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ComputedMainOptions {
     // pub port: u16,
-    pub backends: ComputedBackends,
     pub domains: ComputedDomains,
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
@@ -131,7 +130,6 @@ pub type ComputedDomains = HashMap<String, HashMap<String, ComputedDomain>>;
 #[cfg(test)]
 impl ComputedMainOptions {
     async fn assert_eq(&self, other: &Self) {
-        assert_eq!(self.backends, other.backends);
         if self.domains.len() > other.domains.len() {
             panic!(
                 "First parameter has more domains ({}) that second parameter ({})",
@@ -170,6 +168,7 @@ impl ComputedMainOptions {
 
 #[derive(Debug)]
 pub struct ComputedBackend {
+    #[cfg(test)]
     pub name: String,
     pub addr: HttpPeer,
 }
@@ -182,8 +181,9 @@ impl PartialEq for ComputedBackend {
 #[cfg(test)]
 impl Eq for ComputedBackend {}
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ComputedDomain {
+    #[cfg(test)]
     pub name: String,
     pub cases: Vec<(IpSet, ComputedCaseOptions)>,
     pub default: ComputedCaseOptions,
@@ -351,6 +351,7 @@ impl MainOptions {
                 Ok((
                     k.clone(),
                     ComputedBackend {
+                        #[cfg(test)]
                         name: k,
                         // addr: socket,
                         addr: match socket {
@@ -383,7 +384,6 @@ impl MainOptions {
 
         Ok(ComputedMainOptions {
             // port: self.port,
-            backends,
             domains,
         })
     }
@@ -396,12 +396,17 @@ impl Domain {
         ipsets: &IpSets,
         backends: &ComputedBackends,
     ) -> Result<ComputedDomain, String> {
-        self._setup(name.clone(), ipsets, backends)
-            .map_err(|err| format!("domain {name}: {err}"))
+        self._setup(
+            #[cfg(test)]
+            name.clone(),
+            ipsets,
+            backends,
+        )
+        .map_err(|err| format!("domain {name}: {err}"))
     }
     fn _setup(
         self,
-        name: String,
+        #[cfg(test)] name: String,
         ipsets: &IpSets,
         backends: &ComputedBackends,
     ) -> Result<ComputedDomain, String> {
@@ -441,6 +446,7 @@ impl Domain {
                 .default
                 .setup(backends)
                 .map_err(|err| format!("default case: {err}"))?,
+            #[cfg(test)]
             name,
         })
     }
@@ -588,7 +594,7 @@ pub mod tests {
 
         let ipsets = HashMap::from([("pubsites", DualStackSet::new("pubsites".into()))]);
 
-        let target_backends = HashMap::from([(
+        let target_backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([(
             "nginx".into(),
             Arc::new(ComputedBackend {
                 name: "nginx".into(),
@@ -618,7 +624,6 @@ pub mod tests {
 
         let target_config = ComputedMainOptions {
             // port: 2048,
-            backends: target_backends,
             domains: target_domains,
         };
 
@@ -761,7 +766,7 @@ pub mod tests {
             ("pubsites", DualStackSet::new("pubsites".into())),
         ]);
 
-        let backends = HashMap::from([
+        let backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([
             (
                 "funkwhale".into(),
                 Arc::new(ComputedBackend {
@@ -885,7 +890,6 @@ pub mod tests {
 
         let target_config = ComputedMainOptions {
             // port: 2048,
-            backends,
             domains,
         };
 
