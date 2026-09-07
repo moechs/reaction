@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use async_trait::async_trait;
 use pingora_core::{
     BError, ErrorSource, ErrorType, RetryType,
@@ -6,7 +8,7 @@ use pingora_core::{
 };
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
-use crate::config::{ComputedDomain, ComputedMainOptions};
+use crate::config::{ComputedCaseOptions, ComputedDomain, ComputedMainOptions};
 
 pub type ProxyCtx = ();
 
@@ -72,7 +74,9 @@ impl ProxyHttp for Proxy {
             })
         })?;
         let path = uri.path();
-        let domain = self.config.resolve_domain(host, path);
+        let domain = self.config.resolve_domain(host, path)?;
+        // FIXME no unwrap
+        let case = domain.resolve_case(session.client_addr().unwrap().as_inet().unwrap().ip());
         todo!();
     }
 }
@@ -131,6 +135,17 @@ impl ComputedMainOptions {
             }
             .into()
         })
+    }
+}
+
+impl ComputedDomain {
+    async fn resolve_case(&self, ip: IpAddr) -> &ComputedCaseOptions {
+        for (set, case) in &self.cases {
+            if set.read().await.contains(ip) {
+                return case;
+            }
+        }
+        &self.default
     }
 }
 

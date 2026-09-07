@@ -29,6 +29,13 @@ impl DualStackSet {
             ipv6: PrefixSet::new(),
         }))
     }
+
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(ip) => self.ipv4.contains(&ip.into()),
+            IpAddr::V6(ip) => self.ipv6.contains(&ip.into()),
+        }
+    }
 }
 
 impl Debug for DualStackSet {
