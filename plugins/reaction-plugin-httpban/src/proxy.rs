@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::{net::IpAddr, sync::Arc};
 
 use async_trait::async_trait;
 use pingora_core::{
@@ -8,9 +8,9 @@ use pingora_core::{
 };
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
-use crate::config::{ComputedCaseOptions, ComputedDomain, ComputedMainOptions};
+use crate::config::{ComputedBackend, ComputedCaseOptions, ComputedDomain, ComputedMainOptions};
 
-pub type ProxyCtx = ();
+pub type ProxyCtx = Option<Arc<ComputedBackend>>;
 
 pub struct Proxy {
     config: ComputedMainOptions,
@@ -40,22 +40,30 @@ impl ProxyHttp for Proxy {
     type CTX = ProxyCtx;
 
     fn new_ctx(&self) -> Self::CTX {
-        ()
+        None
     }
 
     async fn upstream_peer(
         &self,
         _session: &mut Session,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>, BError> {
-        // if upstream, do here
-        todo!()
+        match ctx {
+            Some(backend) => Ok(backend.addr.clone().into()),
+            None => Err(Box::new(pingora_core::Error {
+                etype: ErrorType::InternalError,
+                esource: ErrorSource::Internal,
+                retry: RetryType::Decided(false),
+                cause: Some("request_filter has not been called".into()),
+                context: None,
+            })),
+        }
     }
 
     async fn request_filter(
         &self,
         session: &mut Session,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> Result<bool, BError> {
         // if plain text response, do here
         let still_here = session.read_request().await?;
@@ -75,9 +83,24 @@ impl ProxyHttp for Proxy {
         })?;
         let path = uri.path();
         let domain = self.config.resolve_domain(host, path)?;
+
         // FIXME no unwrap
-        let case = domain.resolve_case(session.client_addr().unwrap().as_inet().unwrap().ip());
-        todo!();
+        let case = domain
+            .resolve_case(session.client_addr().unwrap().as_inet().unwrap().ip())
+            .await;
+
+        match case {
+            ComputedCaseOptions::Static(static_response) => {
+                session
+                    .respond_error_with_body(static_response.code, static_response.data.clone())
+                    .await?;
+                Ok(true)
+            }
+            ComputedCaseOptions::Backend(computed_backend) => {
+                ctx.replace(computed_backend.clone());
+                Ok(false)
+            }
+        }
     }
 }
 

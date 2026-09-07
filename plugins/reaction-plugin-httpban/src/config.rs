@@ -10,6 +10,7 @@ use pingora_core::{protocols::l4::socket::SocketAddr, upstreams::peer::HttpPeer}
 use reaction_plugin::{ActionConfig, ActionImpl, Exec, StreamConfig, Value};
 use remoc::rch::mpsc;
 use serde::{Deserialize, Serialize};
+use tokio_util::bytes::Bytes;
 
 use crate::action::{IpSet, IpSets, ip_sets_from_names};
 
@@ -197,8 +198,8 @@ pub enum ComputedCaseOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct StaticResponse {
-    code: u16,
-    data: Vec<u8>,
+    pub code: u16,
+    pub data: Bytes,
 }
 
 // Functions
@@ -488,7 +489,7 @@ impl CaseOptions {
                 inline: Some(inline),
             } => Ok(ComputedCaseOptions::Static(StaticResponse {
                 code,
-                data: inline.into_bytes(),
+                data: inline.into(),
             })),
             CaseOptions {
                 backend: None,
@@ -506,7 +507,7 @@ impl CaseOptions {
                     file.read_to_end(&mut data)
                         .map_err(|err| format!("Cannot read page: {page}: {err}"))?;
 
-                    data
+                    data.into()
                 },
             })),
             _ => Err(format!(
