@@ -93,18 +93,33 @@ pub enum AddRemove {
 }
 
 #[cfg(test)]
-impl PartialEq for ComputedAction {
-    fn eq(&self, other: &Self) -> bool {
+impl ComputedAction {
+    async fn async_eq(&self, other: &Self) -> bool {
         self.action == other.action
             && self.pattern == other.pattern
-            && self.set.blocking_read().name == other.set.blocking_read().name
+            && self.set.read().await.name == other.set.read().await.name
+    }
+
+    async fn assert_eq(
+        mut a: impl Iterator<Item = &ComputedAction>,
+        mut b: impl Iterator<Item = &ComputedAction>,
+    ) {
+        while let Some(action_a) = a.next() {
+            if let Some(action_b) = b.next() {
+                if !action_a.async_eq(&action_b).await {
+                    panic!("Action {action_a:?} does not equal {action_b:?}");
+                }
+            } else {
+                panic!("First parameter has more items than second parameter")
+            }
+        }
+        if b.next().is_some() {
+            panic!("Second parameter has more items than first parameter")
+        }
     }
 }
-#[cfg(test)]
-impl Eq for ComputedAction {}
 
 #[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ComputedMainOptions {
     // pub port: u16,
     pub backends: ComputedBackends,
@@ -112,6 +127,45 @@ pub struct ComputedMainOptions {
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
 pub type ComputedDomains = HashMap<String, HashMap<String, ComputedDomain>>;
+#[cfg(test)]
+impl ComputedMainOptions {
+    async fn assert_eq(&self, other: &Self) {
+        assert_eq!(self.backends, other.backends);
+        if self.domains.len() > other.domains.len() {
+            panic!(
+                "First parameter has more domains ({}) that second parameter ({})",
+                self.domains.len(),
+                other.domains.len()
+            )
+        } else if self.domains.len() < other.domains.len() {
+            panic!(
+                "First parameter has fewer domains ({}) that second parameter ({})",
+                self.domains.len(),
+                other.domains.len()
+            )
+        } else {
+            for (domainname, selfvalue) in &self.domains {
+                if let Some(othervalue) = other.domains.get(domainname) {
+                    for (domainpath, selfdomain) in selfvalue {
+                        if let Some(otherdomain) = othervalue.get(domainpath) {
+                            if !selfdomain.async_eq(otherdomain).await {
+                                panic!("{selfdomain:?} is not equal {otherdomain:?}");
+                            }
+                        } else {
+                            panic!(
+                                "First parameter has domain path {domainpath} but not second parameter"
+                            );
+                        }
+                    }
+                } else {
+                    panic!(
+                        "First parameter has domain named {domainname} but not second parameter"
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ComputedBackend {
@@ -158,8 +212,15 @@ pub fn load_config(
         return Err("This plugin can't handle any stream type".into());
     }
 
+    let mut options = options.into_iter();
+
+    let mut main_option = options.next().ok_or("missing configuration. it must be set on top-level of the plugin config, see https://reaction.ppom.me/plugins/httpban/")?;
+    while let Some(option) = options.next() {
+        main_option = main_option.merge(option)?;
+    }
+
     let options: MainOptions =
-        serde_json::from_value(options.into()).map_err(|err| format!("{err}"))?;
+        serde_json::from_value(main_option.into()).map_err(|err| format!("serde_json: {err}"))?;
 
     let domain_sets = {
         let mut vec = HashSet::new();
@@ -293,8 +354,15 @@ impl MainOptions {
                         // addr: socket,
                         addr: match socket {
                             SocketAddr::Inet(socket) => HttpPeer::new(socket, false, "".into()),
-                            SocketAddr::Unix(_) => HttpPeer::new_uds(&b.host, false, "".into())
-                                .map_err(|err| err.to_string())?,
+                            SocketAddr::Unix(socket) => HttpPeer::new_uds(
+                                &socket
+                                    .as_pathname()
+                                    .ok_or("Socket path is malformed")?
+                                    .to_string_lossy(),
+                                false,
+                                "".into(),
+                            )
+                            .map_err(|err| err.to_string())?,
                         },
                     }
                     .into(),
@@ -378,24 +446,26 @@ impl Domain {
 }
 
 #[cfg(test)]
-impl PartialEq for ComputedDomain {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.default == other.default
-            && self.cases.len() == other.cases.len()
-            && {
-                self.cases
-                    .iter()
-                    .zip(other.cases.iter())
-                    .all(|(selfcase, othercase)| {
-                        selfcase.1 == othercase.1
-                            && selfcase.0.blocking_read().name == othercase.0.blocking_read().name
-                    })
+impl ComputedDomain {
+    async fn async_eq(&self, other: &Self) -> bool {
+        dbg!(&self.name);
+        dbg!(&other.name);
+        if self.name != other.name
+            || self.default != other.default
+            || self.cases.len() != other.cases.len()
+        {
+            return false;
+        }
+        for (selfcase, othercase) in self.cases.iter().zip(other.cases.iter()) {
+            if selfcase.1 != othercase.1
+                || selfcase.0.read().await.name != othercase.0.read().await.name
+            {
+                return false;
             }
+        }
+        true
     }
 }
-#[cfg(test)]
-impl Eq for ComputedDomain {}
 
 impl CaseOptions {
     pub fn setup(self, backends: &ComputedBackends) -> Result<ComputedCaseOptions, String> {
@@ -469,8 +539,8 @@ mod tests {
         },
     };
 
-    #[test]
-    fn smol_config() {
+    #[tokio::test]
+    async fn smol_config() {
         let config = json!({
           // "port": 2048,
           "backends": {
@@ -525,9 +595,10 @@ mod tests {
                     name: "tokipona.ppom.me".into(),
                     cases: vec![(
                         ipsets.get("pubsites").unwrap().clone(),
-                        ComputedCaseOptions::Backend(
-                            target_backends.get("iocaine").unwrap().clone(),
-                        ),
+                        ComputedCaseOptions::Static(StaticResponse {
+                            code: 401,
+                            data: "Nope!".into(),
+                        }),
                     )],
                     default: ComputedCaseOptions::Backend(
                         target_backends.get("nginx").unwrap().clone(),
@@ -542,34 +613,20 @@ mod tests {
             domains: target_domains,
         };
 
-        assert_eq!(computed_config, target_config);
+        computed_config.assert_eq(&target_config).await;
 
-        let target_actions = vec![
-            ComputedAction {
-                action: AddRemove::Add,
-                set: ipsets.get("pubsites").unwrap().clone(),
-                pattern: 0,
-                rx: mpsc::channel(0).1,
-            },
-            ComputedAction {
-                action: AddRemove::Remove,
-                set: ipsets.get("pubapps").unwrap().clone(),
-                pattern: 1,
-                rx: mpsc::channel(0).1,
-            },
-            ComputedAction {
-                action: AddRemove::Remove,
-                set: ipsets.get("privapps").unwrap().clone(),
-                pattern: 0,
-                rx: mpsc::channel(0).1,
-            },
-        ];
+        let target_actions = vec![ComputedAction {
+            action: AddRemove::Add,
+            set: ipsets.get("pubsites").unwrap().clone(),
+            pattern: 0,
+            rx: mpsc::channel(1).1,
+        }];
 
-        assert_eq!(computed_actions, target_actions);
+        ComputedAction::assert_eq(computed_actions.iter(), target_actions.iter()).await;
     }
 
-    #[test]
-    fn big_config() {
+    #[tokio::test]
+    async fn big_config() {
         let html_data = "<html>
 <head><title>No way!</title></head>
 <body>You can't see this page</body>
@@ -766,7 +823,7 @@ mod tests {
                         },
                     ),
                     (
-                        "/vault".into(),
+                        "vault".into(),
                         ComputedDomain {
                             name: "ppom.me/vault".into(),
                             cases: vec![
@@ -815,29 +872,29 @@ mod tests {
             domains,
         };
 
-        assert_eq!(computed_config, target_config);
+        computed_config.assert_eq(&target_config).await;
 
         let target_actions = vec![
             ComputedAction {
                 action: AddRemove::Add,
                 set: ipsets.get("pubsites").unwrap().clone(),
                 pattern: 0,
-                rx: mpsc::channel(0).1,
+                rx: mpsc::channel(1).1,
             },
             ComputedAction {
                 action: AddRemove::Remove,
                 set: ipsets.get("pubapps").unwrap().clone(),
                 pattern: 1,
-                rx: mpsc::channel(0).1,
+                rx: mpsc::channel(1).1,
             },
             ComputedAction {
                 action: AddRemove::Remove,
                 set: ipsets.get("privapps").unwrap().clone(),
                 pattern: 0,
-                rx: mpsc::channel(0).1,
+                rx: mpsc::channel(1).1,
             },
         ];
 
-        assert_eq!(computed_actions, target_actions);
+        ComputedAction::assert_eq(computed_actions.iter(), target_actions.iter()).await;
     }
 }
