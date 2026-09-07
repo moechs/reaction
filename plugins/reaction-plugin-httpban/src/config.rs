@@ -203,7 +203,7 @@ pub struct StaticResponse {
 
 // Functions
 
-pub fn load_config(
+pub async fn load_config(
     streams: Vec<StreamConfig>,
     actions: Vec<ActionConfig>,
     options: Vec<Value>,
@@ -377,7 +377,7 @@ impl MainOptions {
 
             let host_map: &mut HashMap<_, _> = domains.entry(host.into()).or_default();
 
-            host_map.insert(path.into(), domain.setup(key, ipsets, &backends)?);
+            host_map.insert(format!("/{path}"), domain.setup(key, ipsets, &backends)?);
         }
 
         Ok(ComputedMainOptions {
@@ -517,7 +517,7 @@ impl CaseOptions {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::{
         collections::HashMap,
         io::Write,
@@ -539,8 +539,7 @@ mod tests {
         },
     };
 
-    #[tokio::test]
-    async fn smol_config() {
+    pub async fn smol_config() -> (ComputedMainOptions, Vec<ComputedAction>) {
         let config = json!({
           // "port": 2048,
           "backends": {
@@ -575,7 +574,16 @@ mod tests {
         }];
 
         let (computed_config, computed_actions, _) =
-            load_config(vec![], actions, vec![config.into()]).unwrap();
+            load_config(vec![], actions, vec![config.into()])
+                .await
+                .unwrap();
+
+        (computed_config, computed_actions)
+    }
+
+    #[tokio::test]
+    async fn test_smol_config() {
+        let (computed_config, computed_actions) = smol_config().await;
 
         let ipsets = HashMap::from([("pubsites", DualStackSet::new("pubsites".into()))]);
 
@@ -590,7 +598,7 @@ mod tests {
         let target_domains = HashMap::from([(
             "tokipona.ppom.me".into(),
             HashMap::from([(
-                "".into(),
+                "/".into(),
                 ComputedDomain {
                     name: "tokipona.ppom.me".into(),
                     cases: vec![(
@@ -625,15 +633,14 @@ mod tests {
         ComputedAction::assert_eq(computed_actions.iter(), target_actions.iter()).await;
     }
 
-    #[tokio::test]
-    async fn big_config() {
-        let html_data = "<html>
+    const HTML_DATA: &str = "<html>
 <head><title>No way!</title></head>
 <body>You can't see this page</body>
 </html>";
 
+    pub async fn big_config() -> (ComputedMainOptions, Vec<ComputedAction>) {
         let mut html_file = NamedTempFile::with_suffix(".html").unwrap();
-        html_file.write_all(html_data.as_bytes()).unwrap();
+        html_file.write_all(HTML_DATA.as_bytes()).unwrap();
 
         let html_path = html_file.into_temp_path();
 
@@ -736,7 +743,16 @@ mod tests {
         ];
 
         let (computed_config, computed_actions, _) =
-            load_config(vec![], actions, vec![config.into()]).unwrap();
+            load_config(vec![], actions, vec![config.into()])
+                .await
+                .unwrap();
+
+        (computed_config, computed_actions)
+    }
+
+    #[tokio::test]
+    async fn test_big_config() {
+        let (computed_config, computed_actions) = big_config().await;
 
         let ipsets = HashMap::from([
             ("privapps", DualStackSet::new("privapps".into())),
@@ -793,14 +809,14 @@ mod tests {
             (
                 "music.ppom.me".into(),
                 HashMap::from([(
-                    "".into(),
+                    "/".into(),
                     ComputedDomain {
                         name: "music.ppom.me".into(),
                         cases: vec![(
                             ipsets.get("pubapps").unwrap().clone(),
                             ComputedCaseOptions::Static(StaticResponse {
                                 code: 404,
-                                data: html_data.into(),
+                                data: HTML_DATA.into(),
                             }),
                         )],
                         default: ComputedCaseOptions::Backend(
@@ -813,7 +829,7 @@ mod tests {
                 "ppom.me".into(),
                 HashMap::from([
                     (
-                        "".into(),
+                        "/".into(),
                         ComputedDomain {
                             name: "ppom.me".into(),
                             cases: vec![],
@@ -823,7 +839,7 @@ mod tests {
                         },
                     ),
                     (
-                        "vault".into(),
+                        "/vault".into(),
                         ComputedDomain {
                             name: "ppom.me/vault".into(),
                             cases: vec![
@@ -851,7 +867,7 @@ mod tests {
             (
                 "tokipona.ppom.me".into(),
                 HashMap::from([(
-                    "".into(),
+                    "/".into(),
                     ComputedDomain {
                         name: "tokipona.ppom.me".into(),
                         cases: vec![(

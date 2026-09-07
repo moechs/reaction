@@ -46,7 +46,7 @@ impl PluginInfo for MyPlugin {
         options: Vec<Value>,
     ) -> RemoteResult<(Vec<StreamImpl>, Vec<ActionImpl>)> {
         let (computed_main_options, computed_action_options, ret_actions) =
-            config::load_config(streams, actions, options)?;
+            config::load_config(streams, actions, options).await?;
 
         for action in computed_action_options {
             tokio::spawn(async move { action.serve().await });

@@ -78,7 +78,203 @@ impl ProxyHttp for Proxy {
 }
 
 impl ComputedMainOptions {
-    async fn resolve_domain(&self, host: &str, path: &str) -> Result<&ComputedDomain, BError> {
-        todo!()
+    fn resolve_domain(&self, host: &str, path: &str) -> Result<&ComputedDomain, BError> {
+        // let path = path.trim_end_matches('/');
+
+        let path_map = self.domains.get(host).ok_or_else(|| pingora_core::Error {
+            etype: ErrorType::ConnectNoRoute,
+            esource: ErrorSource::Downstream,
+            retry: RetryType::Decided(false),
+            cause: Some(
+                format!(
+                    "Can't serve request asking for domain {host}: this domain isn't in config"
+                )
+                .into(),
+            ),
+            context: None,
+        })?;
+
+        let mut max_path_len = None;
+        let mut chosen_domain = None;
+
+        for (domain_path, domain) in path_map {
+            if path.starts_with(domain_path) {
+                let new_max = match max_path_len {
+                    Some(previous_max) => {
+                        if previous_max < domain_path.len() {
+                            Some(domain_path.len())
+                        } else {
+                            None
+                        }
+                    }
+                    None => Some(domain_path.len()),
+                };
+                if let Some(new_max) = new_max {
+                    max_path_len = Some(new_max);
+                    chosen_domain = Some(domain);
+                }
+            }
+        }
+
+        chosen_domain.ok_or_else(|| {
+            pingora_core::Error {
+                etype: ErrorType::ConnectNoRoute,
+                esource: ErrorSource::Downstream,
+                retry: RetryType::Decided(false),
+                cause: Some(
+                    format!(
+                        "Can't serve request asking for domain {host}: this domain isn't in config"
+                    )
+                    .into(),
+                ),
+                context: None,
+            }
+            .into()
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::tests::{big_config, smol_config};
+
+    #[tokio::test]
+    async fn test_resolve_config_smol() {
+        let (smol_main, _) = smol_config().await;
+
+        let smol_domain = smol_main
+            .domains
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .iter()
+            .next()
+            .unwrap()
+            .1;
+
+        assert_eq!(
+            smol_main
+                .resolve_domain("tokipona.ppom.me", "/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&smol_domain.name)
+        );
+        assert_eq!(
+            smol_main
+                .resolve_domain("tokipona.ppom.me", "/whatyouwant")
+                .ok()
+                .map(|d| &d.name),
+            Some(&smol_domain.name)
+        );
+        assert_eq!(
+            smol_main
+                .resolve_domain("tokipona.ppom.me", "/any/subdir/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&smol_domain.name)
+        );
+        assert_eq!(
+            smol_main
+                .resolve_domain("tokipona.ppom.me", "/any/subdir/and_file")
+                .ok()
+                .map(|d| &d.name),
+            Some(&smol_domain.name)
+        );
+        assert!(smol_main.resolve_domain("tokipona.ppom.me", "").is_err());
+
+        assert!(smol_main.resolve_domain("ppom.me", "").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_config_big() {
+        let (big_main, _) = big_config().await;
+
+        let tokipona_domain = big_main
+            .domains
+            .get("tokipona.ppom.me")
+            .unwrap()
+            .get("/")
+            .unwrap();
+
+        assert_eq!(
+            big_main
+                .resolve_domain("tokipona.ppom.me", "/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&tokipona_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("tokipona.ppom.me", "/whatyouwant")
+                .ok()
+                .map(|d| &d.name),
+            Some(&tokipona_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("tokipona.ppom.me", "/any/subdir/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&tokipona_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("tokipona.ppom.me", "/any/subdir/and_file")
+                .ok()
+                .map(|d| &d.name),
+            Some(&tokipona_domain.name)
+        );
+
+        let ppom_domain = big_main.domains.get("ppom.me").unwrap().get("/").unwrap();
+        let vault_domain = big_main
+            .domains
+            .get("ppom.me")
+            .unwrap()
+            .get("/vault")
+            .unwrap();
+
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/any/subdir/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&ppom_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&ppom_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/vault")
+                .ok()
+                .map(|d| &d.name),
+            Some(&vault_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/vaultmètre")
+                .ok()
+                .map(|d| &d.name),
+            Some(&vault_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/vault/")
+                .ok()
+                .map(|d| &d.name),
+            Some(&vault_domain.name)
+        );
+        assert_eq!(
+            big_main
+                .resolve_domain("ppom.me", "/vault/zblorg")
+                .ok()
+                .map(|d| &d.name),
+            Some(&vault_domain.name)
+        );
     }
 }
