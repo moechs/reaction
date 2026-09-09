@@ -1,7 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::File,
+    fs::{File, Permissions},
     io::Read,
+    os::unix::fs::PermissionsExt,
     str::FromStr,
     sync::Arc,
 };
@@ -33,9 +34,15 @@ fn serde_ip() -> String {
 
 #[derive(Serialize, Deserialize)]
 pub struct MainOptions {
-    // pub port: u16,
+    pub socket: SocketOption,
     pub backends: HashMap<String, Backend>,
     pub domains: HashMap<String, Domain>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SocketOption {
+    pub path: String,
+    pub mode: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -122,7 +129,8 @@ impl ComputedAction {
 
 #[cfg_attr(test, derive(Debug))]
 pub struct ComputedMainOptions {
-    // pub port: u16,
+    pub socket_path: String,
+    pub socket_mode: Permissions,
     pub domains: ComputedDomains,
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
@@ -388,8 +396,15 @@ impl MainOptions {
             host_map.push(domain.setup(format!("/{path}"), ipsets, &backends)?);
         }
 
+        let mode = u32::from_str_radix(&self.socket.mode, 8)
+            .map_err(|err| format!("Could not parse socket mode as an octal number: {err}"))?;
+        if mode < 0o600 || mode > 0o777 {
+            return Err("socket.mode must be between 600 and 777".into());
+        }
+
         Ok(ComputedMainOptions {
-            // port: self.port,
+            socket_path: self.socket.path,
+            socket_mode: PermissionsExt::from_mode(mode),
             domains,
         })
     }
@@ -527,6 +542,7 @@ pub mod tests {
         collections::HashMap,
         io::Write,
         net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+        os::unix::fs::PermissionsExt,
         sync::Arc,
     };
 
@@ -546,7 +562,10 @@ pub mod tests {
 
     pub async fn smol_config() -> (ComputedMainOptions, Vec<ComputedAction>) {
         let config = json!({
-          // "port": 2048,
+          "socket": {
+            "path": "./test.sock",
+            "mode": "600",
+          },
           "backends": {
             "nginx": {
               "host": "unix:/run/nginx/nginx.sock",
@@ -618,7 +637,8 @@ pub mod tests {
         )]);
 
         let target_config = ComputedMainOptions {
-            // port: 2048,
+            socket_path: "./test.sock".into(),
+            socket_mode: PermissionsExt::from_mode(0o600),
             domains: target_domains,
         };
 
@@ -646,7 +666,10 @@ pub mod tests {
         let html_path = html_file.into_temp_path();
 
         let config = json!({
-          // "port": 2048,
+          "socket": {
+            "path": "./test.sock",
+            "mode": "600",
+          },
           "backends": {
             "funkwhale": {
               "host": "127.0.0.1:8999",
@@ -870,7 +893,8 @@ pub mod tests {
         ]);
 
         let target_config = ComputedMainOptions {
-            // port: 2048,
+            socket_path: "./test.sock".into(),
+            socket_mode: PermissionsExt::from_mode(0o600),
             domains,
         };
 

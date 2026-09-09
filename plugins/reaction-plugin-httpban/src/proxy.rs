@@ -18,7 +18,6 @@ pub struct Proxy {
 
 impl Proxy {
     pub fn new(config: ComputedMainOptions, grace1: Option<u64>, grace2: Option<u64>) -> Server {
-        let proxy = Proxy { config };
         let mut server = Server::new_with_opt_and_conf(
             None,
             ServerConf {
@@ -29,7 +28,12 @@ impl Proxy {
             },
         );
         server.bootstrap();
-        let my_proxy = http_proxy_service(&server.configuration, proxy);
+
+        let socket_path = config.socket_path.clone();
+        let socket_mode = config.socket_mode.clone();
+
+        let mut my_proxy = http_proxy_service(&server.configuration, Proxy { config });
+        my_proxy.add_uds(&socket_path, Some(socket_mode));
         server.add_service(my_proxy);
         server
     }
