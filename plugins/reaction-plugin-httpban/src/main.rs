@@ -17,6 +17,8 @@ use crate::proxy::Proxy;
 mod action;
 mod config;
 mod proxy;
+#[cfg(test)]
+mod tests;
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +27,7 @@ async fn main() {
 }
 
 #[derive(Default)]
-struct MyPlugin {
+pub struct MyPlugin {
     server: Option<Server>,
     token: CancellationToken,
 }
