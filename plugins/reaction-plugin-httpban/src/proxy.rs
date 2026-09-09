@@ -1,6 +1,7 @@
-use std::{net::IpAddr, sync::Arc};
+use std::{net::IpAddr, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
+use http::request::Parts;
 use pingora_core::{
     BError, ErrorSource, ErrorType, RetryType,
     server::{Server, configuration::ServerConf},
@@ -75,23 +76,11 @@ impl ProxyHttp for Proxy {
             return Ok(false);
         }
 
-        let uri = session.req_header().as_owned_parts().uri;
-        let host = uri.host().ok_or_else(|| {
-            Box::new(pingora_core::Error {
-                etype: ErrorType::InvalidHTTPHeader,
-                esource: ErrorSource::Downstream,
-                retry: RetryType::Decided(false),
-                cause: Some("Missing 'Host' header".into()),
-                context: None,
-            })
-        })?;
-        let path = uri.path();
+        let (host, path, ip) = host_path_ip_from_request(&session.req_header())?;
+
         let domain = self.config.resolve_domain(host, path)?;
 
-        // FIXME no unwrap
-        let case = domain
-            .resolve_case(session.client_addr().unwrap().as_inet().unwrap().ip())
-            .await;
+        let case = domain.resolve_case(ip).await;
 
         match case {
             ComputedCaseOptions::Static(static_response) => {
@@ -106,6 +95,49 @@ impl ProxyHttp for Proxy {
             }
         }
     }
+}
+
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#selecting_an_ip_address
+// FIXME take a trusted_proxies_count as a parameter and use it to select the good IP address
+
+fn host_path_ip_from_request<'a>(parts: &'a Parts) -> Result<(&'a str, &'a str, IpAddr), BError> {
+    _host_path_ip_from_request(parts).map_err(|err| {
+        Box::new(pingora_core::Error {
+            etype: ErrorType::InvalidHTTPHeader,
+            esource: ErrorSource::Downstream,
+            retry: RetryType::Decided(false),
+            cause: Some(err.into()),
+            context: None,
+        })
+    })
+}
+fn _host_path_ip_from_request<'a>(parts: &'a Parts) -> Result<(&'a str, &'a str, IpAddr), String> {
+    let host = parts.uri.host().ok_or("Missing 'Host' header")?;
+
+    let path = parts.uri.path();
+
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#parsing
+    // Parsing the X-Forwarded-For header
+    // We only need the first value of the first header, this is the client IP.
+    // All the subsequent values are proxies.
+    let ip_header = parts
+        .headers
+        // Get only first header
+        .get("X-Forwarded-For")
+        .ok_or("Missing 'X-Forwarded-For' header from previous reverse proxy")?
+        .to_str()
+        .map_err(|err| format!("Invalid 'X-Forwarded-For' header encoding: {err}"))?;
+
+    // Split the first value if multiple are present, otherwise keep as-is
+    let ip_str = match ip_header.split_once(',') {
+        Some((ip, _)) => ip,
+        None => ip_header,
+    };
+
+    let ip = IpAddr::from_str(ip_str.trim())
+        .map_err(|err| format!("Invalid 'X-Forwarded-For' header IP: {err}"))?;
+
+    Ok((host, path, ip))
 }
 
 impl ComputedMainOptions {
@@ -179,6 +211,11 @@ impl ComputedDomain {
 #[cfg(test)]
 mod tests {
     use crate::config::tests::{big_config, smol_config};
+
+    #[test]
+    fn test_host_path_ip_from_request() {
+        // TODO test
+    }
 
     #[tokio::test]
     async fn test_resolve_config_smol() {
