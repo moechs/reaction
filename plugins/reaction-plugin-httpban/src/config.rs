@@ -126,7 +126,7 @@ pub struct ComputedMainOptions {
     pub domains: ComputedDomains,
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
-pub type ComputedDomains = HashMap<String, HashMap<String, ComputedDomain>>;
+pub type ComputedDomains = HashMap<String, Vec<ComputedDomain>>;
 #[cfg(test)]
 impl ComputedMainOptions {
     async fn assert_eq(&self, other: &Self) {
@@ -145,15 +145,23 @@ impl ComputedMainOptions {
         } else {
             for (domainname, selfvalue) in &self.domains {
                 if let Some(othervalue) = other.domains.get(domainname) {
-                    for (domainpath, selfdomain) in selfvalue {
-                        if let Some(otherdomain) = othervalue.get(domainpath) {
-                            if !selfdomain.async_eq(otherdomain).await {
-                                panic!("{selfdomain:?} is not equal {otherdomain:?}");
-                            }
-                        } else {
-                            panic!(
-                                "First parameter has domain path {domainpath} but not second parameter"
-                            );
+                    if selfvalue.len() != othervalue.len() {
+                        panic!(
+                            "First domain has {} paths but second has {} paths",
+                            selfvalue.len(),
+                            othervalue.len()
+                        )
+                    }
+
+                    // reorder paths
+                    let mut selfvalue: Vec<&ComputedDomain> = selfvalue.iter().collect();
+                    let mut othervalue: Vec<&ComputedDomain> = othervalue.iter().collect();
+                    selfvalue.sort_by(|d1, d2| d1.path.cmp(&d2.path));
+                    othervalue.sort_by(|d1, d2| d1.path.cmp(&d2.path));
+
+                    for (selfdomain, otherdomain) in selfvalue.iter().zip(othervalue) {
+                        if !selfdomain.async_eq(otherdomain).await {
+                            panic!("{selfdomain:?} is not equal {otherdomain:?}");
                         }
                     }
                 } else {
@@ -183,8 +191,7 @@ impl Eq for ComputedBackend {}
 
 #[cfg_attr(test, derive(Debug))]
 pub struct ComputedDomain {
-    #[cfg(test)]
-    pub name: String,
+    pub path: String,
     pub cases: Vec<(IpSet, ComputedCaseOptions)>,
     pub default: ComputedCaseOptions,
 }
@@ -353,7 +360,6 @@ impl MainOptions {
                     ComputedBackend {
                         #[cfg(test)]
                         name: k,
-                        // addr: socket,
                         addr: match socket {
                             SocketAddr::Inet(socket) => HttpPeer::new(socket, false, "".into()),
                             SocketAddr::Unix(socket) => HttpPeer::new_uds(
@@ -377,9 +383,9 @@ impl MainOptions {
         for (key, domain) in self.domains {
             let (host, path) = key.split_once('/').unwrap_or_else(|| (&key, ""));
 
-            let host_map: &mut HashMap<_, _> = domains.entry(host.into()).or_default();
+            let host_map: &mut Vec<_> = domains.entry(host.into()).or_default();
 
-            host_map.insert(format!("/{path}"), domain.setup(key, ipsets, &backends)?);
+            host_map.push(domain.setup(format!("/{path}"), ipsets, &backends)?);
         }
 
         Ok(ComputedMainOptions {
@@ -392,21 +398,16 @@ impl MainOptions {
 impl Domain {
     pub fn setup(
         self,
-        name: String,
+        path: String,
         ipsets: &IpSets,
         backends: &ComputedBackends,
     ) -> Result<ComputedDomain, String> {
-        self._setup(
-            #[cfg(test)]
-            name.clone(),
-            ipsets,
-            backends,
-        )
-        .map_err(|err| format!("domain {name}: {err}"))
+        self._setup(path.clone(), ipsets, backends)
+            .map_err(|err| format!("domain {path}: {err}"))
     }
     fn _setup(
         self,
-        #[cfg(test)] name: String,
+        path: String,
         ipsets: &IpSets,
         backends: &ComputedBackends,
     ) -> Result<ComputedDomain, String> {
@@ -417,6 +418,7 @@ impl Domain {
                 .ok_or_else(|| format!("No set {name} has been defined"))
         }
         Ok(ComputedDomain {
+            path,
             cases: {
                 match self.case {
                     CaseOrCases::Case(case) => {
@@ -446,8 +448,6 @@ impl Domain {
                 .default
                 .setup(backends)
                 .map_err(|err| format!("default case: {err}"))?,
-            #[cfg(test)]
-            name,
         })
     }
 }
@@ -455,9 +455,7 @@ impl Domain {
 #[cfg(test)]
 impl ComputedDomain {
     async fn async_eq(&self, other: &Self) -> bool {
-        dbg!(&self.name);
-        dbg!(&other.name);
-        if self.name != other.name
+        if self.path != other.path
             || self.default != other.default
             || self.cases.len() != other.cases.len()
         {
@@ -604,22 +602,19 @@ pub mod tests {
 
         let target_domains = HashMap::from([(
             "tokipona.ppom.me".into(),
-            HashMap::from([(
-                "/".into(),
-                ComputedDomain {
-                    name: "tokipona.ppom.me".into(),
-                    cases: vec![(
-                        ipsets.get("pubsites").unwrap().clone(),
-                        ComputedCaseOptions::Static(StaticResponse {
-                            code: 401,
-                            data: "Nope!".into(),
-                        }),
-                    )],
-                    default: ComputedCaseOptions::Backend(
-                        target_backends.get("nginx").unwrap().clone(),
-                    ),
-                },
-            )]),
+            vec![ComputedDomain {
+                path: "/".into(),
+                cases: vec![(
+                    ipsets.get("pubsites").unwrap().clone(),
+                    ComputedCaseOptions::Static(StaticResponse {
+                        code: 401,
+                        data: "Nope!".into(),
+                    }),
+                )],
+                default: ComputedCaseOptions::Backend(
+                    target_backends.get("nginx").unwrap().clone(),
+                ),
+            }],
         )]);
 
         let target_config = ComputedMainOptions {
@@ -814,77 +809,63 @@ pub mod tests {
         let domains = HashMap::from([
             (
                 "music.ppom.me".into(),
-                HashMap::from([(
-                    "/".into(),
-                    ComputedDomain {
-                        name: "music.ppom.me".into(),
-                        cases: vec![(
-                            ipsets.get("pubapps").unwrap().clone(),
-                            ComputedCaseOptions::Static(StaticResponse {
-                                code: 404,
-                                data: HTML_DATA.into(),
-                            }),
-                        )],
-                        default: ComputedCaseOptions::Backend(
-                            backends.get("funkwhale").unwrap().clone(),
-                        ),
-                    },
-                )]),
+                vec![ComputedDomain {
+                    path: "/".into(),
+                    cases: vec![(
+                        ipsets.get("pubapps").unwrap().clone(),
+                        ComputedCaseOptions::Static(StaticResponse {
+                            code: 404,
+                            data: HTML_DATA.into(),
+                        }),
+                    )],
+                    default: ComputedCaseOptions::Backend(
+                        backends.get("funkwhale").unwrap().clone(),
+                    ),
+                }],
             ),
             (
                 "ppom.me".into(),
-                HashMap::from([
-                    (
-                        "/".into(),
-                        ComputedDomain {
-                            name: "ppom.me".into(),
-                            cases: vec![],
-                            default: ComputedCaseOptions::Backend(
-                                backends.get("nginx").unwrap().clone(),
-                            ),
-                        },
-                    ),
-                    (
-                        "/vault".into(),
-                        ComputedDomain {
-                            name: "ppom.me/vault".into(),
-                            cases: vec![
-                                (
-                                    ipsets.get("privapps").unwrap().clone(),
-                                    ComputedCaseOptions::Static(StaticResponse {
-                                        code: 403,
-                                        data: "Unauthorized uwu".into(),
-                                    }),
-                                ),
-                                (
-                                    ipsets.get("pubapps").unwrap().clone(),
-                                    ComputedCaseOptions::Backend(
-                                        backends.get("iocaine").unwrap().clone(),
-                                    ),
-                                ),
-                            ],
-                            default: ComputedCaseOptions::Backend(
-                                backends.get("vault").unwrap().clone(),
-                            ),
-                        },
-                    ),
-                ]),
-            ),
-            (
-                "tokipona.ppom.me".into(),
-                HashMap::from([(
-                    "/".into(),
+                vec![
                     ComputedDomain {
-                        name: "tokipona.ppom.me".into(),
-                        cases: vec![(
-                            ipsets.get("pubsites").unwrap().clone(),
-                            ComputedCaseOptions::Backend(backends.get("iocaine").unwrap().clone()),
-                        )],
+                        path: "/".into(),
+                        cases: vec![],
                         default: ComputedCaseOptions::Backend(
                             backends.get("nginx").unwrap().clone(),
                         ),
                     },
-                )]),
+                    ComputedDomain {
+                        path: "/vault".into(),
+                        cases: vec![
+                            (
+                                ipsets.get("privapps").unwrap().clone(),
+                                ComputedCaseOptions::Static(StaticResponse {
+                                    code: 403,
+                                    data: "Unauthorized uwu".into(),
+                                }),
+                            ),
+                            (
+                                ipsets.get("pubapps").unwrap().clone(),
+                                ComputedCaseOptions::Backend(
+                                    backends.get("iocaine").unwrap().clone(),
+                                ),
+                            ),
+                        ],
+                        default: ComputedCaseOptions::Backend(
+                            backends.get("vault").unwrap().clone(),
+                        ),
+                    },
+                ],
+            ),
+            (
+                "tokipona.ppom.me".into(),
+                vec![ComputedDomain {
+                    path: "/".into(),
+                    cases: vec![(
+                        ipsets.get("pubsites").unwrap().clone(),
+                        ComputedCaseOptions::Backend(backends.get("iocaine").unwrap().clone()),
+                    )],
+                    default: ComputedCaseOptions::Backend(backends.get("nginx").unwrap().clone()),
+                }],
             ),
         ]);
 

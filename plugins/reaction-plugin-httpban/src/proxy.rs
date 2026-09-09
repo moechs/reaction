@@ -124,17 +124,17 @@ impl ComputedMainOptions {
         let mut max_path_len = None;
         let mut chosen_domain = None;
 
-        for (domain_path, domain) in path_map {
-            if path.starts_with(domain_path) {
+        for domain in path_map {
+            if path.starts_with(&domain.path) {
                 let new_max = match max_path_len {
                     Some(previous_max) => {
-                        if previous_max < domain_path.len() {
-                            Some(domain_path.len())
+                        if previous_max < domain.path.len() {
+                            Some(domain.path.len())
                         } else {
                             None
                         }
                     }
-                    None => Some(domain_path.len()),
+                    None => Some(domain.path.len()),
                 };
                 if let Some(new_max) = new_max {
                     max_path_len = Some(new_max);
@@ -188,36 +188,35 @@ mod tests {
             .1
             .iter()
             .next()
-            .unwrap()
-            .1;
+            .unwrap();
 
         assert_eq!(
             smol_main
                 .resolve_domain("tokipona.ppom.me", "/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&smol_domain.name)
+                .map(|d| &d.path),
+            Some(&smol_domain.path)
         );
         assert_eq!(
             smol_main
                 .resolve_domain("tokipona.ppom.me", "/whatyouwant")
                 .ok()
-                .map(|d| &d.name),
-            Some(&smol_domain.name)
+                .map(|d| &d.path),
+            Some(&smol_domain.path)
         );
         assert_eq!(
             smol_main
                 .resolve_domain("tokipona.ppom.me", "/any/subdir/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&smol_domain.name)
+                .map(|d| &d.path),
+            Some(&smol_domain.path)
         );
         assert_eq!(
             smol_main
                 .resolve_domain("tokipona.ppom.me", "/any/subdir/and_file")
                 .ok()
-                .map(|d| &d.name),
-            Some(&smol_domain.name)
+                .map(|d| &d.path),
+            Some(&smol_domain.path)
         );
         assert!(smol_main.resolve_domain("tokipona.ppom.me", "").is_err());
 
@@ -232,87 +231,95 @@ mod tests {
             .domains
             .get("tokipona.ppom.me")
             .unwrap()
-            .get("/")
+            .iter()
+            .find(|d| d.path == "/")
             .unwrap();
 
         assert_eq!(
             big_main
                 .resolve_domain("tokipona.ppom.me", "/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&tokipona_domain.name)
+                .map(|d| &d.path),
+            Some(&tokipona_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("tokipona.ppom.me", "/whatyouwant")
                 .ok()
-                .map(|d| &d.name),
-            Some(&tokipona_domain.name)
+                .map(|d| &d.path),
+            Some(&tokipona_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("tokipona.ppom.me", "/any/subdir/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&tokipona_domain.name)
+                .map(|d| &d.path),
+            Some(&tokipona_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("tokipona.ppom.me", "/any/subdir/and_file")
                 .ok()
-                .map(|d| &d.name),
-            Some(&tokipona_domain.name)
+                .map(|d| &d.path),
+            Some(&tokipona_domain.path)
         );
 
-        let ppom_domain = big_main.domains.get("ppom.me").unwrap().get("/").unwrap();
+        let ppom_domain = big_main
+            .domains
+            .get("ppom.me")
+            .unwrap()
+            .iter()
+            .find(|d| d.path == "/")
+            .unwrap();
         let vault_domain = big_main
             .domains
             .get("ppom.me")
             .unwrap()
-            .get("/vault")
+            .iter()
+            .find(|d| d.path == "/vault")
             .unwrap();
 
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/any/subdir/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&ppom_domain.name)
+                .map(|d| &d.path),
+            Some(&ppom_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&ppom_domain.name)
+                .map(|d| &d.path),
+            Some(&ppom_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/vault")
                 .ok()
-                .map(|d| &d.name),
-            Some(&vault_domain.name)
+                .map(|d| &d.path),
+            Some(&vault_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/vaultmètre")
                 .ok()
-                .map(|d| &d.name),
-            Some(&vault_domain.name)
+                .map(|d| &d.path),
+            Some(&vault_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/vault/")
                 .ok()
-                .map(|d| &d.name),
-            Some(&vault_domain.name)
+                .map(|d| &d.path),
+            Some(&vault_domain.path)
         );
         assert_eq!(
             big_main
                 .resolve_domain("ppom.me", "/vault/zblorg")
                 .ok()
-                .map(|d| &d.name),
-            Some(&vault_domain.name)
+                .map(|d| &d.path),
+            Some(&vault_domain.path)
         );
     }
 }
