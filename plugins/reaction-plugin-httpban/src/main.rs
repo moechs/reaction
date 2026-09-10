@@ -17,6 +17,7 @@ use crate::proxy::Proxy;
 mod action;
 mod config;
 mod proxy;
+mod request;
 #[cfg(test)]
 mod tests;
 

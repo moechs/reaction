@@ -35,6 +35,7 @@ fn serde_ip() -> String {
 #[derive(Serialize, Deserialize)]
 pub struct MainOptions {
     pub socket: SocketOption,
+    pub proxy_count: usize,
     pub backends: HashMap<String, Backend>,
     pub domains: HashMap<String, Domain>,
 }
@@ -131,6 +132,7 @@ impl ComputedAction {
 pub struct ComputedMainOptions {
     pub socket_path: String,
     pub socket_mode: Permissions,
+    pub proxy_count: usize,
     pub domains: ComputedDomains,
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
@@ -403,6 +405,7 @@ impl MainOptions {
         }
 
         Ok(ComputedMainOptions {
+            proxy_count: self.proxy_count,
             socket_path: self.socket.path,
             socket_mode: PermissionsExt::from_mode(mode),
             domains,
@@ -562,6 +565,7 @@ pub mod tests {
 
     pub async fn smol_config() -> (ComputedMainOptions, Vec<ComputedAction>) {
         let config = json!({
+          "proxy_count": 1,
           "socket": {
             "path": "./test.sock",
             "mode": "600",
@@ -637,6 +641,7 @@ pub mod tests {
         )]);
 
         let target_config = ComputedMainOptions {
+            proxy_count: 1,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             domains: target_domains,
@@ -666,6 +671,7 @@ pub mod tests {
         let html_path = html_file.into_temp_path();
 
         let config = json!({
+          "proxy_count": 2,
           "socket": {
             "path": "./test.sock",
             "mode": "600",
@@ -893,6 +899,7 @@ pub mod tests {
         ]);
 
         let target_config = ComputedMainOptions {
+            proxy_count: 2,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             domains,
