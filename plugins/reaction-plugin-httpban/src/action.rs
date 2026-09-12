@@ -68,7 +68,7 @@ impl ComputedAction {
                 Ok(Some(exec)) => {
                     if let Err(err) = self.handle_exec(exec).await {
                         eprintln!("ERROR {err}");
-                        break;
+                        // break;
                     }
                 }
             }
