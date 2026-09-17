@@ -3,6 +3,7 @@ use std::{net::IpAddr, str::FromStr};
 use http::request::Parts;
 use pingora_core::{BError, ErrorSource, ErrorType, RetryType};
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct RequestSummary<'a> {
     pub host: &'a str,
     pub path: &'a str,
@@ -28,7 +29,10 @@ impl<'a> RequestSummary<'a> {
     fn _from_request(proxy_count: usize, parts: &'a Parts) -> Result<RequestSummary<'a>, String> {
         let host = parts.uri.host().ok_or("Missing 'Host' header")?;
 
-        let path = parts.uri.path();
+        let path = match parts.uri.path() {
+            "" => "/",
+            path => path,
+        };
 
         let ip = {
             // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#parsing
@@ -45,7 +49,7 @@ impl<'a> RequestSummary<'a> {
                     .map_err(|err| format!("Invalid 'X-Forwarded-For' header encoding: {err}"))?;
 
                 // Split the first value if multiple are present, otherwise keep as-is
-                ips.extend(header_str.split('/'))
+                ips.extend(header_str.split(','))
             }
 
             if ips.len() < proxy_count {
@@ -69,4 +73,96 @@ impl<'a> RequestSummary<'a> {
 #[test]
 fn test_from_request() {
     // TODO test
+
+    use http::{Version, request::Builder};
+
+    assert_eq!(
+        RequestSummary::from_request(
+            1,
+            &Builder::new()
+                .method("GET")
+                .uri("exemple.fr")
+                .version(Version::HTTP_2)
+                .header("X-Forwarded-For", "203.0.113.12")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .unwrap(),
+        RequestSummary {
+            host: "exemple.fr",
+            path: "/",
+            ip: "203.0.113.12".parse().unwrap()
+        }
+    );
+
+    assert_eq!(
+        RequestSummary::from_request(
+            3,
+            &Builder::new()
+                .method("GET")
+                .uri("https://exemple.fr/is-it-true?reaction=cool")
+                .version(Version::HTTP_2)
+                // Client's local IP
+                .header("X-Forwarded-For", "10.100.2.3")
+                // Client's enterprise proxy
+                .header("X-Forwarded-For", "203.0.113.12")
+                .header("X-Forwarded-For", "10.0.1.2")
+                .header("X-Forwarded-For", "10.0.1.3")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .unwrap(),
+        RequestSummary {
+            host: "exemple.fr",
+            path: "/is-it-true",
+            ip: "203.0.113.12".parse().unwrap()
+        }
+    );
+
+    assert_eq!(
+        RequestSummary::from_request(
+            4,
+            &Builder::new()
+                .method("GET")
+                .uri("https://exemple.fr/is-it-true?reaction=cool")
+                .version(Version::HTTP_2)
+                // Client's local IP
+                .header("X-Forwarded-For", "10.100.2.3, 203.0.113.12")
+                // Client's enterprise proxy
+                .header("X-Forwarded-For", "10.0.1.2, 10.0.1.3")
+                .header("X-Forwarded-For", "10.0.1.4")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .unwrap(),
+        RequestSummary {
+            host: "exemple.fr",
+            path: "/is-it-true",
+            ip: "203.0.113.12".parse().unwrap()
+        }
+    );
+
+    assert!(
+        // More proxies than X-Forwarded-For headers
+        RequestSummary::from_request(
+            4,
+            &Builder::new()
+                .method("GET")
+                .uri("https://exemple.fr/is-it-true?reaction=cool")
+                .version(Version::HTTP_2)
+                .header("X-Forwarded-For", "10.0.1.2, 10.0.1.3")
+                .header("X-Forwarded-For", "10.0.1.4")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .is_err()
+    );
 }
