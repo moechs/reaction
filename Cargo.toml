@@ -47,8 +47,8 @@ serde.workspace = true
 serde-saphyr = "0.0.25"
 serde_json.workspace = true
 serde_json_borrow = "0.9.0"
-jrsonnet-evaluator = "0.5.0-pre98"
-jrsonnet-stdlib = "0.5.0-pre98"
+jrsonnet-evaluator = { git = "https://github.com/deltarocks/jrsonnet", branch = "master" }
+jrsonnet-stdlib = { git = "https://github.com/deltarocks/jrsonnet", branch = "master" }
 # Error macro
 thiserror.workspace = true
 # Async runtime & helpers
