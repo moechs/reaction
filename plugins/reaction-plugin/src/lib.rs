@@ -519,7 +519,7 @@ pub struct ActionImpl {
 /// The plugin should perform the configured action for each received [`Exec`].
 ///
 /// Any error during its execution should be logged to stderr, see [`crate#Errors`] for error handling recommandations.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Exec {
     pub match_: Vec<String>,
     pub time: Duration,
