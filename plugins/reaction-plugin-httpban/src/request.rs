@@ -1,7 +1,8 @@
 use std::{net::IpAddr, str::FromStr};
 
 use http::request::Parts;
-use pingora_core::{BError, ErrorSource, ErrorType, RetryType};
+
+use crate::error::{HttpBanError, new_bad_setup};
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct RequestSummary<'a> {
@@ -14,25 +15,18 @@ impl<'a> RequestSummary<'a> {
     pub fn from_request(
         proxy_count: usize,
         parts: &'a Parts,
-    ) -> Result<RequestSummary<'a>, BError> {
-        Self::_from_request(proxy_count, parts).map_err(|err| {
-            Box::new(pingora_core::Error {
-                etype: ErrorType::InvalidHTTPHeader,
-                esource: ErrorSource::Downstream,
-                retry: RetryType::Decided(false),
-                cause: Some(err.into()),
-                context: None,
-            })
-        })
-    }
-
-    fn _from_request(proxy_count: usize, parts: &'a Parts) -> Result<RequestSummary<'a>, String> {
-        let host = parts.uri.host().ok_or("Missing 'Host' header")?;
-
+    ) -> Result<RequestSummary<'a>, HttpBanError> {
         let path = match parts.uri.path() {
             "" => "/",
             path => path,
         };
+
+        let host = parts
+            .headers
+            .get("Host")
+            .ok_or("Missing 'Host' header")?
+            .to_str()
+            .map_err(|_| "Invalid 'Host' header encoding")?;
 
         let ip = {
             // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#parsing
@@ -44,25 +38,26 @@ impl<'a> RequestSummary<'a> {
             let mut ips = Vec::new();
             for header in parts.headers.get_all("X-Forwarded-For") {
                 // .ok_or("Missing 'X-Forwarded-For' header from previous reverse proxy")?
-                let header_str = header
-                    .to_str()
-                    .map_err(|err| format!("Invalid 'X-Forwarded-For' header encoding: {err}"))?;
+                let header_str = header.to_str().map_err(|err| {
+                    new_bad_setup(format!("Invalid 'X-Forwarded-For' header encoding: {err}"))
+                })?;
 
                 // Split the first value if multiple are present, otherwise keep as-is
                 ips.extend(header_str.split(','))
             }
 
             if ips.len() < proxy_count {
-                return Err(format!(
+                return Err(new_bad_setup(format!(
                     "X-Forwarded-For is {} IPs long, but the configured proxy_count is at {proxy_count}. Some proxy should set the header but did'nt do it.",
                     ips.len()
-                ));
+                )).into());
             }
 
             let ip_str = ips[ips.len() - proxy_count].trim();
 
-            IpAddr::from_str(ip_str)
-                .map_err(|err| format!("Invalid 'X-Forwarded-For' header IP: {err}"))?
+            IpAddr::from_str(ip_str).map_err(|err| {
+                new_bad_setup(format!("Invalid 'X-Forwarded-For' header IP: {err}"))
+            })?
         };
 
         Ok(Self { host, path, ip })

@@ -10,6 +10,7 @@ use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
 use crate::{
     config::{ComputedBackend, ComputedCaseOptions, ComputedDomain, ComputedMainOptions},
+    error::{HttpBanError, new_bad_setup},
     request::RequestSummary,
 };
 
@@ -61,24 +62,29 @@ impl ProxyHttp for Proxy {
                 etype: ErrorType::InternalError,
                 esource: ErrorSource::Internal,
                 retry: RetryType::Decided(false),
-                cause: Some("request_filter has not been called".into()),
+                cause: Some("request_filter has already answered".into()),
                 context: None,
             })),
         }
     }
 
+    // if plain text response, do here
     async fn request_filter(
         &self,
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool, BError> {
-        // if plain text response, do here
-        let still_here = session.read_request().await?;
-        if !still_here {
-            return Ok(false);
-        }
-
-        let summary = RequestSummary::from_request(self.config.proxy_count, &session.req_header())?;
+        let summary =
+            match RequestSummary::from_request(self.config.proxy_count, &session.req_header()) {
+                Ok(s) => s,
+                Err(HttpBanError::BadSetup(e)) => return Err(e),
+                Err(HttpBanError::MalformedRequest(e)) => {
+                    session
+                        .respond_error_with_body(400, format!("Bad Request\n{e}").into())
+                        .await?;
+                    return Ok(true);
+                }
+            };
 
         let domain = self.config.resolve_domain(summary.host, summary.path)?;
 
@@ -103,17 +109,10 @@ impl ComputedMainOptions {
     fn resolve_domain(&self, host: &str, path: &str) -> Result<&ComputedDomain, BError> {
         // let path = path.trim_end_matches('/');
 
-        let path_map = self.domains.get(host).ok_or_else(|| pingora_core::Error {
-            etype: ErrorType::ConnectNoRoute,
-            esource: ErrorSource::Downstream,
-            retry: RetryType::Decided(false),
-            cause: Some(
-                format!(
-                    "Can't serve request asking for domain {host}: this domain isn't in config"
-                )
-                .into(),
-            ),
-            context: None,
+        let path_map = self.domains.get(host).ok_or_else(|| {
+            new_bad_setup(format!(
+                "Can't serve request asking for domain {host}: this domain isn't in config"
+            ))
         })?;
 
         let mut max_path_len = None;
