@@ -65,12 +65,15 @@ impl PluginInfo for MyPlugin {
         let (token, shutdown) = Shutdown::new();
         self.token = token;
 
-        self.server
-            .take()
-            .ok_or_else(|| format!("plugin has not been initialized. this is a bug!"))?
-            .run(RunArgs {
+        let server = self.server.take().ok_or_else(|| {
+            format!("plugin httpban has not been initialized. this is a bug from reaction!")
+        })?;
+
+        tokio::task::spawn_blocking(|| {
+            server.run(RunArgs {
                 shutdown_signal: Box::new(shutdown),
-            });
+            })
+        });
         Ok(())
     }
 
