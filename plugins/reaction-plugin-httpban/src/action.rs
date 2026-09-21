@@ -32,8 +32,22 @@ impl DualStackSet {
 
     pub fn contains(&self, ip: IpAddr) -> bool {
         match ip {
-            IpAddr::V4(ip) => self.ipv4.contains(&ip.into()),
-            IpAddr::V6(ip) => self.ipv6.contains(&ip.into()),
+            IpAddr::V4(ip) => self.ipv4.get_lpm(&ip.into()).is_some(),
+            IpAddr::V6(ip) => self.ipv6.get_lpm(&ip.into()).is_some(),
+        }
+    }
+
+    pub fn insert(&mut self, ip: IpNet) -> bool {
+        match ip {
+            IpNet::V4(ipv4) => self.ipv4.insert(ipv4),
+            IpNet::V6(ipv6) => self.ipv6.insert(ipv6),
+        }
+    }
+
+    pub fn remove(&mut self, ip: &IpNet) -> bool {
+        match ip {
+            IpNet::V4(ipv4) => self.ipv4.remove(ipv4),
+            IpNet::V6(ipv6) => self.ipv6.remove(ipv6),
         }
     }
 }
@@ -81,37 +95,78 @@ impl ComputedAction {
             .get(self.pattern)
             .ok_or_else(|| "ERROR action: bad struct from reaction, this is a bug")?;
 
-        let ip: IpNet = if ipstr.contains('/') {
-            ipstr.parse().map_err(|err| format!("{err}"))?
-        } else {
-            let ip: IpAddr = ipstr.parse().map_err(|err| format!("{err}"))?;
-            match ip {
-                IpAddr::V4(ip) => IpNet::V4(Ipv4Net::new(ip, 32).unwrap()),
-                IpAddr::V6(ip) => IpNet::V6(Ipv6Net::new(ip, 128).unwrap()),
-            }
-        };
-
+        let ip = ip_net_from_str(ipstr)?;
         let mut set = self.set.write().await;
 
-        match ip {
-            IpNet::V4(ipv4) => match self.action {
-                AddRemove::Add => {
-                    set.ipv4.insert(ipv4);
-                }
-                AddRemove::Remove => {
-                    set.ipv4.remove(&ipv4);
-                }
-            },
-            IpNet::V6(ipv6) => match self.action {
-                AddRemove::Add => {
-                    set.ipv6.insert(ipv6);
-                }
-                AddRemove::Remove => {
-                    set.ipv6.remove(&ipv6);
-                }
-            },
+        match self.action {
+            AddRemove::Add => {
+                set.insert(ip);
+            }
+            AddRemove::Remove => {
+                set.remove(&ip);
+            }
         }
 
         Ok(())
     }
+}
+
+fn ip_net_from_str(ipstr: &str) -> Result<IpNet, String> {
+    if ipstr.contains('/') {
+        ipstr.parse().map_err(|err| format!("{err}"))
+    } else {
+        let ip: IpAddr = ipstr.parse().map_err(|err| format!("{err}"))?;
+        Ok(match ip {
+            IpAddr::V4(ip) => IpNet::V4(Ipv4Net::new(ip, 32).unwrap()),
+            IpAddr::V6(ip) => IpNet::V6(Ipv6Net::new(ip, 128).unwrap()),
+        })
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_dual_stack_set_contains() {
+    let mut set = DualStackSet {
+        name: "test".into(),
+        ipv4: PrefixSet::new(),
+        ipv6: PrefixSet::new(),
+    };
+
+    let ip1 = ip_net_from_str("203.0.113.1").unwrap();
+    let ipnet1 = ip_net_from_str("198.51.100.0/24").unwrap();
+    let ipnet1_1 = ip_net_from_str("198.51.100.1").unwrap();
+    let ipnet1_2 = ip_net_from_str("198.51.100.2").unwrap();
+
+    assert!(!set.contains(ip1.addr()));
+    assert!(!set.contains(ipnet1_1.addr()));
+    assert!(!set.contains(ipnet1_2.addr()));
+    assert!(!set.contains(ipnet1.addr()));
+
+    set.insert(ip1.clone());
+
+    assert!(set.contains(ip1.addr()));
+    assert!(!set.contains(ipnet1_1.addr()));
+    assert!(!set.contains(ipnet1_2.addr()));
+    assert!(!set.contains(ipnet1.addr()));
+
+    set.insert(ipnet1.clone());
+
+    assert!(set.contains(ip1.addr()));
+    assert!(set.contains(ipnet1_1.addr()));
+    assert!(set.contains(ipnet1_2.addr()));
+    assert!(set.contains(ipnet1.addr()));
+
+    set.remove(&ip1);
+
+    assert!(!set.contains(ip1.addr()));
+    assert!(set.contains(ipnet1_1.addr()));
+    assert!(set.contains(ipnet1_2.addr()));
+    assert!(set.contains(ipnet1.addr()));
+
+    set.remove(&ipnet1);
+
+    assert!(!set.contains(ip1.addr()));
+    assert!(!set.contains(ipnet1_1.addr()));
+    assert!(!set.contains(ipnet1_2.addr()));
+    assert!(!set.contains(ipnet1.addr()));
 }
