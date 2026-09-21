@@ -6,7 +6,7 @@ use std::{
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use prefix_trie::PrefixSet;
+use prefix_trie::joint::JointPrefixSet;
 use reaction_plugin::Exec;
 use tokio::sync::RwLock;
 
@@ -17,38 +17,27 @@ pub type IpSet = Arc<RwLock<DualStackSet>>;
 
 pub struct DualStackSet {
     pub name: String,
-    ipv4: PrefixSet<Ipv4Net>,
-    ipv6: PrefixSet<Ipv6Net>,
+    inner: JointPrefixSet<IpNet>,
 }
 
 impl DualStackSet {
     pub fn new(name: String) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self {
             name,
-            ipv4: PrefixSet::new(),
-            ipv6: PrefixSet::new(),
+            inner: JointPrefixSet::new(),
         }))
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(ip) => self.ipv4.get_lpm(&ip.into()).is_some(),
-            IpAddr::V6(ip) => self.ipv6.get_lpm(&ip.into()).is_some(),
-        }
+        self.inner.get_lpm(&ip.into()).is_some()
     }
 
     pub fn insert(&mut self, ip: IpNet) -> bool {
-        match ip {
-            IpNet::V4(ipv4) => self.ipv4.insert(ipv4),
-            IpNet::V6(ipv6) => self.ipv6.insert(ipv6),
-        }
+        self.inner.insert(ip)
     }
 
     pub fn remove(&mut self, ip: &IpNet) -> bool {
-        match ip {
-            IpNet::V4(ipv4) => self.ipv4.remove(ipv4),
-            IpNet::V6(ipv6) => self.ipv6.remove(ipv6),
-        }
+        self.inner.remove(ip)
     }
 }
 
@@ -128,8 +117,7 @@ fn ip_net_from_str(ipstr: &str) -> Result<IpNet, String> {
 fn test_dual_stack_set_contains() {
     let mut set = DualStackSet {
         name: "test".into(),
-        ipv4: PrefixSet::new(),
-        ipv6: PrefixSet::new(),
+        inner: JointPrefixSet::new(),
     };
 
     let ip1 = ip_net_from_str("203.0.113.1").unwrap();
