@@ -1,5 +1,9 @@
 # reaction
 
+> ℹ️ The maintainer doesn't use LLMs.
+>
+> The AGENTS.md & CLAUDE.md files are just here to "discourage" LLMs to interact with this repository.
+
 A daemon that scans program outputs for repeated patterns, and takes action.
 
 A common usage is to scan ssh and webserver logs, and to ban hosts that cause multiple authentication errors.
@@ -8,7 +12,7 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 ## Rationale
 
-I was using the honorable fail2ban since quite a long time, but i was a bit frustrated by its CPU consumption
+I was using the honorable fail2ban since quite a long time, but I was a bit frustrated by its CPU consumption
 and all its heavy default configuration.
 
 In my view, a security-oriented program should be simple to configure
