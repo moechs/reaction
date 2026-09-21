@@ -6,7 +6,9 @@ use std::{
 
 use http::StatusCode;
 use reaction_plugin::{ActionConfig, ActionImpl, Exec, PluginInfo};
+use reqwest::Response;
 use serde_json::json;
+use tokio::time::sleep;
 
 use crate::MyPlugin;
 
@@ -78,25 +80,24 @@ async fn integration_test() {
 
     plugin.start().await.unwrap();
 
-    eprintln!("before inner");
     let result = integration_test_inner(socket_path, actions).await;
-    eprintln!("after  inner");
 
     // End
-    eprintln!("before close");
     plugin.close().await.unwrap();
-    eprintln!("after  close");
 
-    eprintln!("before unwrap");
+    // Only test if it was successful here, because we need to properly
+    // shutdown the server before panicking
     result.unwrap();
-    eprintln!("after  unwrap");
 }
 
 async fn integration_test_inner(
     socket_path: PathBuf,
     actions: Vec<ActionImpl>,
 ) -> Result<(), Box<dyn Error>> {
-    // Add an IP
+    // We must not panic inside this function
+    // So we can't use assert* macros
+
+    // Add some IPs
     let add_action = actions[0].clone();
     let remove_action = actions[1].clone();
 
@@ -124,15 +125,9 @@ async fn integration_test_inner(
         })
         .await?;
 
+    sleep(Duration::from_millis(100)).await;
+
     // Test server's response
-    // let proxy = reqwest::Proxy::http(format!(
-    //     "unix:{}",
-    //     socket_path
-    //         .to_str()
-    //         .ok_or("socket path utf8 error or something")?
-    // ))
-    // .unwrap();
-    // let client = reqwest::Client::builder().proxy(proxy).build()?;
     let client = reqwest::Client::builder()
         .unix_socket(socket_path)
         .timeout(Duration::from_secs(1))
@@ -180,70 +175,65 @@ async fn integration_test_inner(
     for (request, expected) in requests {
         let request_debug = format!("{request:?}");
 
-        eprintln!("before request");
         let result = client
             .execute(request)
             .await
             .map_err(|err| format!("err: {err}, request: {request_debug}"))?;
 
+        let check_status =
+            async |result: Response, status: StatusCode, expected_body: Option<&str>| {
+                if result.status() != status {
+                    return Err(format!(
+                        "status is {} but {} was expected,
+                        request: {request_debug},
+                        response body: {:?}",
+                        result.status(),
+                        status,
+                        result.text().await
+                    ));
+                }
+                if let Some(expected_body) = expected_body {
+                    let actual_body = result
+                        .text()
+                        .await
+                        .map_err(|err| format!("err: {err}, request: {request_debug}"))?;
+                    if actual_body != expected_body {
+                        return Err(format!(
+                            "body is {actual_body} but nomatch was expected,
+                            request: {request_debug}",
+                        ));
+                    }
+                }
+                Ok(())
+            };
+
         match expected {
             Ok(false) => {
-                if result.status() != StatusCode::OK {
-                    return Err(format!(
-                        "status is {} but {} was expected: {request_debug}",
-                        result.status(),
-                        StatusCode::OK
-                    )
-                    .into());
-                }
-
-                let body = result
-                    .text()
-                    .await
-                    .map_err(|err| format!("err: {err}, request: {request_debug}"))?;
-                if body != "nomatch" {
-                    return Err(format!(
-                        "body is {body} but nomatch was expected: {request_debug}",
-                    )
-                    .into());
-                }
+                check_status(result, StatusCode::OK, Some("nomatch")).await?;
             }
             Ok(true) => {
-                if result.status() != StatusCode::FORBIDDEN {
-                    return Err(format!(
-                        "status is {} but {} was expected: {request_debug}",
-                        result.status(),
-                        StatusCode::FORBIDDEN
-                    )
-                    .into());
-                }
-
-                let body = result
-                    .text()
-                    .await
-                    .map_err(|err| format!("err: {err}, request: {request_debug}"))?;
-                if body != "match" {
-                    return Err(
-                        format!("body is {body} but match was expected: {request_debug}",).into(),
-                    );
-                }
+                check_status(result, StatusCode::FORBIDDEN, Some("match")).await?;
             }
             Err(_) => {
                 let status = result.status().as_u16();
                 if status < 500 {
                     return Err(format!(
-                        "status is {status} but >=500 was expected: {request_debug}"
+                        "status is {status} but >=500 was expected,
+                        request: {request_debug},
+                        body: {:?}",
+                        result.text().await
                     )
                     .into());
                 }
 
-                let _body = result
-                    .text()
-                    .await
-                    .map_err(|err| format!("err: {err}, request: {request_debug}"))?;
+                let _body = result.text().await.map_err(|err| {
+                    format!(
+                        "err: {err},
+                        request: {request_debug}"
+                    )
+                })?;
             }
         }
-        eprintln!("after  request");
     }
     Ok(())
 }

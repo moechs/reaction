@@ -78,6 +78,7 @@ fn test_from_request() {
                 .method("GET")
                 .uri("exemple.fr")
                 .version(Version::HTTP_2)
+                .header("Host", "exemple.fr")
                 .header("X-Forwarded-For", "203.0.113.12")
                 .body(())
                 .unwrap()
@@ -99,6 +100,7 @@ fn test_from_request() {
                 .method("GET")
                 .uri("https://exemple.fr/is-it-true?reaction=cool")
                 .version(Version::HTTP_2)
+                .header("Host", "exemple.fr")
                 // Client's local IP
                 .header("X-Forwarded-For", "10.100.2.3")
                 // Client's enterprise proxy
@@ -125,6 +127,7 @@ fn test_from_request() {
                 .method("GET")
                 .uri("https://exemple.fr/is-it-true?reaction=cool")
                 .version(Version::HTTP_2)
+                .header("Host", "exemple.fr")
                 // Client's local IP
                 .header("X-Forwarded-For", "10.100.2.3, 203.0.113.12")
                 // Client's enterprise proxy
@@ -151,8 +154,43 @@ fn test_from_request() {
                 .method("GET")
                 .uri("https://exemple.fr/is-it-true?reaction=cool")
                 .version(Version::HTTP_2)
+                .header("Host", "exemple.fr")
                 .header("X-Forwarded-For", "10.0.1.2, 10.0.1.3")
                 .header("X-Forwarded-For", "10.0.1.4")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .is_err()
+    );
+
+    assert!(
+        // Missing Host
+        RequestSummary::from_request(
+            1,
+            &Builder::new()
+                .method("GET")
+                .uri("exemple.fr")
+                .version(Version::HTTP_2)
+                .header("X-Forwarded-For", "203.0.113.12")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        )
+        .is_err()
+    );
+
+    assert!(
+        // Missing X-Forwarded-For
+        RequestSummary::from_request(
+            1,
+            &Builder::new()
+                .method("GET")
+                .uri("exemple.fr")
+                .header("Host", "exemple.fr")
+                .version(Version::HTTP_2)
                 .body(())
                 .unwrap()
                 .into_parts()

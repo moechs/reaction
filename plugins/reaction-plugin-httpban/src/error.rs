@@ -5,8 +5,8 @@ where
     S: Into<String>,
 {
     pingora_core::Error {
-        etype: ErrorType::InvalidHTTPHeader,
-        esource: ErrorSource::Downstream,
+        etype: ErrorType::InternalError,
+        esource: ErrorSource::Internal,
         retry: RetryType::Decided(false),
         cause: Some(message.into().into()),
         context: None,
@@ -19,15 +19,6 @@ pub enum HttpBanError {
     MalformedRequest(String),
     BadSetup(BError),
 }
-
-// impl HttpBanError {
-//     pub fn new_bad_setup<S>(message: S) -> HttpBanError
-//     where
-//         S: Into<String>,
-//     {
-//         Self::BadSetup(new_bad_setup(message))
-//     }
-// }
 
 impl std::error::Error for HttpBanError {}
 
