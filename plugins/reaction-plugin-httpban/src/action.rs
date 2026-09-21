@@ -13,46 +13,53 @@ use tokio::sync::RwLock;
 use crate::config::{AddRemove, ComputedAction};
 
 pub type IpSets = HashMap<String, IpSet>;
-pub type IpSet = Arc<RwLock<DualStackSet>>;
 
-pub struct DualStackSet {
+#[derive(Clone)]
+pub struct IpSet {
     pub name: String,
-    inner: JointPrefixSet<IpNet>,
+    inner: Arc<RwLock<JointPrefixSet<IpNet>>>,
 }
 
-impl DualStackSet {
-    pub fn new(name: String) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
+impl IpSet {
+    pub fn new(name: String) -> Self {
+        Self {
             name,
-            inner: JointPrefixSet::new(),
-        }))
+            inner: Arc::new(RwLock::new(JointPrefixSet::new())),
+        }
     }
 
-    pub fn contains(&self, ip: IpAddr) -> bool {
-        self.inner.get_lpm(&ip.into()).is_some()
+    pub async fn contains(&self, ip: IpAddr) -> bool {
+        self.inner.read().await.get_lpm(&ip.into()).is_some()
     }
 
-    pub fn insert(&mut self, ip: IpNet) -> bool {
-        self.inner.insert(ip)
+    pub async fn insert(&mut self, ip: IpNet) -> bool {
+        self.inner.write().await.insert(ip)
     }
 
-    pub fn remove(&mut self, ip: &IpNet) -> bool {
-        self.inner.remove(ip)
+    pub async fn remove(&mut self, ip: &IpNet) -> bool {
+        self.inner.write().await.remove(ip)
     }
 }
 
-impl Debug for DualStackSet {
+#[cfg(test)]
+impl PartialEq for IpSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+#[cfg(test)]
+impl Eq for IpSet {}
+
+impl Debug for IpSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("JointSets")
-            .field("name", &self.name)
-            .finish()
+        f.debug_struct("IpSet").field("name", &self.name).finish()
     }
 }
 
 pub fn ip_sets_from_names(names: &HashSet<String>) -> IpSets {
     names
         .iter()
-        .map(|set| (set.clone(), DualStackSet::new(set.clone())))
+        .map(|set| (set.clone(), IpSet::new(set.clone())))
         .collect()
 }
 
@@ -85,14 +92,13 @@ impl ComputedAction {
             .ok_or_else(|| "ERROR action: bad struct from reaction, this is a bug")?;
 
         let ip = ip_net_from_str(ipstr)?;
-        let mut set = self.set.write().await;
 
         match self.action {
             AddRemove::Add => {
-                set.insert(ip);
+                self.set.insert(ip).await;
             }
             AddRemove::Remove => {
-                set.remove(&ip);
+                self.set.remove(&ip).await;
             }
         }
 
@@ -113,48 +119,45 @@ fn ip_net_from_str(ipstr: &str) -> Result<IpNet, String> {
 }
 
 #[cfg(test)]
-#[test]
-fn test_dual_stack_set_contains() {
-    let mut set = DualStackSet {
-        name: "test".into(),
-        inner: JointPrefixSet::new(),
-    };
+#[tokio::test]
+async fn test_ip_set_contains() {
+    let mut set = IpSet::new("test".into());
 
     let ip1 = ip_net_from_str("203.0.113.1").unwrap();
     let ipnet1 = ip_net_from_str("198.51.100.0/24").unwrap();
     let ipnet1_1 = ip_net_from_str("198.51.100.1").unwrap();
     let ipnet1_2 = ip_net_from_str("198.51.100.2").unwrap();
 
-    assert!(!set.contains(ip1.addr()));
-    assert!(!set.contains(ipnet1_1.addr()));
-    assert!(!set.contains(ipnet1_2.addr()));
-    assert!(!set.contains(ipnet1.addr()));
+    assert!(!set.contains(ip1.addr()).await);
+    assert!(!set.contains(ipnet1_1.addr()).await);
+    assert!(!set.contains(ipnet1_2.addr()).await);
+    assert!(!set.contains(ipnet1.addr()).await);
 
-    set.insert(ip1.clone());
+    set.insert(ip1.clone()).await;
 
-    assert!(set.contains(ip1.addr()));
-    assert!(!set.contains(ipnet1_1.addr()));
-    assert!(!set.contains(ipnet1_2.addr()));
-    assert!(!set.contains(ipnet1.addr()));
+    assert!(set.contains(ip1.addr()).await);
+    assert!(!set.contains(ipnet1_1.addr()).await);
+    assert!(!set.contains(ipnet1_2.addr()).await);
+    assert!(!set.contains(ipnet1.addr()).await);
 
-    set.insert(ipnet1.clone());
+    set.insert(ipnet1.clone()).await;
 
-    assert!(set.contains(ip1.addr()));
-    assert!(set.contains(ipnet1_1.addr()));
-    assert!(set.contains(ipnet1_2.addr()));
-    assert!(set.contains(ipnet1.addr()));
+    assert!(set.contains(ip1.addr()).await);
+    assert!(set.contains(ipnet1_1.addr()).await);
+    assert!(set.contains(ipnet1_2.addr()).await);
+    assert!(set.contains(ipnet1.addr()).await);
 
-    set.remove(&ip1);
+    set.remove(&ip1).await;
 
-    assert!(!set.contains(ip1.addr()));
-    assert!(set.contains(ipnet1_1.addr()));
-    assert!(set.contains(ipnet1_2.addr()));
-    assert!(set.contains(ipnet1.addr()));
+    assert!(!set.contains(ip1.addr()).await);
+    assert!(set.contains(ipnet1_1.addr()).await);
+    assert!(set.contains(ipnet1_2.addr()).await);
+    assert!(set.contains(ipnet1.addr()).await);
 
-    set.remove(&ipnet1);
+    set.remove(&ipnet1).await;
 
-    assert!(!set.contains(ip1.addr()));
-    assert!(!set.contains(ipnet1_1.addr()));
-    assert!(!set.contains(ipnet1_2.addr()));
-    assert!(!set.contains(ipnet1.addr()));
+    assert!(!set.contains(ip1.addr()).await);
+    assert!(!set.contains(ipnet1_1.addr()).await);
+    assert!(!set.contains(ipnet1_2.addr()).await);
+    assert!(!set.contains(ipnet1.addr()).await);
 }

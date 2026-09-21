@@ -60,7 +60,7 @@ impl ComputedMainOptions {
 impl ComputedDomain {
     pub async fn resolve_case(&self, ip: IpAddr) -> &ComputedCaseOptions {
         for (set, case) in &self.cases {
-            if set.read().await.contains(ip) {
+            if set.contains(ip).await {
                 return case;
             }
         }

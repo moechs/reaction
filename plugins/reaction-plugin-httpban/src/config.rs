@@ -102,33 +102,16 @@ pub enum AddRemove {
 }
 
 #[cfg(test)]
-impl ComputedAction {
-    async fn async_eq(&self, other: &Self) -> bool {
-        self.action == other.action
-            && self.pattern == other.pattern
-            && self.set.read().await.name == other.set.read().await.name
-    }
-
-    async fn assert_eq(
-        mut a: impl Iterator<Item = &ComputedAction>,
-        mut b: impl Iterator<Item = &ComputedAction>,
-    ) {
-        while let Some(action_a) = a.next() {
-            if let Some(action_b) = b.next() {
-                if !action_a.async_eq(&action_b).await {
-                    panic!("Action {action_a:?} does not equal {action_b:?}");
-                }
-            } else {
-                panic!("First parameter has more items than second parameter")
-            }
-        }
-        if b.next().is_some() {
-            panic!("Second parameter has more items than first parameter")
-        }
+impl PartialEq for ComputedAction {
+    fn eq(&self, other: &Self) -> bool {
+        self.action == other.action && self.pattern == other.pattern && self.set == other.set
     }
 }
+#[cfg(test)]
+impl Eq for ComputedAction {}
 
 #[cfg_attr(test, derive(Debug))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ComputedMainOptions {
     pub socket_path: String,
     pub socket_mode: Permissions,
@@ -137,52 +120,6 @@ pub struct ComputedMainOptions {
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
 pub type ComputedDomains = HashMap<String, Vec<ComputedDomain>>;
-#[cfg(test)]
-impl ComputedMainOptions {
-    async fn assert_eq(&self, other: &Self) {
-        if self.domains.len() > other.domains.len() {
-            panic!(
-                "First parameter has more domains ({}) that second parameter ({})",
-                self.domains.len(),
-                other.domains.len()
-            )
-        } else if self.domains.len() < other.domains.len() {
-            panic!(
-                "First parameter has fewer domains ({}) that second parameter ({})",
-                self.domains.len(),
-                other.domains.len()
-            )
-        } else {
-            for (domainname, selfvalue) in &self.domains {
-                if let Some(othervalue) = other.domains.get(domainname) {
-                    if selfvalue.len() != othervalue.len() {
-                        panic!(
-                            "First domain has {} paths but second has {} paths",
-                            selfvalue.len(),
-                            othervalue.len()
-                        )
-                    }
-
-                    // reorder paths
-                    let mut selfvalue: Vec<&ComputedDomain> = selfvalue.iter().collect();
-                    let mut othervalue: Vec<&ComputedDomain> = othervalue.iter().collect();
-                    selfvalue.sort_by(|d1, d2| d1.path.cmp(&d2.path));
-                    othervalue.sort_by(|d1, d2| d1.path.cmp(&d2.path));
-
-                    for (selfdomain, otherdomain) in selfvalue.iter().zip(othervalue) {
-                        if !selfdomain.async_eq(otherdomain).await {
-                            panic!("{selfdomain:?} is not equal {otherdomain:?}");
-                        }
-                    }
-                } else {
-                    panic!(
-                        "First parameter has domain named {domainname} but not second parameter"
-                    );
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct ComputedBackend {
@@ -190,20 +127,32 @@ pub struct ComputedBackend {
     pub name: String,
     pub addr: HttpPeer,
 }
+
 #[cfg(test)]
 impl PartialEq for ComputedBackend {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.name == other.name && self.addr._address == other.addr._address
     }
 }
 #[cfg(test)]
 impl Eq for ComputedBackend {}
 
-#[cfg_attr(test, derive(Debug))]
+#[cfg_attr(test, derive(Debug, Eq))]
 pub struct ComputedDomain {
     pub path: String,
     pub cases: Vec<(IpSet, ComputedCaseOptions)>,
     pub default: ComputedCaseOptions,
+}
+
+#[cfg(test)]
+impl PartialEq for ComputedDomain {
+    fn eq(&self, other: &Self) -> bool {
+        let mut v1: Vec<_> = self.cases.iter().collect();
+        let mut v2: Vec<_> = other.cases.iter().collect();
+        v1.sort_by(|d, e| d.0.name.cmp(&e.0.name));
+        v2.sort_by(|d, e| d.0.name.cmp(&e.0.name));
+        self.path == other.path && self.default == other.default && v1 == v2
+    }
 }
 
 #[derive(Debug)]
@@ -398,6 +347,10 @@ impl MainOptions {
             host_map.push(domain.setup(format!("/{path}"), ipsets, &backends)?);
         }
 
+        for domain in domains.values_mut() {
+            domain.sort_by_key(|case| case.path.clone());
+        }
+
         let mode = u32::from_str_radix(&self.socket.mode, 8)
             .map_err(|err| format!("Could not parse socket mode as an octal number: {err}"))?;
         if mode < 0o600 || mode > 0o777 {
@@ -458,6 +411,7 @@ impl Domain {
                             ));
                             used_sets.insert(case.set);
                         }
+                        cases.sort_by_key(|case| case.0.name.clone());
                         cases
                     }
                 }
@@ -467,26 +421,6 @@ impl Domain {
                 .setup(backends)
                 .map_err(|err| format!("default case: {err}"))?,
         })
-    }
-}
-
-#[cfg(test)]
-impl ComputedDomain {
-    async fn async_eq(&self, other: &Self) -> bool {
-        if self.path != other.path
-            || self.default != other.default
-            || self.cases.len() != other.cases.len()
-        {
-            return false;
-        }
-        for (selfcase, othercase) in self.cases.iter().zip(other.cases.iter()) {
-            if selfcase.1 != othercase.1
-                || selfcase.0.read().await.name != othercase.0.read().await.name
-            {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -556,7 +490,7 @@ pub mod tests {
     use tempfile::NamedTempFile;
 
     use crate::{
-        action::DualStackSet,
+        action::IpSet,
         config::{
             AddRemove, ComputedAction, ComputedBackend, ComputedCaseOptions, ComputedDomain,
             ComputedMainOptions, StaticResponse, load_config,
@@ -613,7 +547,7 @@ pub mod tests {
     async fn test_smol_config() {
         let (computed_config, computed_actions) = smol_config().await;
 
-        let ipsets = HashMap::from([("pubsites", DualStackSet::new("pubsites".into()))]);
+        let ipsets = HashMap::from([("pubsites", IpSet::new("pubsites".into()))]);
 
         let target_backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([(
             "nginx".into(),
@@ -647,7 +581,7 @@ pub mod tests {
             domains: target_domains,
         };
 
-        computed_config.assert_eq(&target_config).await;
+        assert_eq!(computed_config, target_config);
 
         let target_actions = vec![ComputedAction {
             action: AddRemove::Add,
@@ -656,7 +590,7 @@ pub mod tests {
             rx: mpsc::channel(1).1,
         }];
 
-        ComputedAction::assert_eq(computed_actions.iter(), target_actions.iter()).await;
+        assert_eq!(computed_actions, target_actions);
     }
 
     const HTML_DATA: &str = "<html>
@@ -785,9 +719,9 @@ pub mod tests {
         let (computed_config, computed_actions) = big_config().await;
 
         let ipsets = HashMap::from([
-            ("privapps", DualStackSet::new("privapps".into())),
-            ("pubapps", DualStackSet::new("pubapps".into())),
-            ("pubsites", DualStackSet::new("pubsites".into())),
+            ("privapps", IpSet::new("privapps".into())),
+            ("pubapps", IpSet::new("pubapps".into())),
+            ("pubsites", IpSet::new("pubsites".into())),
         ]);
 
         let backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([
@@ -905,7 +839,7 @@ pub mod tests {
             domains,
         };
 
-        computed_config.assert_eq(&target_config).await;
+        assert_eq!(computed_config, target_config);
 
         let target_actions = vec![
             ComputedAction {
@@ -928,6 +862,6 @@ pub mod tests {
             },
         ];
 
-        ComputedAction::assert_eq(computed_actions.iter(), target_actions.iter()).await;
+        assert_eq!(computed_actions, target_actions);
     }
 }
