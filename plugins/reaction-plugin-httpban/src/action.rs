@@ -29,7 +29,7 @@ impl IpSet {
     }
 
     pub async fn contains(&self, ip: IpAddr) -> bool {
-        self.inner.read().await.get_lpm(&ip.into()).is_some()
+        self.inner.read().await.is_covered(&ip.into())
     }
 
     pub async fn insert(&mut self, ip: IpNet) -> bool {
