@@ -19,6 +19,7 @@ mod config;
 mod error;
 mod proxy;
 mod request;
+mod resolve_domain;
 #[cfg(test)]
 mod tests;
 
