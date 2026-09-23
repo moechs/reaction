@@ -1,15 +1,15 @@
-use std::{collections::BTreeSet, time::Duration};
+use std::collections::BTreeSet;
 
 use async_trait::async_trait;
 use pingora_core::server::{
-    RunArgs, Server, ShutdownSignal, ShutdownSignalWatch, UnixShutdownSignalWatch,
+    ExecutionPhase, RunArgs, Server, ShutdownSignal, ShutdownSignalWatch, UnixShutdownSignalWatch,
 };
 use reaction_plugin::{
     ActionConfig, ActionImpl, Hello, Manifest, PluginInfo, RemoteResult, StreamConfig, StreamImpl,
     Value,
 };
 use remoc::rtc;
-use tokio::time::sleep;
+use tokio::sync::oneshot::{self};
 use tokio_util::sync::CancellationToken;
 
 use crate::proxy::Proxy;
@@ -33,6 +33,7 @@ async fn main() {
 pub struct MyPlugin {
     server: Option<Server>,
     token: CancellationToken,
+    has_quit: Option<oneshot::Receiver<()>>,
 }
 
 impl PluginInfo for MyPlugin {
@@ -71,6 +72,18 @@ impl PluginInfo for MyPlugin {
             format!("plugin httpban has not been initialized. this is a bug from reaction!")
         })?;
 
+        let mut phases = server.watch_execution_phase();
+        let (tx, rx) = oneshot::channel();
+        self.has_quit = Some(rx);
+        tokio::spawn(async move {
+            while let Ok(phase) = phases.recv().await {
+                if let ExecutionPhase::Terminated = phase {
+                    let _ = tx.send(());
+                    break;
+                }
+            }
+        });
+
         tokio::task::spawn_blocking(|| {
             server.run(RunArgs {
                 shutdown_signal: Box::new(shutdown),
@@ -81,8 +94,7 @@ impl PluginInfo for MyPlugin {
 
     async fn close(self) -> RemoteResult<()> {
         self.token.cancel();
-        // FIXME hook on the cancellation instead of sleeping 4 seconds
-        sleep(Duration::from_secs(4)).await;
+        let _ = self.has_quit.unwrap().await;
         Ok(())
     }
 }
