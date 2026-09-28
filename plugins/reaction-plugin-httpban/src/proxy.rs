@@ -25,13 +25,13 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new(config: ComputedMainOptions, grace1: Option<u64>, grace2: Option<u64>) -> Server {
+    pub fn new(config: ComputedMainOptions) -> Server {
         let mut server = Server::new_with_opt_and_conf(
             None,
             ServerConf {
                 daemon: false,
-                grace_period_seconds: grace1,
-                graceful_shutdown_timeout_seconds: grace2,
+                grace_period_seconds: Some(config.graceful_shutdown_seconds.saturating_sub(1)),
+                graceful_shutdown_timeout_seconds: Some(1),
                 ..Default::default()
             },
         );

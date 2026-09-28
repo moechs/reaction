@@ -36,8 +36,14 @@ fn serde_ip() -> String {
 pub struct MainOptions {
     pub socket: SocketOption,
     pub proxy_count: usize,
+    #[serde(default = "graceful_default")]
+    pub graceful_shutdown_seconds: u64,
     pub backends: HashMap<String, Backend>,
     pub domains: HashMap<String, Domain>,
+}
+
+fn graceful_default() -> u64 {
+    3
 }
 
 #[derive(Serialize, Deserialize)]
@@ -116,6 +122,7 @@ pub struct ComputedMainOptions {
     pub socket_path: String,
     pub socket_mode: Permissions,
     pub proxy_count: usize,
+    pub graceful_shutdown_seconds: u64,
     pub domains: ComputedDomains,
 }
 pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
@@ -361,6 +368,7 @@ impl MainOptions {
             proxy_count: self.proxy_count,
             socket_path: self.socket.path,
             socket_mode: PermissionsExt::from_mode(mode),
+            graceful_shutdown_seconds: self.graceful_shutdown_seconds,
             domains,
         })
     }
@@ -578,6 +586,7 @@ pub mod tests {
             proxy_count: 1,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
+            graceful_shutdown_seconds: 3,
             domains: target_domains,
         };
 
@@ -610,6 +619,7 @@ pub mod tests {
             "path": "./test.sock",
             "mode": "600",
           },
+          "graceful_shutdown_seconds": 2,
           "backends": {
             "funkwhale": {
               "host": "127.0.0.1:8999",
@@ -836,6 +846,7 @@ pub mod tests {
             proxy_count: 2,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
+            graceful_shutdown_seconds: 2,
             domains,
         };
 

@@ -58,7 +58,7 @@ impl PluginInfo for MyPlugin {
             tokio::spawn(async move { action.serve().await });
         }
 
-        let server = Proxy::new(computed_main_options, Some(2), Some(2));
+        let server = Proxy::new(computed_main_options);
         self.server = Some(server);
 
         Ok((vec![], ret_actions))

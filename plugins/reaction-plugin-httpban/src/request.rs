@@ -67,8 +67,6 @@ impl<'a> RequestSummary<'a> {
 #[cfg(test)]
 #[test]
 fn test_from_request() {
-    // TODO test
-
     use http::{Version, request::Builder};
 
     assert_eq!(

@@ -72,11 +72,6 @@ impl ComputedDomain {
 mod tests {
     use crate::config::tests::{big_config, smol_config};
 
-    #[test]
-    fn test_host_path_ip_from_request() {
-        // TODO test
-    }
-
     #[tokio::test]
     async fn test_resolve_config_smol() {
         let (smol_main, _) = smol_config().await;

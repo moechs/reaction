@@ -57,6 +57,7 @@ async fn integration_test() {
                         "mode": "600",
                         "path": socket_path,
                     },
+                    "graceful_shutdown_seconds": 0,
                     "backends": {},
                     "domains": {
                         "exemple.fr": {
