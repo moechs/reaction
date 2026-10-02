@@ -121,7 +121,7 @@ impl PluginInfo for Plugin {
         let mut ret_streams = Vec::with_capacity(streams.len());
         let mut ret_actions = Vec::with_capacity(actions.len());
 
-        if !options.is_empty() {
+        if !options.iter().all(|v| !v.is_truthy()) {
             return Err("No top-level options are allowed for this plugin at the time".into());
         }
 

@@ -433,6 +433,20 @@ pub enum Value {
     Object(BTreeMap<String, Value>),
 }
 
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Null => false,
+            Value::Bool(b) => *b,
+            Value::Integer(i) => *i != 0,
+            Value::Float(f) => *f != 0.0,
+            Value::String(s) => !s.is_empty(),
+            Value::Array(values) => !values.is_empty(),
+            Value::Object(btree_map) => !btree_map.is_empty(),
+        }
+    }
+}
+
 impl From<JValue> for Value {
     fn from(value: serde_json::Value) -> Self {
         match value {

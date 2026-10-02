@@ -51,7 +51,7 @@ impl PluginInfo for Plugin {
             return Err("This plugin can't handle any stream type".into());
         }
 
-        if !options.is_empty() {
+        if !options.iter().all(|v| !v.is_truthy()) {
             return Err("No top-level options are allowed for this plugin at the time".into());
         }
 
