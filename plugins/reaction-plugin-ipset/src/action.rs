@@ -68,8 +68,7 @@ impl ActionOptions {
         self.ip_index = patterns
             .into_iter()
             .enumerate()
-            .filter(|(_, name)| name == &self.pattern)
-            .next()
+            .find(|(_, name)| name == &self.pattern)
             .ok_or(())?
             .0;
         Ok(())
