@@ -11,6 +11,11 @@
       check_root: false,
       systemd: false,
       options: {
+        socket: {
+          path: './httpban.sock',
+          mode: '600',
+        },
+        proxy_count: 1,
         // les backends, un peu comme dans nginx
         backends: {
           funkwhale: {
@@ -34,7 +39,8 @@
               {
                 set: 'pubapps',
                 code: 404,
-                page: '/var/lib/reaction/404.html',
+                // page: '/var/lib/reaction/404.html',
+                inline: 'this is a 404',
               },
             ],
             // sinon on renvoie vers la webapp funkwhale
@@ -106,6 +112,21 @@
               type: 'httpban',
               options: {
                 remove: 'pubapps',
+              },
+            },
+            // actions to make the config valid
+            // every referenced set must be referenced
+            // in at least one domain and one action
+            a2: {
+              type: 'httpban',
+              options: {
+                add: 'privapps',
+              },
+            },
+            a3: {
+              type: 'httpban',
+              options: {
+                add: 'pubsites',
               },
             },
           },
