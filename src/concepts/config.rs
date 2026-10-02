@@ -70,11 +70,10 @@ impl Config {
                 Entry::Vacant(e) => {
                     e.insert(plugin);
                 }
-                Entry::Occupied(e) => {
-                    return Err(format!(
-                        "plugin {} is already defined. plugin definitions can't be spread accross multiple files.",
-                        e.key()
-                    ));
+                Entry::Occupied(mut e) => {
+                    e.get_mut()
+                        .merge(plugin)
+                        .map_err(|err| format!("Plugin {}: {}", e.key(), err))?;
                 }
             }
         }

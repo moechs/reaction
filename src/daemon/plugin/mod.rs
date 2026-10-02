@@ -324,10 +324,8 @@ impl Plugins {
 
             let top_options = plugin
                 .plugin
-                .options
-                .clone()
-                .into_iter()
-                .map(Into::into)
+                .options()
+                .map(|o| o.to_owned().into())
                 .collect();
 
             let (stream_impls, action_impls) = plugin

@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, io::Error, path, process::Stdio};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    io::Error,
+    path,
+    process::Stdio,
+};
 
 #[cfg(target_os = "macos")]
 use std::os::darwin::fs::MetadataExt;
@@ -22,6 +27,8 @@ use tokio::{
     process::{Child, Command},
 };
 use tracing::{debug, warn};
+
+use crate::concepts::merge_attrs;
 
 // TODO commented options block execution of program,
 // while developping in my home directory.
@@ -86,10 +93,13 @@ pub struct Plugin {
     #[serde(skip)]
     pub name: String,
 
+    #[serde(default)]
     pub path: String,
     /// User options
     #[serde(default)]
-    pub options: Vec<Value>,
+    options: Value,
+    #[serde(skip)]
+    all_options: Vec<Value>,
     /// Check that plugin file owner is root
     #[serde(default = "_true")]
     pub check_root: bool,
@@ -110,6 +120,39 @@ fn _true() -> bool {
 // with the --pipe option, raw stdio fd are transmitted to the underlying command, so there is no overhead.
 
 impl Plugin {
+    pub fn merge(&mut self, other: Self) -> Result<(), String> {
+        // Options are merged by the plugins, so we don't impose any merging logic on them
+        // But reaction_plugin::Value::merge is provided and implements NixOS' merge logic
+        self.all_options.push(other.options);
+        self.all_options.extend(other.all_options);
+
+        // Simple attributes
+        self.check_root = merge_attrs(self.check_root, other.check_root, true, "check_root")?;
+        self.path = merge_attrs(self.path.clone(), other.path, "".into(), "path")?;
+        self.systemd = merge_attrs(self.systemd, other.systemd, true, "systemd")?;
+
+        // If systemd_options is provided multiple times, we merge values by extending the arrays
+        for (key, val) in other.systemd_options.into_iter() {
+            match self.systemd_options.entry(key) {
+                Entry::Vacant(e) => {
+                    e.insert(val);
+                }
+                Entry::Occupied(mut e) => {
+                    e.get_mut().extend(val);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn options(
+        &self,
+    ) -> std::iter::Chain<std::slice::Iter<'_, Value>, std::iter::Once<&Value>> {
+        self.all_options
+            .iter()
+            .chain(std::iter::once(&self.options))
+    }
+
     pub fn setup(&mut self, name: &str) -> Result<(), String> {
         self.name = name.to_string();
 
