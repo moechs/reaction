@@ -324,7 +324,8 @@ impl Plugins {
 
             let top_options = plugin
                 .plugin
-                .options()
+                .all_options
+                .iter()
                 .map(|o| o.to_owned().into())
                 .collect();
 

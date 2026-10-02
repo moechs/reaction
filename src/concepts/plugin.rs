@@ -98,7 +98,7 @@ pub struct Plugin {
     #[serde(default)]
     options: Value,
     #[serde(skip)]
-    all_options: Vec<Value>,
+    pub all_options: Vec<Value>,
     /// Check that plugin file owner is root
     #[serde(default = "_true")]
     pub check_root: bool,
@@ -122,7 +122,9 @@ impl Plugin {
     pub fn merge(&mut self, other: Self) -> Result<(), String> {
         // Options are merged by the plugins, so we don't impose any merging logic on them
         // But reaction_plugin::Value::merge is provided and implements NixOS' merge logic
-        self.all_options.push(other.options);
+        if !other.options.is_null() {
+            self.all_options.push(other.options);
+        }
         self.all_options.extend(other.all_options);
 
         // Simple attributes
@@ -144,19 +146,15 @@ impl Plugin {
         Ok(())
     }
 
-    pub fn options(
-        &self,
-    ) -> std::iter::Chain<std::slice::Iter<'_, Value>, std::iter::Once<&Value>> {
-        self.all_options
-            .iter()
-            .chain(std::iter::once(&self.options))
-    }
-
     pub fn setup(&mut self, name: &str) -> Result<(), String> {
         self.name = name.to_string();
 
         if self.path.is_empty() {
             return Err("can't specify empty plugin path".into());
+        }
+
+        if !self.options.is_null() {
+            self.all_options.push(self.options.take());
         }
 
         // Only when testing, make relative paths absolute
