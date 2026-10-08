@@ -414,14 +414,15 @@ async fn integration_test() {
             .await
             .unwrap();
 
-        eprintln!(
-            "ipset list after {ip} insertion:\n{}",
-            Command::new("ipset")
-                .args(["list"])
-                .output()
-                .map(|o| String::from_utf8(o.stdout).unwrap_or_default())
-                .unwrap_or_default()
-        );
+        // sleep(Duration::from_millis(100)).await;
+        // eprintln!(
+        //     "ipset list after {ip} insertion:\n{}",
+        //     Command::new("ipset")
+        //         .args(["list"])
+        //         .output()
+        //         .map(|o| String::from_utf8(o.stdout).unwrap_or_default())
+        //         .unwrap_or_default()
+        // );
 
         // IPs inserted
         let ipset = ipset_list().await;
@@ -453,7 +454,7 @@ async fn integration_test() {
     test_add_remove("2001:db8:3:4:5:6:7:8").await;
 
     // /56 IPv6 network
-    test_add_remove("2001:db8:4c4b:421::/56").await;
+    test_add_remove("2001:db8:4c4b::/48").await;
 
     plugin.close().await.unwrap();
 

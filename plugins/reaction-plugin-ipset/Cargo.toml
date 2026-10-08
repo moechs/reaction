@@ -16,7 +16,8 @@ remoc.workspace = true
 reaction-plugin.path = "../reaction-plugin"
 serde.workspace = true
 serde_json.workspace = true
-ipset = "0.9.0"
+# FIXME use upstream again as soon as https://github.com/lazytiger/ipset/pull/22 is merged and released
+ipset = { git = "https://github.com/ppom0/ipset", branch = "fix-ipv6-32cidr" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "process"] }

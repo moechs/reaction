@@ -2130,8 +2130,7 @@ dependencies = [
 [[package]]
 name = "ipset"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3f6539e7df6df265a48ac3bfa1cc1b9fb37b604c92e9ab01521865e2323787f"
+source = "git+https://github.com/ppom0/ipset?branch=fix-ipv6-32cidr#6b3b24a1f1a07c27c53aac3cb619982ba6bd0c32"
 dependencies = [
  "bindgen",
  "cc",
