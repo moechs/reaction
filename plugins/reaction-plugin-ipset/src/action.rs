@@ -1,4 +1,4 @@
-use std::{fmt::Debug, u32, usize};
+use std::fmt::Debug;
 
 use reaction_plugin::{Exec, shutdown::ShutdownToken, time::parse_duration};
 use remoc::rch::mpsc as remocMpsc;

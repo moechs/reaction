@@ -1,7 +1,17 @@
-use reaction_plugin::{ActionConfig, PluginInfo, StreamConfig, Value};
+use std::{
+    process::{Child, Command},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use reaction_plugin::{ActionConfig, Exec, PluginInfo, StreamConfig, Value};
 use serde_json::json;
+use tokio::process::Command as TokioCommand;
 
 use crate::Plugin;
+
+fn now() -> Duration {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+}
 
 #[tokio::test]
 async fn conf_stream() {
@@ -150,7 +160,6 @@ async fn conf_action_standalone() {
     }
 }
 
-// TODO
 #[tokio::test]
 async fn conf_action_merge() {
     let mut plugin = Plugin::default();
@@ -259,4 +268,206 @@ async fn conf_action_merge() {
         )
         .await;
     assert!(res.is_err(), "res: {:?}", res.map(drop));
+}
+
+async fn run_command(cmd: &str, args: &[&str]) -> (Option<i32>, String) {
+    let cmd_stdout = TokioCommand::new(cmd).args(args).output().await.unwrap();
+    (
+        cmd_stdout.status.code(),
+        String::from_utf8(cmd_stdout.stdout).unwrap(),
+    )
+}
+
+fn ipset_list() -> impl Future<Output = (Option<i32>, String)> {
+    run_command("ipset", &["list"])
+}
+#[allow(non_snake_case)]
+fn iptables_nL() -> impl Future<Output = (Option<i32>, String)> {
+    run_command("iptables", &["-n", "-L", "INPUT"])
+}
+#[allow(non_snake_case)]
+fn ip6tables_nL() -> impl Future<Output = (Option<i32>, String)> {
+    run_command("ip6tables", &["-n", "-L", "INPUT"])
+}
+
+struct Cleanup {}
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        eprintln!("iptables cleanup test...");
+        if let Ok(output) = Command::new("iptables").args(["-n", "-L"]).output()
+            && String::from_utf8(output.stdout).is_ok_and(|o| o.contains("testv4"))
+        {
+            eprintln!("iptables cleanup...");
+
+            let wait = |handles: Vec<std::io::Result<Child>>| {
+                for handle in handles {
+                    if let Ok(mut handle) = handle {
+                        let _ = handle.wait();
+                    }
+                }
+            };
+
+            let input = ["-D", "INPUT", "1"];
+            let forward = ["-D", "FORWARD", "1"];
+
+            wait(vec![
+                Command::new("iptables").args(input).spawn(),
+                Command::new("iptables").args(forward).spawn(),
+                Command::new("ip6tables").args(input).spawn(),
+                Command::new("ip6tables").args(forward).spawn(),
+            ]);
+            wait(vec![
+                Command::new("ipset").args(["destroy", "testv4"]).spawn(),
+                Command::new("ipset").args(["destroy", "testv6"]).spawn(),
+            ]);
+        }
+    }
+}
+
+// Needs root. Run with:
+// ```
+// cargo test -p reaction-plugin-ipset --no-run
+// sudo ./target/debug/deps/reaction_plugin_ipset-* --ignored
+// ```
+#[ignore = "needs CAP_NET_ADMIN to run"]
+#[tokio::test]
+async fn integration_test() {
+    // First cleanup
+    {
+        let _cleanup = Cleanup {};
+    }
+    // Second cleanup on panic
+    let _cleanup = Cleanup {};
+
+    let mut plugin = Plugin::default();
+    let (_streams, actions) = plugin
+        .load_config(
+            vec![],
+            vec![
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action1".into(),
+                    action_type: "ipset".into(),
+                    config: json!({
+                        "set": "test",
+                        "action": "add",
+                    })
+                    .into(),
+                    patterns: vec!["ip".into()],
+                },
+                ActionConfig {
+                    stream_name: "stream".into(),
+                    filter_name: "filter".into(),
+                    action_name: "action2".into(),
+                    action_type: "ipset".into(),
+                    config: json!({
+                        "set": "test",
+                        "action": "del",
+                    })
+                    .into(),
+                    patterns: vec!["ip".into()],
+                },
+            ],
+            vec![],
+        )
+        .await
+        .unwrap();
+
+    // Nothing created for now
+    let ipset = ipset_list().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!ipset.1.contains("testv4"));
+    assert!(!ipset.1.contains("testv6"));
+
+    let iptables = iptables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!iptables.1.contains("testv4"));
+
+    let ip6tables = ip6tables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!ip6tables.1.contains("testv6"));
+
+    plugin.start().await.unwrap();
+
+    // Rules inserted
+    let ipset = ipset_list().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(ipset.1.contains("testv4"));
+    assert!(ipset.1.contains("testv6"));
+
+    let iptables = iptables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(iptables.1.contains("testv4"));
+
+    let ip6tables = ip6tables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(ip6tables.1.contains("testv6"));
+
+    let test_add_remove = async |ip: &str| {
+        actions[0]
+            .tx
+            .send(Exec {
+                match_: vec![ip.into()],
+                time: now(),
+            })
+            .await
+            .unwrap();
+
+        eprintln!(
+            "ipset list after {ip} insertion:\n{}",
+            Command::new("ipset")
+                .args(["list"])
+                .output()
+                .map(|o| String::from_utf8(o.stdout).unwrap_or_default())
+                .unwrap_or_default()
+        );
+
+        // IPs inserted
+        let ipset = ipset_list().await;
+        assert_eq!(ipset.0, Some(0), "check {ip} insertion");
+        assert!(ipset.1.contains(ip), "check {ip} insertion");
+
+        actions[1]
+            .tx
+            .send(Exec {
+                match_: vec![ip.into()],
+                time: now(),
+            })
+            .await
+            .unwrap();
+
+        // IPs removed
+        let ipset = ipset_list().await;
+        assert_eq!(ipset.0, Some(0), "check {ip} deletion");
+        assert!(!ipset.1.contains(ip), "check {ip} deletion");
+    };
+
+    // single IPv4
+    test_add_remove("198.51.100.12").await;
+
+    // /24 IPv4 network
+    test_add_remove("198.51.100.0/24").await;
+
+    // single IPv6
+    test_add_remove("2001:db8:3:4:5:6:7:8").await;
+
+    // /56 IPv6 network
+    test_add_remove("2001:db8:4c4b:421::/56").await;
+
+    plugin.close().await.unwrap();
+
+    // Rules removed
+    let ipset = ipset_list().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!ipset.1.contains("testv4"));
+    assert!(!ipset.1.contains("testv6"));
+
+    let iptables = iptables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!iptables.1.contains("testv4"));
+
+    let ip6tables = ip6tables_nL().await;
+    assert_eq!(ipset.0, Some(0));
+    assert!(!ip6tables.1.contains("testv6"));
 }
