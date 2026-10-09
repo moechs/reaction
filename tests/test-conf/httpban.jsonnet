@@ -100,33 +100,34 @@
           regex: ['^<ip>$'],
           actions: {
             a0: {
-              // l'action c'est d'ajouter l'IP à tel set.
               type: 'httpban',
               options: {
-                add: 'pubapps',
+                set: 'pubapps',
+                action: 'add',
               },
             },
             a1: {
               after: '2s',
-              // l'action c'est de retirer l'IP de tel set.
               type: 'httpban',
               options: {
-                remove: 'pubapps',
+                set: 'pubapps',
+                action: 'delete',
               },
             },
-            // actions to make the config valid
             // every referenced set must be referenced
             // in at least one domain and one action
             a2: {
               type: 'httpban',
               options: {
-                add: 'privapps',
+                set: 'privapps',
+                action: 'add',
               },
             },
             a3: {
               type: 'httpban',
               options: {
-                add: 'pubsites',
+                set: 'pubsites',
+                action: 'add',
               },
             },
           },

@@ -33,7 +33,8 @@ async fn integration_test() {
                     action_name: "a1".into(),
                     action_type: "httpban".into(),
                     config: json!({
-                        "add": "myset",
+                        "set": "myset",
+                        "action": "add",
                     })
                     .into(),
                     patterns: vec!["ip".into()],
@@ -44,7 +45,8 @@ async fn integration_test() {
                     action_name: "a2".into(),
                     action_type: "httpban".into(),
                     config: json!({
-                        "remove": "myset",
+                        "set": "myset",
+                        "action": "delete",
                     })
                     .into(),
                     patterns: vec!["ip".into()],
@@ -100,7 +102,7 @@ async fn integration_test_inner(
 
     // Add some IPs
     let add_action = actions[0].clone();
-    let remove_action = actions[1].clone();
+    let delete_action = actions[1].clone();
 
     add_action
         .tx
@@ -118,7 +120,7 @@ async fn integration_test_inner(
         })
         .await?;
 
-    remove_action
+    delete_action
         .tx
         .send(Exec {
             match_: vec!["2.3.4.5".into()],

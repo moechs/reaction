@@ -19,10 +19,11 @@ use crate::action::{IpSet, IpSets, ip_sets_from_names};
 
 #[derive(Serialize, Deserialize)]
 pub struct ActionOptions {
-    /// The set we will add this IP to
-    pub add: Option<String>,
-    /// The set we will remove this IP from
-    pub remove: Option<String>,
+    /// The set we will add/delete this IP to
+    pub set: String,
+    /// The action taken
+    #[serde(default)]
+    pub action: AddDel,
     /// The pattern name of the IP.
     /// Defaults to "ip"
     #[serde(default = "serde_ip")]
@@ -30,6 +31,15 @@ pub struct ActionOptions {
 }
 fn serde_ip() -> String {
     "ip".into()
+}
+
+#[derive(Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AddDel {
+    #[default]
+    #[serde(alias = "add")]
+    Add,
+    #[serde(alias = "delete")]
+    Delete,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -96,15 +106,10 @@ pub struct CaseOptions {
 
 #[cfg_attr(test, derive(Debug))]
 pub struct ComputedAction {
-    pub action: AddRemove,
+    pub action: AddDel,
     pub set: IpSet,
     pub pattern: usize,
     pub rx: mpsc::Receiver<Exec>,
-}
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-pub enum AddRemove {
-    Add,
-    Remove,
 }
 
 #[cfg(test)]
@@ -235,12 +240,7 @@ pub async fn load_config(
         let options: ActionOptions = serde_json::from_value(config.into())
             .map_err(|err| format!("invalid options for action {name}: {err}"))?;
 
-        if let Some(set) = &options.add {
-            action_sets.insert(set.clone());
-        }
-        if let Some(set) = &options.remove {
-            action_sets.insert(set.clone());
-        }
+        action_sets.insert(options.set.clone());
 
         let (tx, rx) = remoc::rch::mpsc::channel(1);
 
@@ -280,21 +280,9 @@ impl ActionOptions {
         ip_sets: &IpSets,
         rx: mpsc::Receiver<Exec>,
     ) -> Result<ComputedAction, Option<String>> {
-        let (set_name, action) = if let Some(set) = self.add {
-            if self.remove.is_none() {
-                Ok((set, AddRemove::Add))
-            } else {
-                Err(Some("can't add AND remove in the same action".into()))
-            }
-        } else if let Some(set) = self.remove {
-            Ok((set, AddRemove::Remove))
-        } else {
-            Err(Some("must either add or remove the IP from a set".into()))
-        }?;
-
         // We error but we mark the error as skipable
         // The mismatch between action and domain sets will be catch later by the caller
-        let set = ip_sets.get(&set_name).ok_or(None)?;
+        let set = ip_sets.get(&self.set).ok_or(None)?;
 
         let pattern = patterns
             .iter()
@@ -304,7 +292,7 @@ impl ActionOptions {
             .0;
 
         Ok(ComputedAction {
-            action,
+            action: self.action,
             pattern,
             set: set.clone(),
             rx,
@@ -500,7 +488,7 @@ pub mod tests {
     use crate::{
         action::IpSet,
         config::{
-            AddRemove, ComputedAction, ComputedBackend, ComputedCaseOptions, ComputedDomain,
+            AddDel, ComputedAction, ComputedBackend, ComputedCaseOptions, ComputedDomain,
             ComputedMainOptions, StaticResponse, load_config,
         },
     };
@@ -538,7 +526,8 @@ pub mod tests {
             action_type: "httpban".into(),
             patterns: vec!["ip".into()],
             config: json!({
-                "add": "pubsites",
+                "set": "pubsites",
+                "action": "add",
             })
             .into(),
         }];
@@ -593,7 +582,7 @@ pub mod tests {
         assert_eq!(computed_config, target_config);
 
         let target_actions = vec![ComputedAction {
-            action: AddRemove::Add,
+            action: AddDel::Add,
             set: ipsets.get("pubsites").unwrap().clone(),
             pattern: 0,
             rx: mpsc::channel(1).1,
@@ -688,7 +677,8 @@ pub mod tests {
                 action_type: "httpban".into(),
                 patterns: vec!["ip".into()],
                 config: json!({
-                    "add": "pubsites",
+                    "set": "pubsites",
+                    "action": "add",
                 })
                 .into(),
             },
@@ -699,7 +689,8 @@ pub mod tests {
                 action_type: "httpban".into(),
                 patterns: vec!["abc".into(), "ip".into()],
                 config: json!({
-                    "remove": "pubapps",
+                    "set": "pubapps",
+                    "action": "delete",
                 })
                 .into(),
             },
@@ -710,7 +701,8 @@ pub mod tests {
                 action_type: "httpban".into(),
                 patterns: vec!["ip".into()],
                 config: json!({
-                    "remove": "privapps",
+                    "set": "privapps",
+                    "action": "delete",
                 })
                 .into(),
             },
@@ -854,19 +846,19 @@ pub mod tests {
 
         let target_actions = vec![
             ComputedAction {
-                action: AddRemove::Add,
+                action: AddDel::Add,
                 set: ipsets.get("pubsites").unwrap().clone(),
                 pattern: 0,
                 rx: mpsc::channel(1).1,
             },
             ComputedAction {
-                action: AddRemove::Remove,
+                action: AddDel::Delete,
                 set: ipsets.get("pubapps").unwrap().clone(),
                 pattern: 1,
                 rx: mpsc::channel(1).1,
             },
             ComputedAction {
-                action: AddRemove::Remove,
+                action: AddDel::Delete,
                 set: ipsets.get("privapps").unwrap().clone(),
                 pattern: 0,
                 rx: mpsc::channel(1).1,

@@ -10,7 +10,7 @@ use prefix_trie::joint::JointPrefixSet;
 use reaction_plugin::Exec;
 use tokio::sync::RwLock;
 
-use crate::config::{AddRemove, ComputedAction};
+use crate::config::{AddDel, ComputedAction};
 
 pub type IpSets = HashMap<String, IpSet>;
 
@@ -94,10 +94,10 @@ impl ComputedAction {
         let ip = ip_net_from_str(ipstr)?;
 
         match self.action {
-            AddRemove::Add => {
+            AddDel::Add => {
                 self.set.insert(ip).await;
             }
-            AddRemove::Remove => {
+            AddDel::Delete => {
                 self.set.remove(&ip).await;
             }
         }
