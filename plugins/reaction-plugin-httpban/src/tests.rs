@@ -54,13 +54,13 @@ async fn integration_test() {
             ],
             vec![
                 json!({
-                    "proxy_count": 1,
+                    "downstream_count": 1,
                     "socket": {
                         "mode": "600",
                         "path": socket_path,
                     },
                     "graceful_shutdown_seconds": 0,
-                    "backends": {},
+                    "upstreams": {},
                     "domains": {
                         "exemple.fr": {
                             "case": {

@@ -9,7 +9,7 @@ use pingora_core::{
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 
 use crate::{
-    config::{ComputedBackend, ComputedCaseOptions, ComputedMainOptions},
+    config::{ComputedCaseOptions, ComputedMainOptions, ComputedUpstream},
     error::HttpBanError,
     request::RequestSummary,
 };
@@ -18,7 +18,7 @@ use crate::{
 // All stateless logic has been moved to external functions
 // Integration tests are in ./tests.rs
 
-pub type ProxyCtx = Option<Arc<ComputedBackend>>;
+pub type ProxyCtx = Option<Arc<ComputedUpstream>>;
 
 pub struct Proxy {
     config: ComputedMainOptions,
@@ -79,7 +79,8 @@ impl ProxyHttp for Proxy {
         ctx: &mut Self::CTX,
     ) -> Result<bool, BError> {
         let summary =
-            match RequestSummary::from_request(self.config.proxy_count, &session.req_header()) {
+            match RequestSummary::from_request(self.config.downstream_count, &session.req_header())
+            {
                 Ok(s) => s,
                 Err(HttpBanError::BadSetup(e)) => return Err(e),
                 Err(HttpBanError::MalformedRequest(e)) => {
@@ -101,7 +102,7 @@ impl ProxyHttp for Proxy {
                     .await?;
                 Ok(true)
             }
-            ComputedCaseOptions::Backend(computed_backend) => {
+            ComputedCaseOptions::Upstream(computed_backend) => {
                 ctx.replace(computed_backend.clone());
                 Ok(false)
             }

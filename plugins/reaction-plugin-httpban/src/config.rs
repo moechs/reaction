@@ -45,10 +45,10 @@ pub enum AddDel {
 #[derive(Serialize, Deserialize)]
 pub struct MainOptions {
     pub socket: SocketOption,
-    pub proxy_count: usize,
+    pub downstream_count: usize,
     #[serde(default = "graceful_default")]
     pub graceful_shutdown_seconds: u64,
-    pub backends: HashMap<String, Backend>,
+    pub upstreams: HashMap<String, Upstream>,
     pub domains: HashMap<String, Domain>,
 }
 
@@ -63,7 +63,7 @@ pub struct SocketOption {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Backend {
+pub struct Upstream {
     pub host: String,
 }
 
@@ -126,28 +126,28 @@ impl Eq for ComputedAction {}
 pub struct ComputedMainOptions {
     pub socket_path: String,
     pub socket_mode: Permissions,
-    pub proxy_count: usize,
+    pub downstream_count: usize,
     pub graceful_shutdown_seconds: u64,
     pub domains: ComputedDomains,
 }
-pub type ComputedBackends = HashMap<String, Arc<ComputedBackend>>;
+pub type ComputedUpstreams = HashMap<String, Arc<ComputedUpstream>>;
 pub type ComputedDomains = HashMap<String, Vec<ComputedDomain>>;
 
 #[derive(Debug)]
-pub struct ComputedBackend {
+pub struct ComputedUpstream {
     #[cfg(test)]
     pub name: String,
     pub addr: HttpPeer,
 }
 
 #[cfg(test)]
-impl PartialEq for ComputedBackend {
+impl PartialEq for ComputedUpstream {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.addr._address == other.addr._address
     }
 }
 #[cfg(test)]
-impl Eq for ComputedBackend {}
+impl Eq for ComputedUpstream {}
 
 #[cfg_attr(test, derive(Debug, Eq))]
 pub struct ComputedDomain {
@@ -170,7 +170,7 @@ impl PartialEq for ComputedDomain {
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum ComputedCaseOptions {
-    Backend(Arc<ComputedBackend>),
+    Upstream(Arc<ComputedUpstream>),
     Static(StaticResponse),
 }
 
@@ -302,8 +302,8 @@ impl ActionOptions {
 
 impl MainOptions {
     pub fn setup(self, ipsets: &IpSets) -> Result<ComputedMainOptions, String> {
-        let backends = self
-            .backends
+        let upstreams = self
+            .upstreams
             .into_iter()
             .map(|(k, b)| {
                 let socket = SocketAddr::from_str(&b.host).map_err(|err| {
@@ -311,7 +311,7 @@ impl MainOptions {
                 })?;
                 Ok((
                     k.clone(),
-                    ComputedBackend {
+                    ComputedUpstream {
                         #[cfg(test)]
                         name: k,
                         addr: match socket {
@@ -339,7 +339,7 @@ impl MainOptions {
 
             let host_map: &mut Vec<_> = domains.entry(host.into()).or_default();
 
-            host_map.push(domain.setup(format!("/{path}"), ipsets, &backends)?);
+            host_map.push(domain.setup(format!("/{path}"), ipsets, &upstreams)?);
         }
 
         for domain in domains.values_mut() {
@@ -353,7 +353,7 @@ impl MainOptions {
         }
 
         Ok(ComputedMainOptions {
-            proxy_count: self.proxy_count,
+            downstream_count: self.downstream_count,
             socket_path: self.socket.path,
             socket_mode: PermissionsExt::from_mode(mode),
             graceful_shutdown_seconds: self.graceful_shutdown_seconds,
@@ -367,16 +367,16 @@ impl Domain {
         self,
         path: String,
         ipsets: &IpSets,
-        backends: &ComputedBackends,
+        upstreams: &ComputedUpstreams,
     ) -> Result<ComputedDomain, String> {
-        self._setup(path.clone(), ipsets, backends)
+        self._setup(path.clone(), ipsets, upstreams)
             .map_err(|err| format!("domain {path}: {err}"))
     }
     fn _setup(
         self,
         path: String,
         ipsets: &IpSets,
-        backends: &ComputedBackends,
+        upstreams: &ComputedUpstreams,
     ) -> Result<ComputedDomain, String> {
         fn get_ipset(ipsets: &IpSets, name: &str) -> Result<IpSet, String> {
             ipsets
@@ -390,7 +390,10 @@ impl Domain {
                 match self.case {
                     CaseOrCases::Case(case) => {
                         let mut cases = Vec::with_capacity(1);
-                        cases.push((get_ipset(ipsets, &case.set)?, case.options.setup(backends)?));
+                        cases.push((
+                            get_ipset(ipsets, &case.set)?,
+                            case.options.setup(upstreams)?,
+                        ));
                         cases
                     }
                     CaseOrCases::Cases(user_cases) => {
@@ -403,7 +406,7 @@ impl Domain {
                             }
                             cases.push((
                                 get_ipset(ipsets, &case.set)?,
-                                case.options.setup(backends)?,
+                                case.options.setup(upstreams)?,
                             ));
                             used_sets.insert(case.set);
                         }
@@ -414,22 +417,22 @@ impl Domain {
             },
             default: self
                 .default
-                .setup(backends)
+                .setup(upstreams)
                 .map_err(|err| format!("default case: {err}"))?,
         })
     }
 }
 
 impl CaseOptions {
-    pub fn setup(self, backends: &ComputedBackends) -> Result<ComputedCaseOptions, String> {
+    pub fn setup(self, upstreams: &ComputedUpstreams) -> Result<ComputedCaseOptions, String> {
         match self {
             CaseOptions {
                 backend: Some(backend),
                 code: None,
                 page: None,
                 inline: None,
-            } => Ok(ComputedCaseOptions::Backend(
-                backends
+            } => Ok(ComputedCaseOptions::Upstream(
+                upstreams
                     .get(&backend)
                     .ok_or_else(|| format!("backend {backend} is not defined"))?
                     .clone(),
@@ -488,19 +491,19 @@ pub mod tests {
     use crate::{
         action::IpSet,
         config::{
-            AddDel, ComputedAction, ComputedBackend, ComputedCaseOptions, ComputedDomain,
-            ComputedMainOptions, StaticResponse, load_config,
+            AddDel, ComputedAction, ComputedCaseOptions, ComputedDomain, ComputedMainOptions,
+            ComputedUpstream, StaticResponse, load_config,
         },
     };
 
     pub async fn smol_config() -> (ComputedMainOptions, Vec<ComputedAction>) {
         let config = json!({
-          "proxy_count": 1,
+          "downstream_count": 1,
           "socket": {
             "path": "./test.sock",
             "mode": "600",
           },
-          "backends": {
+          "upstreams": {
             "nginx": {
               "host": "unix:/run/nginx/nginx.sock",
             },
@@ -546,9 +549,9 @@ pub mod tests {
 
         let ipsets = HashMap::from([("pubsites", IpSet::new("pubsites".into()))]);
 
-        let target_backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([(
+        let target_upstreams: HashMap<String, Arc<ComputedUpstream>> = HashMap::from([(
             "nginx".into(),
-            Arc::new(ComputedBackend {
+            Arc::new(ComputedUpstream {
                 name: "nginx".into(),
                 addr: HttpPeer::new_uds("/run/nginx/nginx.sock", false, "".into()).unwrap(),
             }),
@@ -565,14 +568,14 @@ pub mod tests {
                         data: "Nope!".into(),
                     }),
                 )],
-                default: ComputedCaseOptions::Backend(
-                    target_backends.get("nginx").unwrap().clone(),
+                default: ComputedCaseOptions::Upstream(
+                    target_upstreams.get("nginx").unwrap().clone(),
                 ),
             }],
         )]);
 
         let target_config = ComputedMainOptions {
-            proxy_count: 1,
+            downstream_count: 1,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             graceful_shutdown_seconds: 3,
@@ -603,13 +606,13 @@ pub mod tests {
         let html_path = html_file.into_temp_path();
 
         let config = json!({
-          "proxy_count": 2,
+          "downstream_count": 2,
           "socket": {
             "path": "./test.sock",
             "mode": "600",
           },
           "graceful_shutdown_seconds": 2,
-          "backends": {
+          "upstreams": {
             "funkwhale": {
               "host": "127.0.0.1:8999",
             },
@@ -726,10 +729,10 @@ pub mod tests {
             ("pubsites", IpSet::new("pubsites".into())),
         ]);
 
-        let backends: HashMap<String, Arc<ComputedBackend>> = HashMap::from([
+        let upstreams: HashMap<String, Arc<ComputedUpstream>> = HashMap::from([
             (
                 "funkwhale".into(),
-                Arc::new(ComputedBackend {
+                Arc::new(ComputedUpstream {
                     name: "funkwhale".into(),
                     addr: HttpPeer::new(
                         SocketAddr::V4(SocketAddrV4::new(
@@ -743,7 +746,7 @@ pub mod tests {
             ),
             (
                 "vault".into(),
-                Arc::new(ComputedBackend {
+                Arc::new(ComputedUpstream {
                     name: "vault".into(),
                     addr: HttpPeer::new(
                         SocketAddr::V4(SocketAddrV4::new(
@@ -757,14 +760,14 @@ pub mod tests {
             ),
             (
                 "iocaine".into(),
-                Arc::new(ComputedBackend {
+                Arc::new(ComputedUpstream {
                     name: "iocaine".into(),
                     addr: HttpPeer::new_uds("/run/iocaine/iocaine.sock", false, "".into()).unwrap(),
                 }),
             ),
             (
                 "nginx".into(),
-                Arc::new(ComputedBackend {
+                Arc::new(ComputedUpstream {
                     name: "nginx".into(),
                     addr: HttpPeer::new_uds("/run/nginx/nginx.sock", false, "".into()).unwrap(),
                 }),
@@ -783,8 +786,8 @@ pub mod tests {
                             data: HTML_DATA.into(),
                         }),
                     )],
-                    default: ComputedCaseOptions::Backend(
-                        backends.get("funkwhale").unwrap().clone(),
+                    default: ComputedCaseOptions::Upstream(
+                        upstreams.get("funkwhale").unwrap().clone(),
                     ),
                 }],
             ),
@@ -794,8 +797,8 @@ pub mod tests {
                     ComputedDomain {
                         path: "/".into(),
                         cases: vec![],
-                        default: ComputedCaseOptions::Backend(
-                            backends.get("nginx").unwrap().clone(),
+                        default: ComputedCaseOptions::Upstream(
+                            upstreams.get("nginx").unwrap().clone(),
                         ),
                     },
                     ComputedDomain {
@@ -810,13 +813,13 @@ pub mod tests {
                             ),
                             (
                                 ipsets.get("pubapps").unwrap().clone(),
-                                ComputedCaseOptions::Backend(
-                                    backends.get("iocaine").unwrap().clone(),
+                                ComputedCaseOptions::Upstream(
+                                    upstreams.get("iocaine").unwrap().clone(),
                                 ),
                             ),
                         ],
-                        default: ComputedCaseOptions::Backend(
-                            backends.get("vault").unwrap().clone(),
+                        default: ComputedCaseOptions::Upstream(
+                            upstreams.get("vault").unwrap().clone(),
                         ),
                     },
                 ],
@@ -827,15 +830,15 @@ pub mod tests {
                     path: "/".into(),
                     cases: vec![(
                         ipsets.get("pubsites").unwrap().clone(),
-                        ComputedCaseOptions::Backend(backends.get("iocaine").unwrap().clone()),
+                        ComputedCaseOptions::Upstream(upstreams.get("iocaine").unwrap().clone()),
                     )],
-                    default: ComputedCaseOptions::Backend(backends.get("nginx").unwrap().clone()),
+                    default: ComputedCaseOptions::Upstream(upstreams.get("nginx").unwrap().clone()),
                 }],
             ),
         ]);
 
         let target_config = ComputedMainOptions {
-            proxy_count: 2,
+            downstream_count: 2,
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             graceful_shutdown_seconds: 2,

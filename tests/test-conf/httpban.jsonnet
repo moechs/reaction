@@ -15,9 +15,9 @@
           path: './httpban.sock',
           mode: '600',
         },
-        proxy_count: 1,
-        // les backends, un peu comme dans nginx
-        backends: {
+        downstream_count: 1,
+        // les upstreams, comme dans nginx
+        upstreams: {
           funkwhale: {
             host: 'http://localhost:8999',
           },

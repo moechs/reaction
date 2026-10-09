@@ -13,7 +13,7 @@ pub struct RequestSummary<'a> {
 
 impl<'a> RequestSummary<'a> {
     pub fn from_request(
-        proxy_count: usize,
+        downstream_count: usize,
         parts: &'a Parts,
     ) -> Result<RequestSummary<'a>, HttpBanError> {
         let path = match parts.uri.path() {
@@ -34,7 +34,7 @@ impl<'a> RequestSummary<'a> {
             // Parsing the X-Forwarded-For headers
             // If the client has its own proxy, the X-Forwarded-For header can contain private IPs.
             // It could also forge the header.
-            // So we need to count all the IPs, remove the last `trusted_proxy_count` ones, then take the last.
+            // So we need to count all the IPs, remove the last `downstream_count` ones, then take the last.
             let mut ips = Vec::new();
             for header in parts.headers.get_all("X-Forwarded-For") {
                 // .ok_or("Missing 'X-Forwarded-For' header from previous reverse proxy")?
@@ -46,14 +46,14 @@ impl<'a> RequestSummary<'a> {
                 ips.extend(header_str.split(','))
             }
 
-            if ips.len() < proxy_count {
+            if ips.len() < downstream_count {
                 return Err(new_bad_setup(format!(
-                    "X-Forwarded-For is {} IPs long, but the configured proxy_count is at {proxy_count}. Some proxy should set the header but did'nt do it.",
+                    "X-Forwarded-For is {} IPs long, but the configured downstream_count is at {downstream_count}. Some downstream proxy should set the header but did'nt do it.",
                     ips.len()
                 )).into());
             }
 
-            let ip_str = ips[ips.len() - proxy_count].trim();
+            let ip_str = ips[ips.len() - downstream_count].trim();
 
             IpAddr::from_str(ip_str).map_err(|err| {
                 new_bad_setup(format!("Invalid 'X-Forwarded-For' header IP: {err}"))
