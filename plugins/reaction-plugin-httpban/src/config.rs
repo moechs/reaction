@@ -416,7 +416,10 @@ impl Location {
 
                         for case in user_cases {
                             if used_sets.contains(&case.set) {
-                                return Err(format!("set {} used as a condition twice", case.set));
+                                return Err(format!(
+                                    "set {} used twice in the same location",
+                                    case.set
+                                ));
                             }
                             cases.push((
                                 get_ipset(ipsets, &case.set)?,
