@@ -180,6 +180,18 @@ pub struct StaticResponse {
     pub data: Bytes,
 }
 
+impl StaticResponse {
+    fn new(code: u16, data: Bytes) -> Result<Self, String> {
+        if code < 100 || code > 599 {
+            Err(format!(
+                "What's HTTP {code}??? I only accept standard return codes (between 100 and 599 inclusive)"
+            ))
+        } else {
+            Ok(StaticResponse { code, data })
+        }
+    }
+}
+
 // Functions
 
 pub async fn load_config(
@@ -444,29 +456,26 @@ impl CaseOptions {
                 code: Some(code),
                 page: None,
                 inline: Some(inline),
-            } => Ok(ComputedCaseOptions::Static(StaticResponse {
+            } => Ok(ComputedCaseOptions::Static(StaticResponse::new(
                 code,
-                data: inline.into(),
-            })),
+                inline.into(),
+            )?)),
             CaseOptions {
                 upstream: None,
                 code: Some(code),
                 page: Some(page),
                 inline: None,
-            } => Ok(ComputedCaseOptions::Static(StaticResponse {
-                code,
-                data: {
-                    let mut data = Vec::new();
+            } => Ok(ComputedCaseOptions::Static(StaticResponse::new(code, {
+                let mut data = Vec::new();
 
-                    let mut file = File::open(&page)
-                        .map_err(|err| format!("Cannot open page {page}: {err}"))?;
+                let mut file =
+                    File::open(&page).map_err(|err| format!("Cannot open page {page}: {err}"))?;
 
-                    file.read_to_end(&mut data)
-                        .map_err(|err| format!("Cannot read page: {page}: {err}"))?;
+                file.read_to_end(&mut data)
+                    .map_err(|err| format!("Cannot read page: {page}: {err}"))?;
 
-                    data.into()
-                },
-            })),
+                data.into()
+            })?)),
             _ => Err(format!(
                 "Invalid options: either `upstream` must be specified, or `code` alongside one of `page` or `inline`"
             )),
