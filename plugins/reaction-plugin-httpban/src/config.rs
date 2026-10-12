@@ -96,7 +96,7 @@ pub struct Case {
 
 #[derive(Serialize, Deserialize)]
 pub struct CaseOptions {
-    backend: Option<String>,
+    upstream: Option<String>,
     code: Option<u16>,
     page: Option<String>,
     inline: Option<String>,
@@ -307,7 +307,9 @@ impl MainOptions {
             .into_iter()
             .map(|(k, b)| {
                 let socket = SocketAddr::from_str(&b.host).map_err(|err| {
-                    format!("Invalid backend address: {err}. Format is either unix:PATH or IP:PORT")
+                    format!(
+                        "Invalid upstream address: {err}. Format is either unix:PATH or IP:PORT"
+                    )
                 })?;
                 Ok((
                     k.clone(),
@@ -427,18 +429,18 @@ impl CaseOptions {
     pub fn setup(self, upstreams: &ComputedUpstreams) -> Result<ComputedCaseOptions, String> {
         match self {
             CaseOptions {
-                backend: Some(backend),
+                upstream: Some(upstream),
                 code: None,
                 page: None,
                 inline: None,
             } => Ok(ComputedCaseOptions::Upstream(
                 upstreams
-                    .get(&backend)
-                    .ok_or_else(|| format!("backend {backend} is not defined"))?
+                    .get(&upstream)
+                    .ok_or_else(|| format!("upstream {upstream} is not defined"))?
                     .clone(),
             )),
             CaseOptions {
-                backend: None,
+                upstream: None,
                 code: Some(code),
                 page: None,
                 inline: Some(inline),
@@ -447,7 +449,7 @@ impl CaseOptions {
                 data: inline.into(),
             })),
             CaseOptions {
-                backend: None,
+                upstream: None,
                 code: Some(code),
                 page: Some(page),
                 inline: None,
@@ -466,7 +468,7 @@ impl CaseOptions {
                 },
             })),
             _ => Err(format!(
-                "Invalid options: either `backend` must be specified, or `code` alongside one of `page` or `inline`"
+                "Invalid options: either `upstream` must be specified, or `code` alongside one of `page` or `inline`"
             )),
         }
     }
@@ -516,7 +518,7 @@ pub mod tests {
                 "inline": "Nope!",
               },
               "default": {
-                "backend": "nginx",
+                "upstream": "nginx",
               },
             },
           },
@@ -636,7 +638,7 @@ pub mod tests {
                 },
               ],
               "default": {
-                "backend": "funkwhale",
+                "upstream": "funkwhale",
               },
             },
             "ppom.me/vault": {
@@ -648,25 +650,25 @@ pub mod tests {
                 },
                 {
                   "set": "pubapps",
-                  "backend": "iocaine",
+                  "upstream": "iocaine",
                 },
               ],
               "default": {
-                "backend": "vault",
+                "upstream": "vault",
               },
             },
             "ppom.me": {
               "default": {
-                "backend": "nginx",
+                "upstream": "nginx",
               },
             },
             "tokipona.ppom.me": {
               "case": {
                 "set": "pubsites",
-                "backend": "iocaine",
+                "upstream": "iocaine",
               },
               "default": {
-                "backend": "nginx",
+                "upstream": "nginx",
               },
             },
           },

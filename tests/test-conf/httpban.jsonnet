@@ -45,7 +45,7 @@
             ],
             // sinon on renvoie vers la webapp funkwhale
             default: {
-              backend: 'funkwhale',
+              upstream: 'funkwhale',
             },
           },
           // ça c'est plus spécifique que l'entrée suivante du coup c'est prioritaire
@@ -60,28 +60,28 @@
               // si l'ip de la requête est dans le set 'pubapps', alors on renvoie vers iocaine
               {
                 set: 'pubapps',
-                backend: 'iocaine',
+                upstream: 'iocaine',
               },
             ],
             // sinon on renvoie vers la webapp vault
             default: {
-              backend: 'vault',
+              upstream: 'vault',
             },
           },
           'ppom.me': {
             // jamais de ban, toujours le comportement par défaut
             default: {
-              backend: 'nginx',
+              upstream: 'nginx',
             },
           },
           'tokipona.ppom.me': {
             // quand on a qu'un cas, on peut simplifier l'array d'objects en juste un object
             case: {
               set: 'pubsites',
-              backend: 'iocaine',
+              upstream: 'iocaine',
             },
             default: {
-              backend: 'nginx',
+              upstream: 'nginx',
             },
           },
         },
