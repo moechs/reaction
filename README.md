@@ -175,7 +175,7 @@ We recommend that you read the ***Good Practices*** chapters before starting.
 
 ### Binaries
 
-Executables and .deb packages are provided [in the releases page](https://framagit.org/ppom/reaction/-/releases/), for x86-64/amd64 linux and aarch64/arm64 linux.
+Executables and .deb packages are provided [in the releases page](https://framagit.org/ppom/reaction/-/releases/), for x86-64/amd64 linux.
 
 Signature verification and installation instructions are provided in the releases page.
 
