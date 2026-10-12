@@ -19,7 +19,7 @@ mod config;
 mod error;
 mod proxy;
 mod request;
-mod resolve_domain;
+mod resolve_location;
 #[cfg(test)]
 mod tests;
 

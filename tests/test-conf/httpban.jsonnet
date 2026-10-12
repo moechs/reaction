@@ -32,7 +32,7 @@
           },
         },
         // la conf pour chaque domaine
-        domains: {
+        locations: {
           'music.ppom.me': {
             case: [
               // si l'ip de la requête est dans le set 'pubapps', alors on renvoie tel fichier html en 404

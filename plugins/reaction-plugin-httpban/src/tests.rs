@@ -61,7 +61,7 @@ async fn integration_test() {
                     },
                     "graceful_shutdown_seconds": 0,
                     "upstreams": {},
-                    "domains": {
+                    "locations": {
                         "exemple.fr": {
                             "case": {
                                 "set": "myset",

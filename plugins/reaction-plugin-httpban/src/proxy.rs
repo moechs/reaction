@@ -91,9 +91,9 @@ impl ProxyHttp for Proxy {
                 }
             };
 
-        let domain = self.config.resolve_domain(summary.host, summary.path)?;
+        let location = self.config.resolve_location(summary.host, summary.path)?;
 
-        let case = domain.resolve_case(summary.ip).await;
+        let case = location.resolve_case(summary.ip).await;
 
         match case {
             ComputedCaseOptions::Static(static_response) => {

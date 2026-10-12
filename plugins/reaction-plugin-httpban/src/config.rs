@@ -49,7 +49,7 @@ pub struct MainOptions {
     #[serde(default = "graceful_default")]
     pub graceful_shutdown_seconds: u64,
     pub upstreams: HashMap<String, Upstream>,
-    pub domains: HashMap<String, Domain>,
+    pub locations: HashMap<String, Location>,
 }
 
 fn graceful_default() -> u64 {
@@ -68,7 +68,7 @@ pub struct Upstream {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Domain {
+pub struct Location {
     #[serde(default)]
     pub case: CaseOrCases,
     pub default: CaseOptions,
@@ -128,10 +128,10 @@ pub struct ComputedMainOptions {
     pub socket_mode: Permissions,
     pub downstream_count: usize,
     pub graceful_shutdown_seconds: u64,
-    pub domains: ComputedDomains,
+    pub locations: ComputedLocations,
 }
 pub type ComputedUpstreams = HashMap<String, Arc<ComputedUpstream>>;
-pub type ComputedDomains = HashMap<String, Vec<ComputedDomain>>;
+pub type ComputedLocations = HashMap<String, Vec<ComputedLocation>>;
 
 #[derive(Debug)]
 pub struct ComputedUpstream {
@@ -150,14 +150,14 @@ impl PartialEq for ComputedUpstream {
 impl Eq for ComputedUpstream {}
 
 #[cfg_attr(test, derive(Debug, Eq))]
-pub struct ComputedDomain {
+pub struct ComputedLocation {
     pub path: String,
     pub cases: Vec<(IpSet, ComputedCaseOptions)>,
     pub default: ComputedCaseOptions,
 }
 
 #[cfg(test)]
-impl PartialEq for ComputedDomain {
+impl PartialEq for ComputedLocation {
     fn eq(&self, other: &Self) -> bool {
         let mut v1: Vec<_> = self.cases.iter().collect();
         let mut v2: Vec<_> = other.cases.iter().collect();
@@ -201,10 +201,10 @@ pub async fn load_config(
     let options: MainOptions =
         serde_json::from_value(main_option.into()).map_err(|err| format!("serde_json: {err}"))?;
 
-    let domain_sets = {
+    let location_sets = {
         let mut vec = HashSet::new();
-        for domain in options.domains.values() {
-            match &domain.case {
+        for location in options.locations.values() {
+            match &location.case {
                 CaseOrCases::Case(case) => {
                     vec.insert(case.set.clone());
                 }
@@ -214,7 +214,7 @@ pub async fn load_config(
         vec
     };
 
-    let ip_sets = ip_sets_from_names(&domain_sets);
+    let ip_sets = ip_sets_from_names(&location_sets);
 
     let computed_main_options = options.setup(&ip_sets)?;
 
@@ -252,19 +252,19 @@ pub async fn load_config(
             Err(err) => match err {
                 Some(err) => Err(format!("invalid action {name}: {err}"))?,
                 None => {
-                    // That's fine, we will return an error later about the set mismatch between domains and actions
+                    // That's fine, we will return an error later about the set mismatch between locations and actions
                 }
             },
         }
     }
 
-    // check that all sets referenced by domains or by actions are used by the each others.
+    // check that all sets referenced by locations or by actions are used by the each others.
     {
         let mut errors = Vec::new();
-        errors.extend(domain_sets.difference(&action_sets).map(|set|
-                format!("Set {set} is referenced by a domain, but is not referenced in any action, so it would stay empty forever and never match")
+        errors.extend(location_sets.difference(&action_sets).map(|set|
+                format!("Set {set} is referenced by a location, but is not referenced in any action, so it would stay empty forever and never match")
             ));
-        errors.extend(action_sets.difference(&domain_sets).map(|set| format!("Set {set} is referenced by an action, but is not used in any domain, so it would never be actually used")));
+        errors.extend(action_sets.difference(&location_sets).map(|set| format!("Set {set} is referenced by an action, but is not used in any location, so it would never be actually used")));
         if !errors.is_empty() {
             return Err(errors.join("\n").into());
         }
@@ -281,7 +281,7 @@ impl ActionOptions {
         rx: mpsc::Receiver<Exec>,
     ) -> Result<ComputedAction, Option<String>> {
         // We error but we mark the error as skipable
-        // The mismatch between action and domain sets will be catch later by the caller
+        // The mismatch between action and location sets will be catch later by the caller
         let set = ip_sets.get(&self.set).ok_or(None)?;
 
         let pattern = patterns
@@ -332,18 +332,18 @@ impl MainOptions {
             })
             .collect::<Result<_, String>>()?;
 
-        let mut domains = HashMap::new();
+        let mut locations = HashMap::new();
 
-        for (key, domain) in self.domains {
+        for (key, location) in self.locations {
             let (host, path) = key.split_once('/').unwrap_or_else(|| (&key, ""));
 
-            let host_map: &mut Vec<_> = domains.entry(host.into()).or_default();
+            let host_map: &mut Vec<_> = locations.entry(host.into()).or_default();
 
-            host_map.push(domain.setup(format!("/{path}"), ipsets, &upstreams)?);
+            host_map.push(location.setup(format!("/{path}"), ipsets, &upstreams)?);
         }
 
-        for domain in domains.values_mut() {
-            domain.sort_by_key(|case| case.path.clone());
+        for location in locations.values_mut() {
+            location.sort_by_key(|case| case.path.clone());
         }
 
         let mode = u32::from_str_radix(&self.socket.mode, 8)
@@ -357,34 +357,34 @@ impl MainOptions {
             socket_path: self.socket.path,
             socket_mode: PermissionsExt::from_mode(mode),
             graceful_shutdown_seconds: self.graceful_shutdown_seconds,
-            domains,
+            locations,
         })
     }
 }
 
-impl Domain {
+impl Location {
     pub fn setup(
         self,
         path: String,
         ipsets: &IpSets,
         upstreams: &ComputedUpstreams,
-    ) -> Result<ComputedDomain, String> {
+    ) -> Result<ComputedLocation, String> {
         self._setup(path.clone(), ipsets, upstreams)
-            .map_err(|err| format!("domain {path}: {err}"))
+            .map_err(|err| format!("location {path}: {err}"))
     }
     fn _setup(
         self,
         path: String,
         ipsets: &IpSets,
         upstreams: &ComputedUpstreams,
-    ) -> Result<ComputedDomain, String> {
+    ) -> Result<ComputedLocation, String> {
         fn get_ipset(ipsets: &IpSets, name: &str) -> Result<IpSet, String> {
             ipsets
                 .get(name)
                 .map(|ipset| ipset.clone())
                 .ok_or_else(|| format!("No set {name} has been defined"))
         }
-        Ok(ComputedDomain {
+        Ok(ComputedLocation {
             path,
             cases: {
                 match self.case {
@@ -491,7 +491,7 @@ pub mod tests {
     use crate::{
         action::IpSet,
         config::{
-            AddDel, ComputedAction, ComputedCaseOptions, ComputedDomain, ComputedMainOptions,
+            AddDel, ComputedAction, ComputedCaseOptions, ComputedLocation, ComputedMainOptions,
             ComputedUpstream, StaticResponse, load_config,
         },
     };
@@ -508,7 +508,7 @@ pub mod tests {
               "host": "unix:/run/nginx/nginx.sock",
             },
           },
-          "domains": {
+          "locations": {
             "tokipona.ppom.me": {
               "case": {
                 "set": "pubsites",
@@ -557,9 +557,9 @@ pub mod tests {
             }),
         )]);
 
-        let target_domains = HashMap::from([(
+        let target_locations = HashMap::from([(
             "tokipona.ppom.me".into(),
-            vec![ComputedDomain {
+            vec![ComputedLocation {
                 path: "/".into(),
                 cases: vec![(
                     ipsets.get("pubsites").unwrap().clone(),
@@ -579,7 +579,7 @@ pub mod tests {
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             graceful_shutdown_seconds: 3,
-            domains: target_domains,
+            locations: target_locations,
         };
 
         assert_eq!(computed_config, target_config);
@@ -626,7 +626,7 @@ pub mod tests {
               "host": "unix:/run/nginx/nginx.sock",
             },
           },
-          "domains": {
+          "locations": {
             "music.ppom.me": {
               "case": [
                 {
@@ -774,10 +774,10 @@ pub mod tests {
             ),
         ]);
 
-        let domains = HashMap::from([
+        let locations = HashMap::from([
             (
                 "music.ppom.me".into(),
-                vec![ComputedDomain {
+                vec![ComputedLocation {
                     path: "/".into(),
                     cases: vec![(
                         ipsets.get("pubapps").unwrap().clone(),
@@ -794,14 +794,14 @@ pub mod tests {
             (
                 "ppom.me".into(),
                 vec![
-                    ComputedDomain {
+                    ComputedLocation {
                         path: "/".into(),
                         cases: vec![],
                         default: ComputedCaseOptions::Upstream(
                             upstreams.get("nginx").unwrap().clone(),
                         ),
                     },
-                    ComputedDomain {
+                    ComputedLocation {
                         path: "/vault".into(),
                         cases: vec![
                             (
@@ -826,7 +826,7 @@ pub mod tests {
             ),
             (
                 "tokipona.ppom.me".into(),
-                vec![ComputedDomain {
+                vec![ComputedLocation {
                     path: "/".into(),
                     cases: vec![(
                         ipsets.get("pubsites").unwrap().clone(),
@@ -842,7 +842,7 @@ pub mod tests {
             socket_path: "./test.sock".into(),
             socket_mode: PermissionsExt::from_mode(0o600),
             graceful_shutdown_seconds: 2,
-            domains,
+            locations,
         };
 
         assert_eq!(computed_config, target_config);
