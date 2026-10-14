@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, process::Stdio, sync::Arc};
 use reaction_plugin::{ActionImpl, shutdown::ShutdownToken};
 use regex::Regex;
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
-use tracing::{error, info};
+use tracing::{Level, debug, enabled, error, info};
 
 use crate::{
     concepts::{Action, Duplicate, Filter, LineContext, Match, Pattern, Time},
@@ -419,16 +419,73 @@ fn exec_now(
 
                 // Construct command
                 let mut command = action.exec(&m);
+                command.stdin(Stdio::null());
+
+                if enabled!(Level::DEBUG) {
+                    command.stderr(Stdio::piped()).stdout(Stdio::piped());
+                } else {
+                    command.stderr(Stdio::null()).stdout(Stdio::null());
+                }
 
                 info!("{action}: run [{:?}]", command.as_std());
-                if let Err(err) = command
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .status()
-                    .await
-                {
-                    error!("{action}: run [{:?}], code {err}", command.as_std());
+
+                match command.spawn() {
+                    // Could not spawn command
+                    Err(err) => error!("{action}: run [{:?}], {err}", command.as_std()),
+                    Ok(mut child) => {
+                        // Command exited with error
+                        match child.wait().await {
+                            Err(err) => {
+                                error!("{action}: run [{:?}], {err}", command.as_std())
+                            }
+                            Ok(exit) => {
+                                // Command exited with non-zero status
+                                if !exit.success() {
+                                    // Print return status
+                                    if let Some(code) = exit.code() {
+                                        error!(
+                                            "{action}: run [{:?}], code {code}",
+                                            command.as_std()
+                                        );
+                                    } else {
+                                        error!(
+                                            "{action}: run [{:?}], terminated by signal",
+                                            command.as_std()
+                                        );
+                                    }
+                                    // When loglevel is DEBUG, print stdout/stderr
+                                    if enabled!(Level::DEBUG) {
+                                        match child.wait_with_output().await {
+                                            Err(err) => debug!(
+                                                "{action}: run [{:?}], could not read output: {err}",
+                                                command.as_std()
+                                            ),
+                                            Ok(output) => {
+                                                if !output.stdout.is_empty() {
+                                                    debug!(
+                                                        "{action}:     [{:?}], stdout: \"{}\"",
+                                                        command.as_std(),
+                                                        String::from_utf8_lossy(
+                                                            &output.stdout.trim_ascii()
+                                                        )
+                                                    );
+                                                }
+                                                if !output.stderr.is_empty() {
+                                                    debug!(
+                                                        "{action}:     [{:?}], stderr: \"{}\"",
+                                                        command.as_std(),
+                                                        String::from_utf8_lossy(
+                                                            &output.stderr.trim_ascii()
+                                                        )
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
