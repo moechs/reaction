@@ -5,6 +5,7 @@ FROM rust:bookworm
 
 RUN apt update && apt install -y \
   clang \
+  cmake \
   libipset-dev \
   libnftables-dev \
   && rm -rf /var/lib/apt/lists/*
