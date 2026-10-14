@@ -27,7 +27,7 @@ pub enum SubCommand {
     Start {
         /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
         #[clap(short = 'c', long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
 
         /// minimum log level to show
         #[clap(short = 'l', long, value_parser = parse_log_level, default_value_t = Level::INFO, ignore_case = true)]
@@ -119,7 +119,7 @@ Giving a configuration file permits to use its patterns in REGEX."
     TestRegex {
         /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
         #[clap(short = 'c', long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
 
         /// Regex to test
         #[clap(value_name = "REGEX")]
@@ -131,9 +131,9 @@ Giving a configuration file permits to use its patterns in REGEX."
     },
     /// Test your configuration
     TestConfig {
-        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. required.
+        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. if not present, reaction will try /etc/reaction/
         #[clap(short = 'c', long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
 
         /// how to format output
         #[clap(short = 'f', long, default_value_t = Format::YAML)]

@@ -11,7 +11,7 @@ use regex::Regex;
 use crate::concepts::{Config, Pattern};
 
 pub fn test_regex(
-    config_path: PathBuf,
+    config_path: Option<PathBuf>,
     mut regex: String,
     line: Option<String>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {

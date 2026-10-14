@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fs::File,
     io,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
     time::Duration,
@@ -14,6 +14,21 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use super::{Pattern, Plugin, Stream, merge_attrs};
+
+#[cfg(not(any(
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "illumos"
+)))]
+const DEFAULT_PATHS: [&str; 1] = ["/etc/reaction"];
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "illumos"
+))]
+const DEFAULT_PATHS: [&str; 2] = ["/etc/reaction", "/usr/local/etc/reaction"];
 
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
@@ -183,16 +198,16 @@ impl Config {
         run_commands(&self.stop, "stop")
     }
 
-    pub fn from_path(path: &Path) -> Result<Self, String> {
+    pub fn from_path(path: &Option<PathBuf>) -> Result<Self, String> {
         match Self::from_path_raw(path) {
-            Ok((mut cfg, files)) => {
+            Ok((mut cfg, files, path)) => {
                 cfg.setup().map_err(ConfigError::BadConfig).map_err(|e| {
                     if path.is_dir() {
                         format!(
-                        "{e}\nWhile reading config from {}. List of files read, in that order:\n{}",
-                        path.display(),
-                        files.join("\n"),
-                    )
+                            "{e}\nWhile reading config from {}. List of files read, in that order:\n{}",
+                            path.display(),
+                            files.join("\n"),
+                        )
                     } else {
                         format!("{e}\nWhile reading config from {}.", path.display())
                     }
@@ -203,22 +218,37 @@ impl Config {
         }
     }
 
-    pub fn from_path_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
-        match std::fs::metadata(path) {
+    pub fn from_path_raw(path: &Option<PathBuf>) -> Result<(Self, Vec<String>, PathBuf), String> {
+        let path = if let Some(path) = path {
+            path.clone()
+        } else if let Some(path) = DEFAULT_PATHS
+            .iter()
+            .find(|default_path| std::fs::metadata(default_path).is_ok_and(|meta| meta.is_dir()))
+            .map(|p| PathBuf::from(p))
+        {
+            path
+        } else {
+            return Err(format!(
+                "-c/--config option is not set, and no config can be found at the default paths: {:?}",
+                DEFAULT_PATHS
+            ));
+        };
+
+        match std::fs::metadata(&path) {
             Err(e) => Err(format!("Error accessing {}: {e}", path.to_string_lossy())),
             Ok(m) => {
                 if m.is_file() {
-                    Self::_from_file_raw(path)
+                    Self::_from_file_raw(&path)
+                        .map_err(|e| format!("Configuration file {}: {}", path.display(), e))
                         .map(|cfg| {
                             let fname = path
                                 .file_name()
                                 .map(|s| s.to_string_lossy().to_string())
                                 .unwrap_or("".to_string());
-                            (cfg, vec![fname])
+                            (cfg, vec![fname], path)
                         })
-                        .map_err(|e| format!("Configuration file {}: {}", path.display(), e))
                 } else if m.is_dir() {
-                    Self::_from_dir_raw(path)
+                    Self::_from_dir_raw(&path).map(|res| (res.0, res.1, path))
                 } else {
                     Err(format!(
                         "Invalid file type for {}: not a file nor a directory",

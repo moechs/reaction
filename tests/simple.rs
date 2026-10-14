@@ -93,7 +93,8 @@ async fn simple() {
         .unwrap();
 
     // Run the daemon
-    let handle = tokio::spawn(async move { daemon(config_path.into(), socket_path.into()).await });
+    let handle =
+        tokio::spawn(async move { daemon(Some(config_path.into()), socket_path.into()).await });
 
     // Run the flushes
 
@@ -158,7 +159,7 @@ async fn simple() {
     write(out_path, "").await.unwrap();
     write(oneshot_path, "").await.unwrap();
 
-    let daemon_exit = daemon(config_path.into(), socket_path.into()).await;
+    let daemon_exit = daemon(Some(config_path.into()), socket_path.into()).await;
     assert!(daemon_exit == 1);
 
     // 36 trigger from DB

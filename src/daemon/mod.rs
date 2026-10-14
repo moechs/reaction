@@ -36,7 +36,7 @@ mod socket;
 mod stream;
 mod utils;
 
-pub async fn daemon(config_path: PathBuf, socket: PathBuf) -> i32 {
+pub async fn daemon(config_path: Option<PathBuf>, socket: PathBuf) -> i32 {
     // Load config or quit
     let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
         Ok(config) => config,

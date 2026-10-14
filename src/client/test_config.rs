@@ -3,11 +3,11 @@ use std::{error::Error, path::PathBuf};
 use crate::{cli::Format, concepts::Config};
 
 pub fn test_config(
-    config_path: PathBuf,
+    config_path: Option<PathBuf>,
     format: Format,
     verbose: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (mut cfg, cfg_files) = Config::from_path_raw(&config_path)?;
+    let (mut cfg, cfg_files, config_path) = Config::from_path_raw(&config_path)?;
     if verbose {
         if config_path.is_dir() {
             println!(
