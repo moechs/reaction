@@ -32,10 +32,16 @@
           retryperiod: '60s',
           actions: {
             damn: {
-              cmd: ['notify-send', 'first stream', 'ban <num>'],
+              cmd: ['sh', '-c', 'notify-send "$myvar" "ban <num>"'],
+              env: {
+                myvar: 'DAMN',
+              },
             },
             undamn: {
-              cmd: ['notify-send', 'first stream', 'unban <num>'],
+              cmd: ['sh', '-c', 'notify-send "$myvar" "unban <num>"'],
+              env: {
+                myvar: 'UNDAMN',
+              },
               after: '3s',
               onexit: true,
             },

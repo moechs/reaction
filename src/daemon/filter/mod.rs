@@ -427,44 +427,36 @@ fn exec_now(
                     command.stderr(Stdio::null()).stdout(Stdio::null());
                 }
 
-                info!("{action}: run [{:?}]", command.as_std());
+                info!("{action}: run {command}");
 
                 match command.spawn() {
                     // Could not spawn command
-                    Err(err) => error!("{action}: run [{:?}], {err}", command.as_std()),
+                    Err(err) => error!("{action}: run {command}, {err}"),
                     Ok(mut child) => {
                         // Command exited with error
                         match child.wait().await {
                             Err(err) => {
-                                error!("{action}: run [{:?}], {err}", command.as_std())
+                                error!("{action}: run {command}, {err}")
                             }
                             Ok(exit) => {
                                 // Command exited with non-zero status
                                 if !exit.success() {
                                     // Print return status
                                     if let Some(code) = exit.code() {
-                                        error!(
-                                            "{action}: run [{:?}], code {code}",
-                                            command.as_std()
-                                        );
+                                        error!("{action}: run {command}, code {code}");
                                     } else {
-                                        error!(
-                                            "{action}: run [{:?}], terminated by signal",
-                                            command.as_std()
-                                        );
+                                        error!("{action}: run {command}, terminated by signal");
                                     }
                                     // When loglevel is DEBUG, print stdout/stderr
                                     if enabled!(Level::DEBUG) {
                                         match child.wait_with_output().await {
                                             Err(err) => debug!(
-                                                "{action}: run [{:?}], could not read output: {err}",
-                                                command.as_std()
+                                                "{action}: run {command}, could not read output: {err}",
                                             ),
                                             Ok(output) => {
                                                 if !output.stdout.is_empty() {
                                                     debug!(
-                                                        "{action}:     [{:?}], stdout: \"{}\"",
-                                                        command.as_std(),
+                                                        "{action}:     {command}, stdout: \"{}\"",
                                                         String::from_utf8_lossy(
                                                             &output.stdout.trim_ascii()
                                                         )
@@ -472,8 +464,7 @@ fn exec_now(
                                                 }
                                                 if !output.stderr.is_empty() {
                                                     debug!(
-                                                        "{action}:     [{:?}], stderr: \"{}\"",
-                                                        command.as_std(),
+                                                        "{action}:     {command}, stderr: \"{}\"",
                                                         String::from_utf8_lossy(
                                                             &output.stderr.trim_ascii()
                                                         )

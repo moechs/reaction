@@ -1,4 +1,11 @@
-use std::{cmp::Ordering, collections::BTreeSet, fmt::Display, sync::Arc, time::Duration};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+    time::Duration,
+};
 
 use reaction_plugin::{
     ActionConfig,
@@ -15,8 +22,9 @@ use super::{Match, Pattern, PatternType};
 pub struct Action {
     #[serde(default)]
     pub cmd: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 
-    // TODO one shot time deserialization
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -137,8 +145,7 @@ impl Action {
         Ok(())
     }
 
-    // TODO test
-    pub fn exec(&self, match_: &Match) -> Command {
+    pub fn exec(&self, match_: &Match) -> PrintableCommand {
         let computed_command = if self.patterns.is_empty() {
             self.cmd.clone()
         } else {
@@ -155,7 +162,8 @@ impl Action {
         };
         let mut cmd = Command::new(&computed_command[0]);
         cmd.args(&computed_command[1..]);
-        cmd
+        cmd.envs(self.env.clone());
+        PrintableCommand(cmd)
     }
 
     pub fn to_action_config(&self) -> Result<ActionConfig, String> {
@@ -203,6 +211,32 @@ impl PartialOrd for Action {
 impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.stream_name, self.filter_name, self.name)
+    }
+}
+
+/// This struct permits to customize the implementation of [`std::fmt::Display`].
+/// Most importantly, we don't want env vars to be leaked in the logs,
+/// so we don't want them printed.
+pub struct PrintableCommand(Command);
+impl Deref for PrintableCommand {
+    type Target = Command;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for PrintableCommand {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Display for PrintableCommand {
+    /// Minimal version of [`std::Command`]'s [`std::fmt::Debug`] implementation
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:?}", self.0.as_std().get_program())?;
+        for arg in self.0.as_std().get_args() {
+            write!(f, " {:?}", arg)?;
+        }
+        write!(f, "]")
     }
 }
 
