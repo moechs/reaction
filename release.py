@@ -130,9 +130,10 @@ $ sudo systemctl enable --now reaction.service
         binaries = [
             # Binaries
             "reaction",
-            "reaction-plugin-virtual",
+            "reaction-plugin-httpban",
             "reaction-plugin-ipset",
             "reaction-plugin-nftables",
+            "reaction-plugin-virtual",
         ]
 
         # Build
@@ -155,6 +156,7 @@ $ sudo systemctl enable --now reaction.service
         # Build .deb
         debs = [
             "reaction",
+            "reaction-plugin-httpban",
             "reaction-plugin-ipset",
             "reaction-plugin-nftables",
         ]

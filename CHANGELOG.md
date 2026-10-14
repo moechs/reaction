@@ -1,5 +1,61 @@
 ## Changelog
 
+## v2.6.0
+
+This release brings a bugfix for the "ipset" plugin, a new top-level option for plugins, and the much awaited "HTTP ban" plugin.
+
+### ipset plugin bugfix
+
+When using a Pattern with type `ip` or `ipv6`, that did not specify an `ipv6mask`, ipset converted the IP to its /32 network mask.
+This led to much wider bans than wanted!
+
+This was due to a bug in the `ipset` rust crate when parsing IPv6 addresses.
+A PR is on its way upstream, and we use a patched version of the library until then.
+
+Thanks to @celforyon for the alert on this bug.
+
+### Top-level `options` for plugins.
+
+Plugins can now take top-level options, for configuration that can't live in the Streams or Actions sections.
+
+```yaml
+plugins:
+  myplugin:
+    path: ...
+    options:
+      owo: true
+      list:
+        - name: one
+        - name: two
+      # ...
+```
+
+If your configuration lives accross multiple files, the values will be merged recursively.
+You can use `reaction test-config` to test how your conf is evaluated.
+
+[Plugin options documentation reference](https://reaction.ppom.me/reference/plugin/#options)
+
+Existing `ipset` and `nftables` plugins will use this in the future. Their configuration stays unchanged for now.
+But this feature was much needed for the following new plugin...
+
+### HTTP ban plugin 🎉
+
+It's been 2 years since I first thought of this plugin.
+Since then, [Anubis](https://anubis.techaro.lol) and [iocaine](https://iocaine.madhouse-project.org/) were born.
+They have different, complementary approaches, and are more powerful than reaction when protecting from (or fighting) LLM scrapers.
+
+In my opinion, the current main goal of reaction is to protect from low-stakes cyberattacks by hiding the server from reconnaissance bots scanning the web, the IPv4 space, etc.
+
+But currently, when false positives happen, the IP is banned at the firewall level.
+Legitimate users just see that the "website disappeared and can't load".
+This is inconvenient.
+The HTTP ban plugin addresses the issue.
+
+The plugin is an HTTP middleware: it sits between your internet-facing reverse-proxy, and your web application servers.
+It will triage the incoming requests, presenting an error page to banned IPs, and routing the legitimate traffic to web apps.
+
+[HTTP ban documentation](https://reaction.ppom.me/plugins/httpban/)
+
 ## v2.5.1
 
 This is a bugfix release.

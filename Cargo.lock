@@ -4074,7 +4074,7 @@ dependencies = [
 
 [[package]]
 name = "reaction"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "assert_cmd",
  "assert_fs",
@@ -4134,7 +4134,7 @@ dependencies = [
 
 [[package]]
 name = "reaction-plugin-httpban"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "http",
@@ -4154,7 +4154,7 @@ dependencies = [
 
 [[package]]
 name = "reaction-plugin-ipset"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "ipset",
  "reaction-plugin",

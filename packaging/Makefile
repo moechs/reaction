@@ -12,6 +12,9 @@ install:
 	install -Dm644 _reaction      $(DESTDIR)$(PREFIX)/share/zsh/vendor-completions/_reaction
 	install -Dm644 reaction.service $(DESTDIR)$(SYSTEMDDIR)/system/reaction.service
 
+install-httpban:
+	install -Dm755 reaction-plugin-httpban $(DESTDIR)$(BINDIR)/reaction-plugin-httpban
+
 install-ipset:
 	install -Dm755 reaction-plugin-ipset $(DESTDIR)$(BINDIR)/reaction-plugin-ipset
 
@@ -20,9 +23,10 @@ install-nftables:
 
 remove:
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction
-	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-virtual
+	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-httpban
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-ipset
 	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-nftables
+	rm -f $(DESTDIR)$(BINDIR)/bin/reaction-plugin-virtual
 	rm -f $(DESTDIR)$(MANDIR)/reaction*.1
 	rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/reaction
 	rm -f $(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/reaction.fish
