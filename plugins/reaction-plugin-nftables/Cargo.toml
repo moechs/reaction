@@ -21,6 +21,7 @@ libnftables1-sys = { version = "1.0.0" }
 
 [package.metadata.deb]
 section = "net"
+revision = ""
 assets = [
 	[ "target/release/reaction-plugin-nftables", "/usr/bin/reaction-plugin-nftables", "755" ],
 ]

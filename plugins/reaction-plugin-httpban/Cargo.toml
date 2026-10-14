@@ -30,6 +30,7 @@ tempfile.workspace = true
 
 [package.metadata.deb]
 section = "net"
+revision = ""
 assets = [
 	[ "target/release/reaction-plugin-httpban", "/usr/bin/reaction-plugin-httpban", "755" ],
 ]

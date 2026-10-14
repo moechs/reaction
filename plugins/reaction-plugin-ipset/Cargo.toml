@@ -24,6 +24,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "process"] }
 
 [package.metadata.deb]
 section = "net"
+revision = ""
 assets = [
 	[ "target/release/reaction-plugin-ipset", "/usr/bin/reaction-plugin-ipset", "755" ],
 ]
