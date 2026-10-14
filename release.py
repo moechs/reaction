@@ -64,26 +64,14 @@ def main():
         # Git push
         run_command(["git", "push", "--tags"])
 
-        # Create directory
-        run_command(
-            [
-                "ssh",
-                "akesi",
-                # "-J", "pica01",
-                "mkdir",
-                "-p",
-                f"/var/www/static/reaction/releases/{tag}/",
-            ]
-        )
+        local_dir = os.path.join(root_dir, "local/static/reaction/releases/", tag)
     else:
-        # Prepare directory for tarball and deb file.
-        # We must do a `cargo clean` before each build,
-        # So we have to move them out of `target/`
         local_dir = os.path.join(root_dir, "local")
-        try:
-            os.mkdir(local_dir)
-        except FileExistsError:
-            pass
+
+    try:
+        os.mkdir(local_dir)
+    except FileExistsError:
+        pass
 
     architectures = {
         "x86_64-unknown-linux-gnu": "amd64",
@@ -223,24 +211,8 @@ $ sudo systemctl enable --now reaction.service
         deb_sig_names = [f"{deb_name}.minisig" for deb_name in deb_names]
         tar_sig = f"{tar_path}.minisig"
 
-        if args.publish:
-            # Push
-            run_command(
-                [
-                    "rsync",
-                    "-az",  # "-e", "ssh -J pica01",
-                    tar_path,
-                    tar_sig,
-                ]
-                    + deb_paths
-                    + deb_sig_paths
-                    + [
-                    f"akesi:/var/www/static/reaction/releases/{tag}/",
-                ]
-            )
-        else:
-            # Copy
-            run_command(["cp", tar_path, tar_sig] + deb_paths + deb_sig_paths + [local_dir])
+        # Copy
+        run_command(["cp", tar_path, tar_sig] + deb_paths + deb_sig_paths + [local_dir])
 
         all_files.extend([tar_path, tar_sig])
         all_files.extend(deb_paths)
@@ -295,7 +267,10 @@ curl -O https://static.ppom.me/reaction/releases/{tag}/{deb_names[i]} \\
         print("\n\n".join(instructions))
         return
 
-    # Release
+    # Push release in static.ppom.me
+    run_command(["dxfl", "deploy", "static.ppom.me", "./local/static/"])
+
+    # Create release in framagit
     cmd = run_command(
         ["rbw", "get", "framagit.org", "token"], capture_output=True, text=True
     )
