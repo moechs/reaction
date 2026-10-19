@@ -113,7 +113,9 @@ async fn ip() {
 
     // Run the daemon
     let handle =
-        tokio::spawn(async move { daemon(Some(config_path.into()), socket_path.into()).await });
+        tokio::spawn(
+            async move { daemon(Some(config_path.into()), None, socket_path.into()).await },
+        );
 
     // Run the flushes
 

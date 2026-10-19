@@ -105,7 +105,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), socket_path.into()),
+        daemon(Some(config_path.into()), None, socket_path.into()),
     )
     .await;
 
@@ -135,7 +135,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), socket_path.into()),
+        daemon(Some(config_path.into()), None, socket_path.into()),
     )
     .await;
 
@@ -166,7 +166,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), socket_path.into()),
+        daemon(Some(config_path.into()), None, socket_path.into()),
     )
     .await;
 
@@ -193,7 +193,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(300),
-        daemon(Some(config_path.into()), socket_path.into()),
+        daemon(Some(config_path.into()), None, socket_path.into()),
     )
     .await;
 

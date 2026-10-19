@@ -1,4 +1,4 @@
-use std::{io::IsTerminal, process::exit};
+use std::process::exit;
 
 use clap::Parser;
 use reaction::{
@@ -27,72 +27,57 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    if let SubCommand::Start {
-        loglevel,
-        config,
-        socket,
-    } = cli.command
-    {
-        if let Err(err) = tracing_subscriber::fmt::fmt()
-            .without_time()
-            .with_target(false)
-            .with_ansi(std::io::stdout().is_terminal())
-            .with_max_level(loglevel)
-            // .with_max_level(Level::TRACE)
-            .try_init()
-        {
-            eprintln!("ERROR could not initialize logging: {err}");
-            exit(1);
+    let result = match cli.command {
+        SubCommand::Start {
+            loglevel,
+            config,
+            socket,
+        } => {
+            exit(daemon(config, loglevel, socket).await);
         }
-        exit(daemon(config, socket).await);
-    } else {
-        let result = match cli.command {
-            SubCommand::Show {
-                socket,
-                format,
-                limit,
-                patterns,
-            } => request(socket, format, limit, patterns, Order::Show).await,
-            SubCommand::Flush {
-                socket,
-                format,
-                limit,
-                patterns,
-            } => request(socket, format, limit, patterns, Order::Flush).await,
-            SubCommand::Trigger {
-                socket,
-                limit,
-                patterns,
-            } => request(socket, Format::JSON, Some(limit), patterns, Order::Trigger).await,
-            SubCommand::Rotate { socket } => {
-                request(socket, Format::JSON, None, vec![], Order::Rotate).await
-            }
-            SubCommand::TestRegex {
-                config,
-                regex,
-                line,
-            } => test_regex(config, regex, line),
-            SubCommand::TestFilter {
-                config,
-                stream_filter,
-                line,
-            } => test_filter(config, stream_filter, line),
-            SubCommand::TestConfig {
-                config,
-                format,
-                verbose,
-            } => test_config(config, format, verbose),
-            // Can't be daemon
-            _ => Ok(()),
-        };
-        match result {
-            Ok(()) => {
-                exit(0);
-            }
-            Err(err) => {
-                eprintln!("ERROR {err}");
-                exit(1);
-            }
+        SubCommand::Show {
+            socket,
+            format,
+            limit,
+            patterns,
+        } => request(socket, format, limit, patterns, Order::Show).await,
+        SubCommand::Flush {
+            socket,
+            format,
+            limit,
+            patterns,
+        } => request(socket, format, limit, patterns, Order::Flush).await,
+        SubCommand::Trigger {
+            socket,
+            limit,
+            patterns,
+        } => request(socket, Format::JSON, Some(limit), patterns, Order::Trigger).await,
+        SubCommand::Rotate { socket } => {
+            request(socket, Format::JSON, None, vec![], Order::Rotate).await
+        }
+        SubCommand::TestRegex {
+            config,
+            regex,
+            line,
+        } => test_regex(config, regex, line),
+        SubCommand::TestFilter {
+            config,
+            stream_filter,
+            line,
+        } => test_filter(config, stream_filter, line),
+        SubCommand::TestConfig {
+            config,
+            format,
+            verbose,
+        } => test_config(config, format, verbose),
+    };
+    match result {
+        Ok(()) => {
+            exit(0);
+        }
+        Err(err) => {
+            eprintln!("ERROR {err}");
+            exit(1);
         }
     }
 }

@@ -1,4 +1,5 @@
 {
+  log_level: 'debug',
   patterns: {
     num: {
       regex: '[0-9]+',

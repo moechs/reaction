@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     error::Error,
+    io::IsTerminal,
     path::PathBuf,
     sync::{
         Arc,
@@ -17,7 +18,7 @@ use tokio::{
     sync::Semaphore,
     time::interval,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{Level, debug, error, info, warn};
 use treedb::{Database, DatabaseRotate};
 
 use crate::concepts::{Config, now};
@@ -36,15 +37,33 @@ mod socket;
 mod stream;
 mod utils;
 
-pub async fn daemon(config_path: Option<PathBuf>, socket: PathBuf) -> i32 {
+pub async fn daemon(config_path: Option<PathBuf>, loglevel: Option<Level>, socket: PathBuf) -> i32 {
     // Load config or quit
     let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
         Ok(config) => config,
         Err(err) => {
-            error!("{err}");
+            eprintln!("ERROR {err}");
             return 1;
         }
     }));
+
+    {
+        let loglevel = loglevel.unwrap_or(config.log_level.0);
+        let res = tracing_subscriber::fmt::fmt()
+            .without_time()
+            .with_target(false)
+            .with_ansi(std::io::stdout().is_terminal())
+            .with_max_level(loglevel)
+            .try_init();
+
+        #[cfg(not(debug_assertions))]
+        if let Err(err) = res {
+            eprintln!("ERROR could not initialize logging: {err}");
+            return 1;
+        }
+        #[cfg(debug_assertions)]
+        let _ = res;
+    }
 
     // Cancellation Token
     let shutdown = ShutdownController::new();

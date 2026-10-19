@@ -30,8 +30,8 @@ pub enum SubCommand {
         config: Option<PathBuf>,
 
         /// minimum log level to show
-        #[clap(short = 'l', long, value_parser = parse_log_level, default_value_t = Level::INFO, ignore_case = true)]
-        loglevel: Level,
+        #[clap(short = 'l', long, value_parser = parse_log_level, ignore_case = true)]
+        loglevel: Option<Level>,
 
         /// path to the client-daemon communication socket
         #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
@@ -188,7 +188,7 @@ fn parse_named_regex(s: &str) -> Result<(String, String), String> {
     Ok((name.to_string(), v.to_string()))
 }
 
-fn parse_log_level(s: &str) -> Result<Level, String> {
+pub fn parse_log_level(s: &str) -> Result<Level, String> {
     match s.to_ascii_uppercase().as_str() {
         "DEBUG" => Ok(Level::DEBUG),
         "INFO" => Ok(Level::INFO),

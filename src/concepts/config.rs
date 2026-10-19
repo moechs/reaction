@@ -9,9 +9,11 @@ use std::{
 };
 
 use reaction_plugin::time::{deser_opt_duration, print_duration, ser_opt_duration};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{Level, debug, error, info, warn};
+
+use crate::cli::parse_log_level;
 
 use super::{Pattern, Plugin, Stream, merge_attrs};
 
@@ -38,6 +40,12 @@ pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 pub struct Config {
     #[serde(default = "num_cpus::get")]
     pub concurrency: usize,
+    #[serde(
+        default,
+        skip_serializing_if = "level_is_info",
+        deserialize_with = "level_deserialize"
+    )]
+    pub log_level: LogLevel,
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
     #[serde(
@@ -76,6 +84,40 @@ fn one_day() -> Option<Duration> {
 }
 fn is_one_day(interval: &Option<Duration>) -> bool {
     interval == &one_day()
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct LogLevel(pub Level);
+
+impl Default for LogLevel {
+    fn default() -> Self {
+        Self(Level::INFO)
+    }
+}
+impl std::fmt::Debug for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl Serialize for LogLevel {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0.as_str())
+    }
+}
+fn level_is_info(level: &LogLevel) -> bool {
+    level.0 == Level::INFO
+}
+fn level_deserialize<'de, D>(deserializer: D) -> Result<LogLevel, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?.to_ascii_uppercase();
+    Ok(parse_log_level(&s)
+        .map(LogLevel)
+        .map_err(de::Error::custom)?)
 }
 
 impl Config {
@@ -142,6 +184,13 @@ impl Config {
             other.concurrency,
             num_cpus::get(),
             "concurrency",
+        )?;
+
+        self.log_level = merge_attrs(
+            self.log_level.clone(),
+            other.log_level,
+            LogLevel::default(),
+            "log_level",
         )?;
 
         Ok(())
@@ -486,7 +535,7 @@ mod tests {
         assert!(config.setup().is_err());
     }
 
-    fn parse_config_json(cfg: &str) -> Config {
+    fn parse_config_json(cfg: &str) -> Result<Config, serde_json::Error> {
         const DUMMY_PATTERNS: &str = r#"
         "patterns": {
             "zero": {
@@ -518,11 +567,9 @@ mod tests {
             .replace("{{PATTERNS}}", DUMMY_PATTERNS)
             .replace("{{FILTERS}}", DUMMY_FILTERS);
 
-        serde_json::from_str(&cfg)
-            .inspect_err(|_| {
-                eprintln!("{cfg}");
-            })
-            .unwrap()
+        serde_json::from_str(&cfg).inspect_err(|_| {
+            eprintln!("{cfg}");
+        })
     }
 
     #[test]
@@ -531,13 +578,15 @@ mod tests {
             r#"{
             {{PATTERNS}}
         }"#,
-        );
+        )
+        .unwrap();
         let mut cfg2 = parse_config_json(
             r#"{
             {{PATTERNS}},
             "streams": {}
         }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg1.setup();
         assert!(res.is_err());
@@ -551,13 +600,15 @@ mod tests {
             r#"{
             {{STREAMS}}
         }"#,
-        );
+        )
+        .unwrap();
         let mut cfg2 = parse_config_json(
             r#"{
             "patterns": {},
             {{STREAMS}}
         }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg1.setup();
         assert!(res.is_err());
@@ -576,7 +627,8 @@ mod tests {
                 },
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "patterns": {
@@ -585,7 +637,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         cfg_org.merge(cfg_oth).unwrap();
         cfg_org.setup().unwrap();
@@ -607,7 +660,8 @@ mod tests {
                 },
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "patterns": {
@@ -616,7 +670,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_err());
@@ -634,7 +689,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "streams": {
@@ -644,7 +700,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         cfg_org.merge(cfg_oth).unwrap();
         cfg_org.setup().unwrap();
@@ -676,7 +733,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "streams": {
@@ -695,7 +753,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         cfg_org.merge(cfg_oth).unwrap();
         cfg_org.setup().unwrap();
@@ -720,7 +779,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "streams": {
@@ -729,7 +789,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_err());
@@ -746,7 +807,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "streams": {
@@ -755,7 +817,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         cfg_org.merge(cfg_oth).unwrap();
         cfg_org.setup().unwrap();
@@ -778,7 +841,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "streams": {
@@ -788,7 +852,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_err());
@@ -801,12 +866,14 @@ mod tests {
                 "concurrency": 97,
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "concurrency": 97
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
@@ -820,12 +887,14 @@ mod tests {
                 "concurrency": 97,
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "concurrency": 96
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_err());
@@ -838,8 +907,9 @@ mod tests {
                 "concurrency": 97,
                 {{STREAMS}}
             }"#,
-        );
-        let cfg_oth = parse_config_json(r#"{}"#);
+        )
+        .unwrap();
+        let cfg_oth = parse_config_json(r#"{}"#).unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
@@ -852,12 +922,14 @@ mod tests {
             r#"{
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         let cfg_oth = parse_config_json(
             r#"{
                 "concurrency": 97
             }"#,
-        );
+        )
+        .unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
@@ -870,8 +942,9 @@ mod tests {
             r#"{
                 {{STREAMS}}
             }"#,
-        );
-        let cfg_oth = parse_config_json(r#"{ }"#);
+        )
+        .unwrap();
+        let cfg_oth = parse_config_json(r#"{ }"#).unwrap();
 
         let res = cfg_org.merge(cfg_oth);
         assert!(res.is_ok());
@@ -879,13 +952,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_config_no_state_rotate_interval() {
+    fn parse_config_no_state_rotation_interval() {
         let mut cfg_org = parse_config_json(
             r#"{
                 {{PATTERNS}},
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         assert!(cfg_org.setup().is_ok());
         assert_eq!(
             cfg_org.state_rotation_interval,
@@ -901,7 +975,8 @@ mod tests {
                 {{PATTERNS}},
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         assert!(cfg_org.setup().is_ok());
         assert_eq!(
             cfg_org.state_rotation_interval,
@@ -917,8 +992,70 @@ mod tests {
                 {{PATTERNS}},
                 {{STREAMS}}
             }"#,
-        );
+        )
+        .unwrap();
         assert!(cfg_org.setup().is_ok());
         assert_eq!(cfg_org.state_rotation_interval, None);
+    }
+
+    #[test]
+    fn parse_config_no_log_level() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+        )
+        .unwrap();
+        assert!(cfg_org.setup().is_ok());
+        assert_eq!(cfg_org.log_level, LogLevel(Level::INFO));
+    }
+
+    #[test]
+    fn parse_config_set_log_level() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                "log_level": "WARN",
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+        )
+        .unwrap();
+        assert!(cfg_org.setup().is_ok());
+        assert_eq!(cfg_org.log_level, LogLevel(Level::WARN));
+    }
+
+    #[test]
+    fn parse_config_trace_log_level() {
+        assert!(
+            parse_config_json(
+                r#"{
+                "log_level": "TRACE",
+                {{PATTERNS}},
+                {{STREAMS}}
+            }"#,
+            )
+            .is_err(),
+        );
+    }
+
+    #[test]
+    fn merge_config_right_log_level() {
+        let mut cfg_org = parse_config_json(
+            r#"{
+                {{STREAMS}}
+            }"#,
+        )
+        .unwrap();
+        let cfg_oth = parse_config_json(
+            r#"{
+                "log_level": "ERROR"
+            }"#,
+        )
+        .unwrap();
+
+        let res = cfg_org.merge(cfg_oth);
+        assert!(res.is_ok());
+        assert_eq!(cfg_org.log_level, LogLevel(Level::ERROR));
     }
 }
