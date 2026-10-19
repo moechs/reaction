@@ -25,7 +25,7 @@ pub struct Cli {
 pub enum SubCommand {
     /// Start reaction daemon
     Start {
-        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. if not present, reaction will try /etc/reaction/
         #[clap(short = 'c', long)]
         config: Option<PathBuf>,
 
@@ -117,7 +117,7 @@ See state_rotation_interval configuration key for more information)")]
 Giving a configuration file permits to use its patterns in REGEX."
     )]
     TestRegex {
-        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. if not present, reaction will try /etc/reaction/
         #[clap(short = 'c', long)]
         config: Option<PathBuf>,
 
@@ -135,7 +135,7 @@ Giving a configuration file permits to use its patterns in REGEX."
         long_about = "Test a configured STREAM.FILTER against one LINE, or against standard input."
     )]
     TestFilter {
-        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        /// either a configuration file in json, jsonnet or yaml format, or a directory containing those files. if not present, reaction will try /etc/reaction/
         #[clap(short = 'c', long)]
         config: Option<PathBuf>,
 
