@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Action, Match, Pattern, PatternType, Patterns};
 
-use as_regex::FilterMethodRegex;
+pub use as_regex::FilterMethodRegex;
 use as_struct::FilterMethodStruct;
 
 mod as_regex;
@@ -60,6 +60,7 @@ pub trait FilterMethodAs {
         &self,
         line: &'a str,
         context: &mut LineContext<'a>,
+        use_ignore: bool,
     ) -> Result<Option<Match>, String>;
     fn hint_regexes(&self) -> Option<Vec<String>>;
 }
@@ -257,10 +258,13 @@ impl Filter {
         &self,
         line: &'a str,
         context: &mut LineContext<'a>,
+        use_ignore: bool,
     ) -> Result<Option<Match>, String> {
         match &self.filter_method {
-            FilterMethod::Regex(method_regex) => method_regex.get_match(line, context),
-            FilterMethod::Struct(method_struct) => method_struct.get_match(line, context),
+            FilterMethod::Regex(method_regex) => method_regex.get_match(line, context, use_ignore),
+            FilterMethod::Struct(method_struct) => {
+                method_struct.get_match(line, context, use_ignore)
+            }
         }
     }
 
@@ -617,19 +621,19 @@ pub mod tests {
         filter.regex().regex.push("insert <name> here$".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert b here", &mut LineContext::default()),
+            filter.get_match("insert b here", &mut LineContext::default(), true),
             Ok(Some(vec!("b".into())))
         );
         assert_eq!(
-            filter.get_match("insert a here", &mut LineContext::default()),
+            filter.get_match("insert a here", &mut LineContext::default(), true),
             Ok(None)
         );
         assert_eq!(
-            filter.get_match("youpi b youpi", &mut LineContext::default()),
+            filter.get_match("youpi b youpi", &mut LineContext::default(), true),
             Ok(None)
         );
         assert_eq!(
-            filter.get_match("insert  here", &mut LineContext::default()),
+            filter.get_match("insert  here", &mut LineContext::default(), true),
             Ok(None)
         );
 
@@ -679,21 +683,24 @@ pub mod tests {
         assert_eq!(
             filter.get_match(
                 "insert b here and bouboubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
             filter.get_match(
                 "insert a here and bouboubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );
         assert_eq!(
             filter.get_match(
                 "insert b here and boubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );
@@ -757,19 +764,19 @@ pub mod tests {
             .push("also add <name> there".to_string());
         assert!(filter.setup(&name, &name, &patterns).is_ok());
         assert_eq!(
-            filter.get_match("insert a here", &mut LineContext::default()),
+            filter.get_match("insert a here", &mut LineContext::default(), true),
             Ok(None)
         );
         assert_eq!(
-            filter.get_match("insert b here", &mut LineContext::default()),
+            filter.get_match("insert b here", &mut LineContext::default(), true),
             Ok(Some(vec!("b".into())))
         );
         assert_eq!(
-            filter.get_match("also add a there", &mut LineContext::default()),
+            filter.get_match("also add a there", &mut LineContext::default(), true),
             Ok(None)
         );
         assert_eq!(
-            filter.get_match("also add b there", &mut LineContext::default()),
+            filter.get_match("also add b there", &mut LineContext::default(), true),
             Ok(Some(vec!("b".into())))
         );
 
@@ -788,42 +795,48 @@ pub mod tests {
         assert_eq!(
             filter.get_match(
                 "insert b here and bouboubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
             filter.get_match(
                 "also add bouboubou here and b there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(Some(vec!("bouboubou".into(), "b".into())))
         );
         assert_eq!(
             filter.get_match(
                 "insert a here and bouboubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );
         assert_eq!(
             filter.get_match(
                 "also add bouboubou here and a there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );
         assert_eq!(
             filter.get_match(
                 "insert b here and boubou there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );
         assert_eq!(
             filter.get_match(
                 "also add boubou here and b there",
-                &mut LineContext::default()
+                &mut LineContext::default(),
+                true
             ),
             Ok(None)
         );

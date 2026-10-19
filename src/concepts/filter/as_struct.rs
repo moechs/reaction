@@ -19,7 +19,7 @@ pub struct FilterMethodStruct {
     #[serde(skip)]
     computed_fields: HashMap<String, ComputedField>,
     #[serde(skip)]
-    patterns: Arc<PatternSet>,
+    pub patterns: Arc<PatternSet>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -206,11 +206,12 @@ fn regex_matches(
     regex: &Regex,
     patterns: &Vec<(Arc<Pattern>, usize)>,
     actual_value: &str,
+    use_ignore: bool,
     match_: &mut Match,
 ) -> bool {
     if let Some(matches) = regex.captures(actual_value) {
         for (pattern, pattern_index) in patterns {
-            if let Some(match_elt) = pattern.get_match(&matches) {
+            if let Some(match_elt) = pattern.get_match(&matches, use_ignore) {
                 match_[*pattern_index] = match_elt;
             } else {
                 return false;
@@ -241,19 +242,27 @@ impl ComputedField {
             .for_each(|field| field.post_compute(used_patterns));
     }
 
-    fn matches(&self, actual_value: &BValue, match_: &mut Match) -> bool {
+    fn matches(&self, actual_value: &BValue, match_: &mut Match, use_ignore: bool) -> bool {
         match self {
             ComputedField::Regex((regex, patterns)) => match actual_value {
-                BValue::Str(actual_value) => regex_matches(regex, patterns, actual_value, match_),
-                BValue::Number(actual_value) => {
-                    regex_matches(regex, patterns, &actual_value.to_string(), match_)
+                BValue::Str(actual_value) => {
+                    regex_matches(regex, patterns, actual_value, use_ignore, match_)
                 }
+                BValue::Number(actual_value) => regex_matches(
+                    regex,
+                    patterns,
+                    &actual_value.to_string(),
+                    use_ignore,
+                    match_,
+                ),
                 _ => false,
             },
             ComputedField::Exists(exists) => *exists == (actual_value != &BValue::Null),
             ComputedField::Equals(scalar_value) => &JValue::from(actual_value) == scalar_value,
             ComputedField::Inner(contract_map) => match actual_value {
-                BValue::Object(_) => Self::matches_all(contract_map, actual_value, match_),
+                BValue::Object(_) => {
+                    Self::matches_all(contract_map, actual_value, use_ignore, match_)
+                }
                 _ => false,
             },
         }
@@ -262,11 +271,12 @@ impl ComputedField {
     fn matches_all(
         this: &HashMap<String, Self>,
         actual_values: &BValue,
+        use_ignore: bool,
         match_: &mut Match,
     ) -> bool {
         for (contract_key, contract_value) in this {
             let actual_value = actual_values.get(contract_key.as_str());
-            let ok = contract_value.matches(actual_value, match_);
+            let ok = contract_value.matches(actual_value, match_, use_ignore);
             if !ok {
                 return false;
             }
@@ -291,6 +301,7 @@ impl FilterMethodAs for FilterMethodStruct {
         &self,
         line: &'a str,
         context: &mut LineContext<'a>,
+        use_ignore: bool,
     ) -> Result<Option<Match>, String> {
         let value = match &context.as_value {
             Some(value) => value,
@@ -308,7 +319,7 @@ impl FilterMethodAs for FilterMethodStruct {
             .collect();
 
         Ok(
-            if ComputedField::matches_all(&self.computed_fields, &value, &mut match_) {
+            if ComputedField::matches_all(&self.computed_fields, &value, use_ignore, &mut match_) {
                 Some(match_)
             } else {
                 None
@@ -939,7 +950,7 @@ mod tests {
 
             for (arg, result) in tries {
                 assert_eq!(
-                    fms.get_match(arg, &mut LineContext::default()),
+                    fms.get_match(arg, &mut LineContext::default(), true),
                     result,
                     "{name} (arg: {arg}, result: {result:?})"
                 );

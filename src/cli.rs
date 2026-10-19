@@ -125,7 +125,25 @@ Giving a configuration file permits to use its patterns in REGEX."
         #[clap(value_name = "REGEX")]
         regex: String,
 
-        /// Line to be tested
+        /// Line to be tested (Optional. Will read stdin if not present)
+        #[clap(value_name = "LINE")]
+        line: Option<String>,
+    },
+    /// Test a filter from your configuration
+    #[command(
+        name = "test-filter",
+        long_about = "Test a configured STREAM.FILTER against one LINE, or against standard input."
+    )]
+    TestFilter {
+        /// configuration file in json, jsonnet or yaml format, or directory containing those files. required.
+        #[clap(short = 'c', long)]
+        config: Option<PathBuf>,
+
+        /// Name of the Filter to test (i.e. ssh.failedlogin)
+        #[clap(value_name = "STREAM.FILTER")]
+        stream_filter: String,
+
+        /// Line to be tested (Optional. Will read stdin if not present)
         #[clap(value_name = "LINE")]
         line: Option<String>,
     },

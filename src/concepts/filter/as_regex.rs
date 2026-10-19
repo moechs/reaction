@@ -50,6 +50,7 @@ impl FilterMethodAs for FilterMethodRegex {
         &self,
         line: &'a str,
         _context: &mut LineContext<'a>,
+        use_ignore: bool,
     ) -> Result<Option<Match>, String> {
         for regex in &self.compiled_regex {
             if let Some(matches) = regex.captures(line) {
@@ -57,7 +58,7 @@ impl FilterMethodAs for FilterMethodRegex {
                     let result: Match = self
                         .patterns
                         .iter()
-                        .map(|pattern| pattern.get_match(&matches))
+                        .map(|pattern| pattern.get_match(&matches, use_ignore))
                         .filter(Option::is_some)
                         .map(Option::unwrap)
                         .collect();
@@ -275,25 +276,25 @@ mod tests {
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
             filter
-                .get_match("insert b here", &mut LineContext::default())
+                .get_match("insert b here", &mut LineContext::default(), true)
                 .unwrap(),
             Some(vec!("b".into()))
         );
         assert_eq!(
             filter
-                .get_match("insert a here", &mut LineContext::default())
+                .get_match("insert a here", &mut LineContext::default(), true)
                 .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("youpi b youpi", &mut LineContext::default())
+                .get_match("youpi b youpi", &mut LineContext::default(), true)
                 .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("insert  here", &mut LineContext::default())
+                .get_match("insert  here", &mut LineContext::default(), true)
                 .unwrap(),
             None
         );
@@ -308,7 +309,8 @@ mod tests {
             filter
                 .get_match(
                     "insert b here and bouboubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
@@ -317,7 +319,8 @@ mod tests {
             filter
                 .get_match(
                     "insert a here and bouboubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None
@@ -326,7 +329,8 @@ mod tests {
             filter
                 .get_match(
                     "insert b here and boubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None
@@ -339,25 +343,25 @@ mod tests {
         assert!(filter.setup(&patterns).is_ok());
         assert_eq!(
             filter
-                .get_match("insert a here", &mut LineContext::default())
+                .get_match("insert a here", &mut LineContext::default(), true)
                 .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("insert b here", &mut LineContext::default())
+                .get_match("insert b here", &mut LineContext::default(), true)
                 .unwrap(),
             Some(vec!("b".into()))
         );
         assert_eq!(
             filter
-                .get_match("also add a there", &mut LineContext::default())
+                .get_match("also add a there", &mut LineContext::default(), true)
                 .unwrap(),
             None
         );
         assert_eq!(
             filter
-                .get_match("also add b there", &mut LineContext::default())
+                .get_match("also add b there", &mut LineContext::default(), true)
                 .unwrap(),
             Some(vec!("b".into()))
         );
@@ -375,7 +379,8 @@ mod tests {
             filter
                 .get_match(
                     "insert b here and bouboubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
@@ -384,7 +389,8 @@ mod tests {
             filter
                 .get_match(
                     "also add bouboubou here and b there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             Some(vec!("bouboubou".into(), "b".into()))
@@ -393,7 +399,8 @@ mod tests {
             filter
                 .get_match(
                     "insert a here and bouboubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None
@@ -402,7 +409,8 @@ mod tests {
             filter
                 .get_match(
                     "also add bouboubou here and a there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None
@@ -411,7 +419,8 @@ mod tests {
             filter
                 .get_match(
                     "insert b here and boubou there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None
@@ -420,7 +429,8 @@ mod tests {
             filter
                 .get_match(
                     "also add boubou here and b there",
-                    &mut LineContext::default()
+                    &mut LineContext::default(),
+                    true
                 )
                 .unwrap(),
             None

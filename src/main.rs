@@ -3,7 +3,7 @@ use std::{io::IsTerminal, process::exit};
 use clap::Parser;
 use reaction::{
     cli::{Cli, Format, SubCommand},
-    client::{request, test_config, test_regex},
+    client::{request, test_config, test_filter, test_regex},
     daemon::daemon,
     protocol::Order,
 };
@@ -72,6 +72,11 @@ async fn main() {
                 regex,
                 line,
             } => test_regex(config, regex, line),
+            SubCommand::TestFilter {
+                config,
+                stream_filter,
+                line,
+            } => test_filter(config, stream_filter, line),
             SubCommand::TestConfig {
                 config,
                 format,

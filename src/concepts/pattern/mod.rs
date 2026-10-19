@@ -148,11 +148,11 @@ impl Pattern {
     }
 
     /// compiles is_match, is_ignore and normalize
-    pub fn get_match(&self, captures: &Captures<'_>) -> Option<String> {
+    pub fn get_match(&self, captures: &Captures<'_>, use_ignore: bool) -> Option<String> {
         // if the pattern is in an optional part of the regex,
         // there may be no captured group for it.
         if let Some(match_) = captures.name(&self.name)
-            && !self.is_ignore(match_.as_str())
+            && (!use_ignore || !self.is_ignore(match_.as_str()))
         {
             let mut match_ = match_.as_str().to_string();
             self.normalize(&mut match_);

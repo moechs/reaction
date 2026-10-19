@@ -84,7 +84,7 @@ impl FilterManager {
         now: Time,
         context: &mut LineContext<'a>,
     ) -> React {
-        match self.filter.get_match(line, context) {
+        match self.filter.get_match(line, context, true) {
             Ok(Some(match_)) => {
                 if self.handle_match(match_, now).await {
                     React::Trigger

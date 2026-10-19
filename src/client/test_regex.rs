@@ -1,68 +1,81 @@
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     error::Error,
     io::{BufRead, BufReader, stdin},
     path::PathBuf,
-    sync::Arc,
 };
 
-use regex::Regex;
-
-use crate::concepts::{Config, Pattern};
+use crate::concepts::{Action, Config, Filter, FilterMethodRegex, LineContext};
 
 pub fn test_regex(
     config_path: Option<PathBuf>,
-    mut regex: String,
+    regex: String,
     line: Option<String>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let config = Config::from_path(&config_path)?;
 
-    // Code close to Filter::setup()
-    let mut used_patterns: BTreeSet<Arc<Pattern>> = BTreeSet::new();
-    for pattern in config.patterns.values() {
-        if let Some(index) = regex.find(pattern.name_with_braces()) {
-            // we already `find` it, so we must be able to `rfind` it
-            #[allow(clippy::unwrap_used)]
-            if regex.rfind(pattern.name_with_braces()).unwrap() != index {
-                return Err(format!(
-                    "pattern {} present multiple times in regex",
-                    pattern.name_with_braces()
-                )
-                .into());
-            }
-            used_patterns.insert(pattern.clone());
-        }
-        regex = regex.replacen(pattern.name_with_braces(), &pattern.regex, 1);
-    }
+    let mut filter = Filter {
+        option_regex: Some(FilterMethodRegex {
+            regex: vec![regex],
+            ..Default::default()
+        }),
+        actions: BTreeMap::from([(
+            "dummy".into(),
+            Action {
+                cmd: vec!["echo".into(), "dummy".into()],
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    filter.setup("dummy_stream", "dummy_filter", &config.patterns)?;
 
-    let compiled = Regex::new(&regex).map_err(|err| format!("regex doesn't compile: {err}"))?;
+    match_filter_on_line_s(&filter, line);
+    Ok(())
+}
 
+pub fn test_filter(
+    config_path: Option<PathBuf>,
+    stream_filter: String,
+    line: Option<String>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let config = Config::from_path(&config_path)?;
+    let (stream_name, filter_name)=
+        stream_filter.split_once(".").ok_or_else(|| format!("the STREAM.FILTER must contain a `.` to delimit the stream from the filter: {stream_filter}"))?;
+
+    let stream = config.streams.get(stream_name).ok_or(format!(
+        "No stream {stream_name} present in the configuration. Available streams: {:?}",
+        config.streams.keys()
+    ))?;
+
+    let filter = stream.filters.get(filter_name).ok_or(format!(
+        "No filter {filter_name} present in stream {stream_name}. Available filters: {:?}",
+        stream.filters.keys()
+    ))?;
+
+    match_filter_on_line_s(filter, line);
+    Ok(())
+}
+
+fn match_filter_on_line_s(filter: &Filter, line: Option<String>) {
     let match_closure = |line: String| {
-        let mut ignored = false;
-        if let Some(matches) = compiled.captures(&line) {
-            let mut result = Vec::new();
-            if !used_patterns.is_empty() {
-                for pattern in used_patterns.iter() {
-                    if let Some(match_) = matches.name(&pattern.name) {
-                        let mut match_ = match_.as_str().to_string();
-                        pattern.normalize(&mut match_);
-                        if pattern.is_ignore(match_.as_str()) {
-                            ignored = true;
-                        }
-                        result.push(match_);
-                    }
-                }
-                if !ignored {
-                    println!("\x1b[32mmatching\x1b[0m {result:?}: {line}");
-                } else {
-                    println!("\x1b[33mignore matching\x1b[0m {result:?}: {line}");
-                }
-            } else {
-                println!("\x1b[32mmatching\x1b[0m: {line}");
+        match filter.get_match(&line, &mut LineContext::default(), true) {
+            Ok(Some(match_)) => {
+                println!("\x1b[32mmatching\x1b[0m {match_:?}: {line}");
             }
-        } else {
-            println!("\x1b[31mno match\x1b[0m: {line}");
-        }
+            Ok(None) => match filter.get_match(&line, &mut LineContext::default(), false) {
+                Ok(Some(match_)) => {
+                    println!("\x1b[33mignore matching\x1b[0m {match_:?}: {line}");
+                }
+                Ok(None) => {
+                    println!("\x1b[31mno match\x1b[0m: {line}");
+                }
+                Err(_) => {}
+            },
+            Err(err) => {
+                println!("\x1b[31merror while trying to match ({err})\x1b[0m: {line}");
+            }
+        };
     };
 
     if let Some(line) = line {
@@ -76,5 +89,4 @@ pub fn test_regex(
             };
         }
     }
-    Ok(())
 }
