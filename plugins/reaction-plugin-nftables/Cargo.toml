@@ -2,7 +2,7 @@
 name = "reaction-plugin-nftables"
 version = "0.1.2"
 edition = "2024"
-description = "ipset plugin for reaction"
+description = "nftables plugin for reaction"
 authors = ["ppom <reaction@ppom.me>"]
 license = "AGPL-3.0"
 homepage = "https://reaction.ppom.me"
