@@ -37,7 +37,11 @@ mod socket;
 mod stream;
 mod utils;
 
-pub async fn daemon(config_path: Option<PathBuf>, loglevel: Option<Level>, socket: PathBuf) -> i32 {
+pub async fn daemon(
+    config_path: Option<PathBuf>,
+    loglevel: Option<Level>,
+    socket: Option<PathBuf>,
+) -> i32 {
     // Load config or quit
     let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
         Ok(config) => config,
@@ -84,7 +88,7 @@ pub async fn daemon(config_path: Option<PathBuf>, loglevel: Option<Level>, socke
     // Start the real daemon 👹
     if let Err(err) = daemon_start(
         config,
-        socket,
+        socket.unwrap_or(config.socket_path.clone()),
         shutdown.delegate(),
         shutdown.token(),
         &mut config_started,

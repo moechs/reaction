@@ -1,4 +1,5 @@
 {
+  socket_path: './reaction.sock',
   patterns: {
     num: {
       regex: '[0-9]+',

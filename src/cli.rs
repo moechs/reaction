@@ -34,8 +34,8 @@ pub enum SubCommand {
         loglevel: Option<Level>,
 
         /// path to the client-daemon communication socket
-        #[clap(short = 's', long, default_value = "/run/reaction/reaction.sock")]
-        socket: PathBuf,
+        #[clap(short = 's', long)]
+        socket: Option<PathBuf>,
     },
 
     /// Show current matches and actions

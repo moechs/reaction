@@ -15,6 +15,7 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
         &("
 {
     concurrency: 0,
+    socket_path: './reaction.sock',
     patterns: {
         ip: {
             type: 'ip',
@@ -112,10 +113,7 @@ async fn ip() {
         .unwrap();
 
     // Run the daemon
-    let handle =
-        tokio::spawn(
-            async move { daemon(Some(config_path.into()), None, socket_path.into()).await },
-        );
+    let handle = tokio::spawn(async move { daemon(Some(config_path.into()), None, None).await });
 
     // Run the flushes
 

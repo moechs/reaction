@@ -46,6 +46,10 @@ pub struct Config {
         deserialize_with = "level_deserialize"
     )]
     pub log_level: LogLevel,
+
+    #[serde(default = "socket_default", skip_serializing_if = "is_socket_default")]
+    pub socket_path: PathBuf,
+
     #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
     pub state_directory: String,
     #[serde(
@@ -84,6 +88,13 @@ fn one_day() -> Option<Duration> {
 }
 fn is_one_day(interval: &Option<Duration>) -> bool {
     interval == &one_day()
+}
+
+fn socket_default() -> PathBuf {
+    "/run/reaction/reaction.sock".into()
+}
+fn is_socket_default(interval: &PathBuf) -> bool {
+    interval == &socket_default()
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -191,6 +202,13 @@ impl Config {
             other.log_level,
             LogLevel::default(),
             "log_level",
+        )?;
+
+        self.socket_path = merge_attrs(
+            self.socket_path.clone(),
+            other.socket_path,
+            socket_default(),
+            "socket_path",
         )?;
 
         Ok(())

@@ -14,6 +14,7 @@ async fn config_with_eof(config_path: &str, eof: &str) {
         config_path,
         &("
 {
+    socket_path: './reaction.sock',
     patterns: {
         p: { regex: 'a' }
     },
@@ -74,7 +75,6 @@ async fn eof() {
 
     let config_path = "config.jsonnet";
     let out_path = "./out.txt";
-    let socket_path = "./reaction.sock";
 
     // First test: the stream starts 3 times, then make reaction exit
 
@@ -105,7 +105,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), None, socket_path.into()),
+        daemon(Some(config_path.into()), None, None),
     )
     .await;
 
@@ -135,7 +135,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), None, socket_path.into()),
+        daemon(Some(config_path.into()), None, None),
     )
     .await;
 
@@ -166,7 +166,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(600),
-        daemon(Some(config_path.into()), None, socket_path.into()),
+        daemon(Some(config_path.into()), None, None),
     )
     .await;
 
@@ -193,7 +193,7 @@ async fn eof() {
     // Run the daemon
     let result = timeout(
         Duration::from_millis(300),
-        daemon(Some(config_path.into()), None, socket_path.into()),
+        daemon(Some(config_path.into()), None, None),
     )
     .await;
 
