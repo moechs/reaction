@@ -1,4 +1,6 @@
 {
+  state_directory: '.',
+  runtime_directory: '.',
   concurrency: 0,
   patterns: {
     ip: {

@@ -3,6 +3,8 @@
  * ASCII characters such as \x1b, \x05 are kept as is.
  */
 {
+  runtime_directory: '.',
+  state_directory: '.',
   patterns: {
     id: {
       regex: @'.+',

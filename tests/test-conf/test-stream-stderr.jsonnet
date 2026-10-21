@@ -1,4 +1,6 @@
 {
+  runtime_directory: '.',
+  state_directory: '.',
   concurrency: 1,
   patterns: {
     num: { regex: '[0-9]+' },

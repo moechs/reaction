@@ -19,7 +19,6 @@ part.yaml
 part.yml
 
 concurrency: 1
-state_directory: '.'
 patterns:
   mypat:
     regex: FLAG

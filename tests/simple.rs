@@ -14,6 +14,8 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
         config_path,
         &("
 {
+    state_directory: '.',
+    runtime_directory: '.',
     concurrency: 0,
     patterns: {
         num: { regex: '[0-9]+' },

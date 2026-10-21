@@ -1,4 +1,6 @@
 {
+  state_directory: '.',
+  runtime_directory: '.',
   patterns: {
     ip: {
       type: 'ip',
@@ -6,10 +8,10 @@
     },
   },
   start: [
-    ['sh', '-c', 'echo starting >>./log'],
+    ['sh', '-c', 'echo starting >> ./log'],
   ],
   stop: [
-    ['sh', '-c', 'echo stopping >>./log'],
+    ['sh', '-c', 'echo stopping >> ./log'],
   ],
   streams: {
     s1: {
@@ -23,11 +25,11 @@
           actions: {
             log_start4: {
               ipv4only: true,
-              cmd: ['sh', '-c', 'echo start4 <ip> >>./log'],
+              cmd: ['sh', '-c', 'echo start4 <ip> >> ./log'],
             },
             log_start6: {
               ipv6only: true,
-              cmd: ['sh', '-c', 'echo start6 <ip> >>./log'],
+              cmd: ['sh', '-c', 'echo start6 <ip> >> ./log'],
             },
             log_stop4: {
               ipv4only: true,

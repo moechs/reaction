@@ -1,9 +1,13 @@
 local log(cat) = [
   // NOTE: do not log the ID as it would be out of order since all cat commands
   // are executed at once
-  'sh', '-c', 'echo "' + cat + '" >>log',
+  'sh',
+  '-c',
+  'echo "' + cat + '" >>log',
 ];
 {
+  runtime_directory: '.',
+  state_directory: '.',
   patterns: {
     id: {
       regex: @'\d+',

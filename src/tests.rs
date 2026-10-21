@@ -65,13 +65,15 @@ pub struct TempDatabase {
 impl TempDatabase {
     pub async fn default() -> Self {
         let _tempdir = TempDir::new().unwrap();
-        let db = Database::from_dir(_tempdir.path(), None).await.unwrap();
+        let db = Database::from_dir(_tempdir.path().to_owned(), None)
+            .await
+            .unwrap();
         TempDatabase { _tempdir, db }
     }
 
     pub async fn from_loaded_db(loaded_db: LoadedDB) -> Self {
         let _tempdir = TempDir::new().unwrap();
-        let db = Database::from_dir(_tempdir.path(), Some(loaded_db))
+        let db = Database::from_dir(_tempdir.path().to_owned(), Some(loaded_db))
             .await
             .unwrap();
         TempDatabase { _tempdir, db }

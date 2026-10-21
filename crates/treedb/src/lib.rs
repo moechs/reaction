@@ -65,14 +65,6 @@ const DB_NAME: &str = "reaction.db";
 const DB_NEW_NAME: &str = "reaction.new.db";
 const DB_LOCK_NAME: &str = "reaction.lock";
 
-fn path_of(state_directory: &Path, name: &str) -> PathBuf {
-    if state_directory.as_os_str().is_empty() {
-        name.into()
-    } else {
-        PathBuf::from(state_directory).join(name)
-    }
-}
-
 pub type DatabaseErrorReceiver = oneshot::Receiver<Result<(), String>>;
 
 /// Public-facing API for a treedb Database
@@ -91,11 +83,12 @@ impl Database {
     ///
     /// You can wait for [`Self::quit`] returned channel to know how it went.
     pub async fn open(
-        path_directory: &Path,
+        state_directory: PathBuf,
+        runtime_directory: PathBuf,
         cancellation_token: CancellationToken,
         task_tracker_token: TaskTrackerToken,
     ) -> Result<Database, IoError> {
-        let (manager, entry_tx) = DatabaseManager::open(path_directory).await?;
+        let (manager, entry_tx) = DatabaseManager::open(state_directory, runtime_directory).await?;
         let error_rx = manager.manager(cancellation_token, task_tracker_token);
         Ok(Self {
             entry_tx: Some(entry_tx),
@@ -157,11 +150,12 @@ struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn open(
-        path_directory: &Path,
+        state_directory: PathBuf,
+        runtime_directory: PathBuf,
     ) -> Result<(DatabaseManager, mpsc::Sender<Order>), IoError> {
-        let path = path_of(path_directory, DB_NAME);
-        let new_path = path_of(path_directory, DB_NEW_NAME);
-        let lock_path = path_of(path_directory, DB_LOCK_NAME);
+        let path = state_directory.join(DB_NAME);
+        let new_path = state_directory.join(DB_NEW_NAME);
+        let lock_path = runtime_directory.join(DB_LOCK_NAME);
 
         // Attempt to create the lock file first
         if let Err(err) = File::create_new(&lock_path).await {
@@ -526,10 +520,10 @@ impl DatabaseManager {
 
 #[cfg(any(test, feature = "test"))]
 impl Database {
-    pub async fn from_dir(dir_path: &Path, loaded_db: Option<LoadedDB>) -> Result<Self, IoError> {
+    pub async fn from_dir(dir_path: PathBuf, loaded_db: Option<LoadedDB>) -> Result<Self, IoError> {
         use tokio_util::task::TaskTracker;
 
-        let (mut manager, entry_tx) = DatabaseManager::open(dir_path).await?;
+        let (mut manager, entry_tx) = DatabaseManager::open(dir_path.clone(), dir_path).await?;
         if let Some(loaded_db) = loaded_db {
             manager.set_loaded_db(loaded_db)
         }
@@ -724,8 +718,7 @@ mod tests {
         ];
 
         let dir = TempDir::new().unwrap();
-        let dir_path = dir.path();
-        let db_path = dir_path.join(DB_NAME);
+        let db_path = dir.path().to_owned().join(DB_NAME);
 
         let mut write_db = WriteDB::new(File::create(&db_path).await.unwrap());
         for entry in entries {
@@ -734,7 +727,7 @@ mod tests {
         write_db.close().await.unwrap();
         drop(write_db);
 
-        let mut database = Database::from_dir(dir_path, None).await.unwrap();
+        let mut database = Database::from_dir(dir.path().into(), None).await.unwrap();
 
         let time_match = database
             .open_tree(

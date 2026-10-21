@@ -25,6 +25,8 @@ local dummy_filter = {
   },
 };
 {
+  runtime_directory: '.',
+  state_directory: '.',
   patterns: {
     zero: {
       regex: @'0',

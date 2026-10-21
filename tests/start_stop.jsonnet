@@ -4,6 +4,9 @@ local echo(message, before='true') = [
   before + '; echo ' + message + ' >> ./log',
 ];
 {
+  state_directory: '.',
+  runtime_directory: '.',
+
   patterns: {
     num: {
       regex: '[0-9]+',

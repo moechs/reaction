@@ -88,7 +88,7 @@ pub async fn daemon(
     // Start the real daemon 👹
     if let Err(err) = daemon_start(
         config,
-        socket.unwrap_or(config.socket_path.clone()),
+        socket.unwrap_or(config.runtime_directory.join("reaction.sock")),
         shutdown.delegate(),
         shutdown.token(),
         &mut config_started,
@@ -140,8 +140,13 @@ async fn daemon_start(
 
     // Open Database
     let (cancellation, task_tracker) = shutdown.clone().split();
-    let path = PathBuf::from(config.state_directory.clone());
-    let mut db = Database::open(&path, cancellation, task_tracker).await?;
+    let mut db = Database::open(
+        config.state_directory.clone(),
+        config.runtime_directory.clone(),
+        cancellation,
+        task_tracker,
+    )
+    .await?;
     let db_rotate = db.get_rotate()?;
 
     let (state, stream_managers) = {

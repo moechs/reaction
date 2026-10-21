@@ -1,5 +1,6 @@
 {
-  socket_path: './reaction.sock',
+  runtime_directory: '.',
+  state_directory: '.',
   patterns: {
     num: {
       regex: '[0-9]+',

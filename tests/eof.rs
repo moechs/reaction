@@ -14,7 +14,8 @@ async fn config_with_eof(config_path: &str, eof: &str) {
         config_path,
         &("
 {
-    socket_path: './reaction.sock',
+    state_directory: '.',
+    runtime_directory: '.',
     patterns: {
         p: { regex: 'a' }
     },

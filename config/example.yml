@@ -1,6 +1,7 @@
 ---
 # This example configuration file is a good starting point, but you're
 # strongly encouraged to take a look at the full documentation: https://reaction.ppom.me
+# A lot more options are possible!
 #
 # This file is using the well-established YAML configuration language.
 # Note that the more powerful JSONnet configuration language is also supported
@@ -17,10 +18,13 @@ definitions:
 # ip46tables is a minimal C program (only POSIX dependencies) present as a subdirectory.
 # it permits to handle both ipv4/iptables and ipv6/ip6tables commands
 
-# where the state (database) must be read
-# defaults to . which means reaction's working directory.
-# The systemd service starts reaction in /var/lib/reaction.
-state_directory: .
+# where the state (database) must be
+# defaults to /var/lib/reaction
+# state_directory: '/var/lib/reaction'
+
+# where the runtime files (socket and database lock file) must be
+# defaults to /run/reaction
+# runtime_directory: '/run/reaction'
 
 # if set to a positive number → max number of concurrent actions
 # if set to a negative number → no limit

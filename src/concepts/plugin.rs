@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, btree_map::Entry},
-    path,
+    path::{self, Path},
     process::Stdio,
 };
 
@@ -185,7 +185,7 @@ impl Plugin {
         new_options
     }
 
-    pub async fn launch(&self, state_directory: &str) -> Result<Child, String> {
+    pub async fn launch(&self, state_directory: &Path) -> Result<Child, String> {
         // owner check
         if self.check_root {
             let stat = fs::metadata(&self.path)
@@ -210,10 +210,12 @@ impl Plugin {
         };
 
         // Create plugin working directory (also state directory)
-        let plugin_working_directory = format!("{state_directory}/plugin_data/{}", self.name);
+        let plugin_working_directory = state_directory.join("plugin_data").join(self.name.clone());
+        let printable_wd = plugin_working_directory.display();
+
         fs::create_dir_all(&plugin_working_directory)
             .await
-            .map_err(|err| format!("creating directory {plugin_working_directory}: {err}"))?;
+            .map_err(|err| format!("creating directory {printable_wd}: {err}"))?;
 
         let mut command = if self_uid.is_some_and(|self_uid| self_uid == 0) {
             let mut command = Command::new("run0");
@@ -223,12 +225,11 @@ impl Plugin {
             command.arg("--slice-inherit");
 
             // Make path absolute for systemd
-            let full_workdir = path::absolute(&plugin_working_directory).map_err(|err| {
-                format!("converting the path {plugin_working_directory} to absolute: {err}")
-            })?;
-            let full_workdir = full_workdir.to_str().ok_or_else(|| {
-                format!("Could not convert the path to absolute: {plugin_working_directory}")
-            })?;
+            let full_workdir = path::absolute(&plugin_working_directory)
+                .map_err(|err| format!("converting the path {printable_wd} to absolute: {err}"))?;
+            let full_workdir = full_workdir
+                .to_str()
+                .ok_or_else(|| format!("Could not convert the path to absolute: {printable_wd}"))?;
             let merged_systemd_options = self.systemd_setup(full_workdir);
             // run0 options
             for (option, values) in merged_systemd_options.iter() {

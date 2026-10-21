@@ -13,10 +13,10 @@ ExecStart=/usr/local/bin/reaction start
 StateDirectory=reaction
 # Ask systemd to create /run/reaction at runtime (/run/ is implicit)
 RuntimeDirectory=reaction
-# Start reaction in its state directory
-WorkingDirectory=/var/lib/reaction
 # Let reaction kill its child processes first
 KillMode=mixed
+# Put reaction in its own slice so that plugins can be grouped within.
+Slice=system-reaction.slice
 
 [Install]
 WantedBy=multi-user.target

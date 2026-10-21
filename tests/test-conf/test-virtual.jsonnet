@@ -1,4 +1,7 @@
 {
+  state_directory: '.',
+  runtime_directory: '.',
+
   patterns: {
     num: {
       regex: @"[0-9]+",

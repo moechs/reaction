@@ -5,12 +5,13 @@
 
 // This example configuration file is a good starting point, but you're
 // strongly encouraged to take a look at the full documentation: https://reaction.ppom.me
+// A lot more options are possible!
 
 // JSONnet functions
 local ipBan(cmd) = [cmd, '-w', '-A', 'reaction', '-s', '<ip>', '-j', 'DROP'];
 local ipUnban(cmd) = [cmd, '-w', '-D', 'reaction', '-s', '<ip>', '-j', 'DROP'];
 
-// See meaning and usage of this function around L180
+// See meaning and usage of this function around L205
 local banFor(time) = {
   ban4: {
     cmd: ipBan('iptables'),
@@ -79,10 +80,13 @@ local ip46tables(arguments) = [
 
   },
 
-  // where the state (database) must be read
-  // defaults to . which means reaction's working directory.
-  // The systemd service starts reaction in /var/lib/reaction.
-  state_directory: '.',
+  // where the state (database) must be
+  // defaults to /var/lib/reaction
+  // state_directory: '/var/lib/reaction',
+
+  // where the runtime files (socket and database lock file) must be
+  // defaults to /run/reaction
+  // runtime_directory: '/run/reaction',
 
   // if set to a positive number → max number of concurrent actions
   // if set to a negative number → no limit

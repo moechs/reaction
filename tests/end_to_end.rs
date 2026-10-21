@@ -1,21 +1,27 @@
-use std::{error::Error, path::Path, process::Stdio, thread::sleep, time::Duration};
+use std::{
+    error::Error,
+    path::Path,
+    process::{Command, Stdio},
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use assert_fs::prelude::*;
+use assert_fs::{TempDir, prelude::*};
 use nix::sys::signal;
 use predicates::prelude::predicate;
 
 #[test]
 #[ignore = "currently failing"] // FIXME
 fn actions_delayed_and_on_exit() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-after.jsonnet"))?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
-    cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
+    cmd.args(["start", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.timeout(Duration::from_secs(5));
     // Expected exit 1: all stream exited
@@ -40,24 +46,22 @@ fn actions_delayed_and_on_exit() -> Result<(), Box<dyn Error>> {
 #[test]
 #[ignore = "long test (~15s)"]
 fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-shutdown.jsonnet"))?;
 
     let cmd = cargo_bin_cmd!("reaction");
-    let mut cmd = std::process::Command::new(cmd.get_program());
-    cmd.args(["start", "--socket", "./s", "--config", "./config.jsonnet"]);
+    let mut cmd = Command::new(cmd.get_program());
+    cmd.args(["start", "--config", "./config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::null());
+    cmd.stdin(Stdio::null());
     let mut child = cmd.spawn()?;
-    let start = std::time::Instant::now();
+    let start = Instant::now();
 
     // wait for reaction to start all its streams
-    sleep(std::time::Duration::from_millis(500));
+    sleep(Duration::from_millis(500));
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
@@ -78,8 +82,8 @@ fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        let elapsed = std::time::Instant::now() - start;
-        if elapsed > std::time::Duration::from_secs(20) {
+        let elapsed = Instant::now() - start;
+        if elapsed > Duration::from_secs(20) {
             // try to terminate reaction before ending the test
             let _ = signal::kill(pid, signal::SIGKILL);
             let _ = child.wait();
@@ -97,16 +101,16 @@ fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn non_utf8_is_stripped() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-binary-input.jsonnet"))?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
-    cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
+    cmd.args(["start", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
-    cmd.timeout(std::time::Duration::from_secs(1));
+    cmd.timeout(Duration::from_secs(1));
     // Expect exit code 1: all streams exited
     cmd.assert().code(predicate::eq(1));
 
@@ -118,16 +122,16 @@ fn non_utf8_is_stripped() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn capture_streams_stderr() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-stream-stderr.jsonnet"))?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
-    cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
+    cmd.args(["start", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
-    cmd.timeout(std::time::Duration::from_secs(1));
+    cmd.timeout(Duration::from_secs(1));
     // Expect exit code 1: all streams exited
     cmd.assert().code(predicate::eq(1));
 
@@ -142,7 +146,7 @@ fn capture_streams_stderr() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
@@ -151,25 +155,23 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
     // start daemon
     let cmd = cargo_bin_cmd!("reaction");
     let program = cmd.get_program();
-    let mut cmd = std::process::Command::new(program);
-    cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
+    let mut cmd = Command::new(program);
+    cmd.args(["start", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
     cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::null());
     let mut daemon = cmd.spawn()?;
-    let start = std::time::Instant::now();
+    let start = Instant::now();
 
     // wait for socket to be created
     loop {
-        std::thread::sleep(Duration::from_millis(10));
+        sleep(Duration::from_millis(10));
 
-        let c = tmp_dir.child("s");
+        let c = tmp_dir.child("reaction.sock");
         if c.exists() {
             break;
         }
 
-        let elapsed = std::time::Instant::now() - start;
+        let elapsed = Instant::now() - start;
         if elapsed > Duration::from_secs(1) {
             let _ = daemon.kill();
             let _ = daemon.wait();
@@ -177,7 +179,7 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let socket = tmp_dir.child("s");
+    let socket = tmp_dir.child("reaction.sock");
     let socket_path = socket.path().to_str().unwrap();
 
     // trigger event manually
@@ -189,7 +191,7 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
 
     // wait for daemon exit
     loop {
-        std::thread::sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100));
 
         if let Some(res) = daemon.try_wait()? {
             assert_eq!(
@@ -200,7 +202,7 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
             break;
         }
 
-        let elapsed = std::time::Instant::now() - start;
+        let elapsed = Instant::now() - start;
         if elapsed > Duration::from_secs(2) {
             let _ = daemon.kill();
             let _ = daemon.wait();
@@ -215,16 +217,16 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn filter_regex_match_eol() -> Result<(), Box<dyn Error>> {
-    let tmp_dir = assert_fs::TempDir::new()?;
+    let tmp_dir = TempDir::new()?;
 
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-eol-match.jsonnet"))?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
-    cmd.args(["start", "--socket", "./s", "--config", "config.jsonnet"]);
+    cmd.args(["start", "--config", "config.jsonnet"]);
     cmd.current_dir(tmp_dir.path());
-    cmd.timeout(std::time::Duration::from_secs(1));
+    cmd.timeout(Duration::from_secs(1));
     // Expect exit code 1: all streams exited
     cmd.assert().code(predicate::eq(1));
 

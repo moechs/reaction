@@ -3,6 +3,7 @@ use std::{
     fmt::Display,
     io,
     ops::{Deref, DerefMut},
+    path::Path,
     process::ExitStatus,
     time::Duration,
 };
@@ -47,7 +48,7 @@ impl DerefMut for PluginManager {
 impl PluginManager {
     async fn new(
         plugin: &'static Plugin,
-        state_directory: &str,
+        state_directory: &Path,
         shutdown: ShutdownToken,
     ) -> Result<Self, String> {
         let mut child = plugin
@@ -246,7 +247,7 @@ impl Plugins {
     async fn load_plugin(
         &mut self,
         plugin: &'static Plugin,
-        state_directory: &str,
+        state_directory: &Path,
         shutdown: ShutdownToken,
     ) -> Result<(), String> {
         let name = plugin.name.clone();

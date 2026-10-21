@@ -47,11 +47,17 @@ pub struct Config {
     )]
     pub log_level: LogLevel,
 
-    #[serde(default = "socket_default", skip_serializing_if = "is_socket_default")]
-    pub socket_path: PathBuf,
+    #[serde(
+        default = "default_runtime_dir",
+        skip_serializing_if = "is_default_runtime_dir"
+    )]
+    pub runtime_directory: PathBuf,
+    #[serde(
+        default = "default_state_dir",
+        skip_serializing_if = "is_default_state_dir"
+    )]
+    pub state_directory: PathBuf,
 
-    #[serde(default = "dot", skip_serializing_if = "String::is_empty")]
-    pub state_directory: String,
     #[serde(
         default = "one_day",
         skip_serializing_if = "is_one_day",
@@ -79,8 +85,17 @@ pub struct Config {
     _definitions: serde_json::Value,
 }
 
-fn dot() -> String {
-    ".".into()
+fn default_runtime_dir() -> PathBuf {
+    "/run/reaction/".into()
+}
+fn is_default_runtime_dir(path: &PathBuf) -> bool {
+    path == &default_runtime_dir()
+}
+fn default_state_dir() -> PathBuf {
+    "/var/lib/reaction/".into()
+}
+fn is_default_state_dir(path: &PathBuf) -> bool {
+    path == &default_state_dir()
 }
 
 fn one_day() -> Option<Duration> {
@@ -88,13 +103,6 @@ fn one_day() -> Option<Duration> {
 }
 fn is_one_day(interval: &Option<Duration>) -> bool {
     interval == &one_day()
-}
-
-fn socket_default() -> PathBuf {
-    "/run/reaction/reaction.sock".into()
-}
-fn is_socket_default(interval: &PathBuf) -> bool {
-    interval == &socket_default()
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -176,10 +184,17 @@ impl Config {
         self.start.append(&mut other.start);
         self.stop.append(&mut other.stop);
 
+        self.runtime_directory = merge_attrs(
+            self.runtime_directory.clone(),
+            other.runtime_directory,
+            default_runtime_dir(),
+            "runtime_directory",
+        )?;
+
         self.state_directory = merge_attrs(
             self.state_directory.clone(),
             other.state_directory,
-            ".".into(),
+            default_state_dir(),
             "state_directory",
         )?;
 
@@ -202,13 +217,6 @@ impl Config {
             other.log_level,
             LogLevel::default(),
             "log_level",
-        )?;
-
-        self.socket_path = merge_attrs(
-            self.socket_path.clone(),
-            other.socket_path,
-            socket_default(),
-            "socket_path",
         )?;
 
         Ok(())

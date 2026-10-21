@@ -249,7 +249,7 @@ impl PluginInfo for Plugin {
         let mut db = {
             let path = PathBuf::from(".");
             let (cancellation_token, task_tracker_token) = self.cluster_shutdown.token().split();
-            Database::open(&path, cancellation_token, task_tracker_token)
+            Database::open(path.clone(), path, cancellation_token, task_tracker_token)
                 .await
                 .map_err(|err| format!("Can't open database: {err}"))?
         };
