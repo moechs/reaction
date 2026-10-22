@@ -303,7 +303,14 @@ impl FilterManager {
                     if !exiting || action.on_exit {
                         let mut state = this.state.lock().await;
                         if state.decrement_trigger(&m, t, exiting).await {
-                            exec_now(&this.exec_limit, this.shutdown, action, action_impl, m, t);
+                            exec_now(
+                                this.exec_limit.clone(),
+                                this.shutdown,
+                                action,
+                                action_impl,
+                                m,
+                                t,
+                            );
                         }
                     }
                 });
@@ -366,7 +373,7 @@ impl FilterManager {
     fn exec_now(&self, action: &'static Action, m: Match, t: Time) {
         let action_impl = self.action_plugins.get(&action.name).cloned();
         exec_now(
-            &self.exec_limit,
+            self.exec_limit.clone(),
             self.shutdown.clone(),
             action,
             action_impl,
@@ -377,14 +384,13 @@ impl FilterManager {
 }
 
 fn exec_now(
-    exec_limit: &Option<Arc<Semaphore>>,
+    exec_limit: Option<Arc<Semaphore>>,
     shutdown: ShutdownToken,
     action: &'static Action,
     action_impl: Option<ActionImpl>,
     m: Match,
     t: Time,
 ) {
-    let exec_limit = exec_limit.clone();
     tokio::spawn(async move {
         // Move ShutdownToken in task
         let _shutdown = shutdown;
