@@ -1,5 +1,85 @@
 ## Changelog
 
+## v2.7.0
+
+This release is full of breaking changes! For the greater good, I prommy.
+
+> It's a lot of small changes, life improvements that have been asked since a long time and that I didnet take time to address.
+> During the past year I mainly focused on bigger features that were part of the NLnet roadmap.
+>
+> This release is the last release that is financially backed by NLnet. Thanks again to them. It's been super helpful to this project and to my personal stability.
+>
+> Fear not! I'll continue working on reaction and maintaining it, at a slower pace.
+> I consider reaction's core to be mostly finished.
+> But there is plenty of room for new plugins.
+>
+> I'm very excited to see what reaction's feature set will look like in 2 years!
+
+### `reaction test-filter`
+
+First, a non-breaking change! A new CLI command.
+
+Similar to `reaction test-regex`, `reaction test-filter` permits to test a Filter in your configuration against some lines that you give to its stdin.
+This permits to avoid copy pasting regexes from your configuration file in your CLI.
+
+### Breaking change: Action's `env` and `pass_env`
+
+reaction now resets the environment of its Actions.
+
+You can set the environment with the `env` option:
+
+```jsonnet
+{
+  mail: {
+    cmd: ["curl", "--variable", "%PASSWORD", "--password", "{{PASSWORD}}"],
+    env: {
+      PASSWORD: importstr "/var/secrets/password.txt",
+    },
+  },
+}
+```
+
+If you want to pass an environment variable from reaction's environment, the `pass_env` option permits to pass them as-is:
+
+```jsonnet
+{
+  mail: {
+    cmd: ["curl", "--variable", "%PASSWORD", "--password", "{{PASSWORD}}"],
+    pass_env: [
+      "PASSWORD"
+    ],
+  },
+}
+```
+
+### Breaking change: Directories
+
+`state_directory` doesn't default to reaction's current directory anymore (`.`), but to `/var/lib/reaction`.
+This shouldn't affect most users.
+
+`runtime_directory` is a new top-level option. It defaults to `/run/reaction`.
+
+- The socket name's defaults to be named `reaction.sock` inside that directory. So its default path doesn't change: `/run/reaction/reaction.sock`.
+  - The daemon's CLI option `-s`/`--socket` still works and overrides that.
+- The database lock file defaults to be in this directory and is named `reaction.lock`. So it's not in the state_directory anymore, but defaults to `/run/reaction/reaction.lock`.
+
+### Log level
+
+`log_level` is another new-level option. It's the same as the CLI `-l`/`--loglevel` option. The CLI option still takes precedence.
+
+> This option was added to facilitate the edition of this option, without editing the init file.
+
+### `-c`/`--config` option is optional
+
+The CLI `-c`/`--config` option is now optional on all CLI subcommands and defaults to `/etc/reaction`.
+
+### `DEBUG` log level
+
+When setting the log level to DEBUG, reaction now prints the stdout and stderr of the actions that exit with a non-zero exit code.
+This helps when trying to understand why an action doesn't work as expected!
+
+Additionally, reaction now properly prints exit code when non-zero.
+
 ## v2.6.0
 
 This release brings a bugfix for the "ipset" plugin, a new top-level option for plugins, and the much awaited "HTTP ban" plugin.
