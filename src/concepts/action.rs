@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
     fmt::Display,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -14,6 +15,7 @@ use reaction_plugin::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
+use tracing::warn;
 
 use super::{Match, Pattern, PatternType};
 
@@ -24,6 +26,10 @@ pub struct Action {
     pub cmd: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pass_env: Vec<String>,
+    #[serde(skip)]
+    pub compiled_env: BTreeMap<OsString, OsString>,
 
     #[serde(
         default,
@@ -142,6 +148,25 @@ impl Action {
             }
         }
 
+        if let Some(env_key) = self.env.keys().find(|k| k.contains('=')) {
+            return Err(format!(
+                "the name of environment variable '{env_key} contains an '=', which is invalid"
+            ));
+        }
+        if let Some(env_key) = self.pass_env.iter().find(|k| k.contains('=')) {
+            return Err(format!(
+                "the name of environment variable '{env_key} contains an '=', which is invalid"
+            ));
+        }
+        self.compiled_env = self.env.iter().map(|(k, v)| (k.into(), v.into())).collect();
+        for env_var in &self.pass_env {
+            if let Some(val) = std::env::var_os(env_var) {
+                self.compiled_env.insert(env_var.into(), val);
+            } else {
+                warn!("environment variable '{env_var}' is not set")
+            }
+        }
+
         Ok(())
     }
 
@@ -162,7 +187,8 @@ impl Action {
         };
         let mut cmd = Command::new(&computed_command[0]);
         cmd.args(&computed_command[1..]);
-        cmd.envs(self.env.clone());
+        cmd.env_clear();
+        cmd.envs(&self.compiled_env);
         PrintableCommand(cmd)
     }
 
@@ -283,6 +309,8 @@ impl Action {
 #[cfg(test)]
 pub mod tests {
 
+    use std::{process::Stdio, sync::Arc};
+
     use reaction_plugin::time::parse_duration;
 
     use super::*;
@@ -334,5 +362,32 @@ pub mod tests {
         action = ok_action();
         action.cmd.push("arg1".into());
         assert!(action.setup(&name, &name, &name, patterns.clone()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn action_env() {
+        let mut action = Action {
+            cmd: vec!["env".into()],
+            env: BTreeMap::from([("SET_VAR".into(), "SET_VAR_".into())]),
+            pass_env: vec!["PASS_VAR".into()],
+            ..Default::default()
+        };
+
+        #[allow(unsafe_code)] // i mean it's a test, not production code :3
+        unsafe {
+            std::env::set_var("SET_VAR", "SET_VAR another value");
+            std::env::set_var("ANOTHER_VAR", "another value");
+            std::env::set_var("PASS_VAR", "PASS!");
+        }
+        action.setup("s", "f", "a", Default::default()).unwrap();
+
+        let mut cmd = action.exec(&vec![]).0;
+        dbg!(&cmd);
+        cmd.stdout(Stdio::piped());
+        let output = cmd.output().await.unwrap();
+        assert_eq!(
+            String::from_utf8(output.stdout),
+            Ok(String::from("PASS_VAR=PASS!\nSET_VAR=SET_VAR_\n"))
+        );
     }
 }
