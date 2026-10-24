@@ -4,7 +4,8 @@
 
 This release is full of breaking changes! For the greater good, I prommy.
 
-> It's a lot of small changes, life improvements that have been asked since a long time and that I didnet take time to address.
+> It's a lot of small changes, life improvements that have been asked since a long time and that I didn't take time to address.
+> 6 issues were addressed, some of them were 2 years old.
 > During the past year I mainly focused on bigger features that were part of the NLnet roadmap.
 >
 > This release is the last release that is financially backed by NLnet. Thanks again to them. It's been super helpful to this project and to my personal stability.
@@ -62,6 +63,7 @@ This shouldn't affect most users.
 - The socket name's defaults to be named `reaction.sock` inside that directory. So its default path doesn't change: `/run/reaction/reaction.sock`.
   - The daemon's CLI option `-s`/`--socket` still works and overrides that.
 - The database lock file defaults to be in this directory and is named `reaction.lock`. So it's not in the state_directory anymore, but defaults to `/run/reaction/reaction.lock`.
+  - This folder is meant to be cleaned up by the service file, and solves the issue of the lock file not being removed if reaction is SIGKILLed or the VM unexpectedly crashes/loses power... Preventing reaction from starting at next start, because there is still a lock file.
 
 ### Log level
 
