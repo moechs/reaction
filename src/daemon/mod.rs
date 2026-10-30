@@ -46,6 +46,7 @@ pub async fn daemon(
     let config: &'static Config = Box::leak(Box::new(match Config::from_path(&config_path) {
         Ok(config) => config,
         Err(err) => {
+            eprintln!("INFO reaction version {}", env!("CARGO_PKG_VERSION"));
             eprintln!("ERROR {err}");
             return 1;
         }
@@ -68,6 +69,8 @@ pub async fn daemon(
         #[cfg(debug_assertions)]
         let _ = res;
     }
+
+    info!("reaction version {}", env!("CARGO_PKG_VERSION"));
 
     // Cancellation Token
     let shutdown = ShutdownController::new();
