@@ -74,7 +74,7 @@ Then prints the flushed matches and actions."
         #[clap(short = 'f', long, default_value_t = Format::YAML)]
         format: Format,
 
-        /// only show items related to this STREAM[.FILTER]
+        /// only flush items related to this STREAM[.FILTER]
         #[clap(short = 'l', long, value_name = "STREAM[.FILTER]")]
         limit: Option<String>,
 
