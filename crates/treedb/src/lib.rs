@@ -20,7 +20,7 @@ use std::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
-    fs::{File, remove_file, rename},
+    fs::{File, OpenOptions, rename},
     sync::{mpsc, oneshot},
     time::{MissedTickBehavior, interval},
 };
@@ -140,8 +140,8 @@ struct DatabaseManager {
     /// Path for the "new" database, when rotating database.
     /// New database atomically replaces the old one when its writing is done.
     new_path: PathBuf,
-    /// Path for the database, lockfile
-    lock_path: PathBuf,
+    /// Keep the OS lock held until the database has closed.
+    _lock: std::fs::File,
     /// The receiver on [`Tree`] write operations
     entry_rx: mpsc::Receiver<Order>,
     /// The interval at which the database must be flushed to kernel
@@ -156,17 +156,29 @@ impl DatabaseManager {
         let path = state_directory.join(DB_NAME);
         let new_path = state_directory.join(DB_NEW_NAME);
         let lock_path = runtime_directory.join(DB_LOCK_NAME);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .await
+            .map_err(|err| {
+                IoError::new(
+                    err.kind(),
+                    format!("Could not open lock file {}: {err}", lock_path.display()),
+                )
+            })?
+            .into_std()
+            .await;
 
-        // Attempt to create the lock file first
-        if let Err(err) = File::create_new(&lock_path).await {
-            return Err(IoError::new(
+        lock.try_lock().map_err(|err| {
+            let err = IoError::from(err);
+            IoError::new(
                 err.kind(),
-                format!(
-                    "Could not create lock file {}. Either another instance of reaction is running, or reaction was not properly shut down. Please check that no other instance of reaction is running and delete the lock file.",
-                    lock_path.canonicalize().unwrap_or(lock_path).display()
-                ),
-            ));
-        }
+                format!("Could not lock {}: {err}", lock_path.display()),
+            )
+        })?;
 
         let (write_db, loaded_db) = rotate_db(&path, &new_path, true).await?;
 
@@ -178,7 +190,7 @@ impl DatabaseManager {
                 loaded_db,
                 path,
                 new_path,
-                lock_path,
+                _lock: lock,
                 entry_rx,
                 flush_every: Duration::from_secs(2),
             },
@@ -193,7 +205,7 @@ impl DatabaseManager {
     ) -> oneshot::Receiver<Result<(), String>> {
         let (error_tx, error_rx) = oneshot::channel();
         tokio::spawn(async move {
-            // Keep the database task tracked until its lock has been removed.
+            // Keep the database task tracked until its lock has been released.
             let task_tracker_token = task_tracker_token;
             let mut interval = interval(self.flush_every);
             // If we missed a tick, it will tick immediately, then wait
@@ -230,26 +242,17 @@ impl DatabaseManager {
                 }
             }
 
-            let lock_path = self.lock_path.clone();
-
             // Shutdown
             let close_status = self
                 .close()
                 .await
                 .map_err(|err| format!("while closing database: {err}"));
 
-            // Release lock
-            let lock_close_status = remove_file(lock_path)
-                .await
-                .map_err(|err| format!("while deleting database lock file: {err}"));
-
             drop(task_tracker_token);
             let _ = error_tx.send(if let Some(err) = status {
                 Err(err)
             } else if close_status.is_err() {
                 close_status
-            } else if lock_close_status.is_err() {
-                lock_close_status
             } else {
                 Ok(())
             });
