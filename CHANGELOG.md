@@ -1,5 +1,30 @@
 ## Changelog
 
+## v2.7.1
+
+Small improvements and fixes.
+
+### Lock file
+
+I hope this is the last iteration on lock files!
+Lock files are now unix "advisory locks". This means that the kernel itself releases the lock on process exit.
+False positives should now be impossible: reaction should never refuse to start if there isn't already a reaction instance running.
+
+Thanks to @bket and @msfjarvis for their merge requests !39 !40
+
+### reaction version
+
+reaction now logs its version on startup, before loading the configuration.
+Useful if you have an error because you forgot to update before using a new configuration option.
+
+### Build fix
+
+For v2.7.0, I had to fork the ipset library because my bugfix haven't been upstreamed yet.
+I merged another bugfix, to fix a compilation error on some Rust versions.
+
+Thanks to @patrickl for the issue and fix #159
+
+
 ## v2.7.0
 
 This release is full of breaking changes! For the greater good, I prommy.
