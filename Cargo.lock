@@ -358,6 +358,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.72.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
+dependencies = [
+ "bitflags 2.13.1",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.13.0",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 2.1.3",
+ "shlex 1.3.0",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -968,7 +988,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.3",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2130,9 +2150,9 @@ dependencies = [
 [[package]]
 name = "ipset"
 version = "0.9.0"
-source = "git+https://github.com/ppom0/ipset?branch=fix-ipv6-32cidr#6b3b24a1f1a07c27c53aac3cb619982ba6bd0c32"
+source = "git+https://github.com/ppom0/ipset?branch=fix-ipv6-32cidr#02e0bc80dfbef274c23d4b614bd2ba17e62e9454"
 dependencies = [
- "bindgen",
+ "bindgen 0.72.1",
  "cc",
  "derive_more 1.0.0",
  "ipset_derive",
@@ -2604,7 +2624,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bdd82022bcc357bd117cf52cbd6a35f4adc6f94baae7f578b4e7f3115b68b04"
 dependencies = [
- "bindgen",
+ "bindgen 0.70.1",
  "pkg-config",
 ]
 
@@ -5138,7 +5158,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
