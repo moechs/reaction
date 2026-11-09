@@ -4094,7 +4094,7 @@ dependencies = [
 
 [[package]]
 name = "reaction"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "assert_cmd",
  "assert_fs",
