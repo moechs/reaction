@@ -175,19 +175,18 @@ We recommend that you read the ***Good Practices*** chapters before starting.
 
 ### Binaries
 
-Executables and .deb packages are provided [in the releases page](https://framagit.org/ppom/reaction/-/releases/), for x86-64/amd64 linux.
+Executables and .deb packages are provided [in the releases page](https://framagit.org/ppom/reaction/-/releases/), for x86-64 linux.
 
 Signature verification and installation instructions are provided in the releases page.
 
-> Provided binaries are compiled by running `nix-shell release.py` on a NixOS machine with docker installed.
+> The provided binaries are compiled by running `nix-shell release.py` on a machine with nix and docker installed.
+>
+> **Help wanted!**
+> If you kwow how to cross-build Rust for different architectures, please get in touch! People would love to have more prebuilt binaries.
 
-#### NixOS
+### NixOS
 
-reaction is packaged, but the [**module**](https://framagit.org/ppom/nixos/-/blob/main/modules/common/reaction.nix) has not yet been upstreamed.
-
-#### OpenBSD
-
-See the [wiki](https://reaction.ppom.me/examples/configurations/openbsd/).
+reaction has a dedicated [NixOS module](https://search.nixos.org/options?channel=26.05&query=services.reaction).
 
 ### Compilation
 
@@ -222,10 +221,10 @@ I'll do my best to maintain a safe contribution place, as free as possible from 
 
 ### Ideas
 
-Please take a look at issues which have the "Opinion Welcome 👀" label!
+Please take a look at [issues which have the "Opinion Welcome 👀" label](https://framagit.org/ppom/reaction/-/work_items?state=opened&label_name[]=Opinion%20Welcome%20%F0%9F%91%80)!
 *Your opinion is welcome.*
 
-Your ideas are welcome in the issues.
+New ideas are welcome in the issues.
 
 ### Code
 
@@ -244,11 +243,19 @@ You can ask for help in the issues or in this Matrix room: [#reaction-users-en:c
 French version: [#reaction-users-fr:club1.fr](https://matrix.to/#/#reaction-users-fr:club1.fr).
 You can alternatively send a mail: `reaction` on domain `ppom.me`.
 
+There is also a [Fediverse account](https://rivals.space/@reaction) you can follow.
+Don't hesitate to boost its posts to help people discover reaction!
+
 ## Funding
 
-<!-- This is a free time project, so I'm not working on schedule.
-However, if you're willing to fund the project, I can priorise and plan paid work. This includes features, documentation and specific JSONnet configurations. -->
-
-This project is currenlty funded through the [NGI0 Core](https://nlnet.nl/core) Fund, a fund established by [NLnet](https://nlnet.nl) with financial support from the European Commission's [Next Generation Internet](https://ngi.eu) programme.
+This project was funded in 2025-2026 through the [NGI0 Core](https://nlnet.nl/core) Fund, a fund established by [NLnet](https://nlnet.nl) with financial support from the European Commission's [Next Generation Internet](https://ngi.eu) program.
 
 ![NLnet logo](logo/nlnet.svg)
+
+---
+
+This is once again a free time project, so I'm not working on schedule.
+However, if you're willing to fund the project, I can priorise and plan paid work.
+This includes features, documentation and specific JSONnet configurations.
+
+Send an email to `reaction` on domain `ppom.me` to get in touch.
