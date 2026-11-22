@@ -32,6 +32,35 @@ const DEFAULT_PATHS: [&str; 1] = ["/etc/reaction"];
 ))]
 const DEFAULT_PATHS: [&str; 2] = ["/etc/reaction", "/usr/local/etc/reaction"];
 
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn check_permissions(path: &Path, expect_dir: bool) -> Result<(), ConfigError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let meta = std::fs::symlink_metadata(path)?;
+    let kind = if expect_dir { "directory" } else { "file" };
+    if (expect_dir && !meta.is_dir()) || (!expect_dir && !meta.is_file()) {
+        return Err(ConfigError::Any(format!("{path:?} is not a regular {kind}")));
+    }
+    if meta.mode() & 0o022 != 0 {
+        return Err(ConfigError::Any(format!(
+            "{path:?} must not be writable by group or others"
+        )));
+    }
+    let uid = unsafe { nix::libc::geteuid() };
+    if uid == 0 && meta.uid() != 0 {
+        return Err(ConfigError::Any(format!(
+            "{path:?} must be owned by root when reaction runs as root"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_permissions(_path: &Path, _expect_dir: bool) -> Result<(), ConfigError> {
+    Ok(())
+}
+
 pub type Patterns = BTreeMap<String, Arc<Pattern>>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -335,6 +364,7 @@ impl Config {
     }
 
     fn _from_dir_raw(path: &Path) -> Result<(Self, Vec<String>), String> {
+        check_permissions(path, true).map_err(|err| err.to_string())?;
         let dir = std::fs::read_dir(path)
             .map_err(|e| format!("Error accessing directory {}: {e}", path.display()))?;
         // sorts files by name
@@ -435,6 +465,7 @@ impl Config {
     }
 
     fn _load_file(path: &Path, format: Format) -> Result<Self, ConfigError> {
+        check_permissions(path, false)?;
         let cfg: Self = match format {
             Format::Json => serde_json::from_reader(File::open(path)?)?,
             Format::Yaml => serde_saphyr::from_reader(File::open(path)?)?,

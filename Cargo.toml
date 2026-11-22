@@ -1,12 +1,12 @@
 [package]
 name = "reaction"
-version = "2.7.1"
+version = "2.8.1"
 edition = "2024"
 authors = ["ppom <reaction@ppom.me>"]
 license = "AGPL-3.0"
 description = "Scan logs and take action"
 readme = "README.md"
-homepage = "https://reaction.ppom.me"
+homepage = "https://framagit.org/ppom/reaction"
 repository = "https://framagit.org/ppom/reaction"
 keywords = ["security", "sysadmin", "fail2ban", "logs", "monitoring"]
 build = "build.rs"
@@ -47,8 +47,8 @@ serde.workspace = true
 serde-saphyr = "0.0.25"
 serde_json.workspace = true
 serde_json_borrow = "0.9.0"
-jrsonnet-evaluator = { git = "https://github.com/deltarocks/jrsonnet", branch = "master" }
-jrsonnet-stdlib = { git = "https://github.com/deltarocks/jrsonnet", branch = "master" }
+jrsonnet-evaluator = { git = "https://github.com/deltarocks/jrsonnet", rev = "b9d891c46e9e7d87e9aeb0765b44c416bae7645b" }
+jrsonnet-stdlib = { git = "https://github.com/deltarocks/jrsonnet", rev = "b9d891c46e9e7d87e9aeb0765b44c416bae7645b" }
 # Error macro
 thiserror.workspace = true
 # Async runtime & helpers
@@ -84,6 +84,7 @@ members = [
 	"crates/treedb",
 	"plugins/reaction-plugin",
 	"plugins/reaction-plugin-cluster",
+	"plugins/reaction-plugin-container",
 	"plugins/reaction-plugin-httpban",
 	"plugins/reaction-plugin-ipset",
 	"plugins/reaction-plugin-nftables",

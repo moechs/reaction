@@ -11,3 +11,14 @@ reaction.db
 /target
 /local
 .direnv
+
+# macOS metadata / junk files
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns

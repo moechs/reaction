@@ -2,6 +2,7 @@
 name = "reaction-plugin-cluster"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0"
 
 [dependencies]
 reaction-plugin.workspace = true
@@ -16,7 +17,7 @@ tokio.features = ["rt-multi-thread"]
 treedb.workspace = true
 
 data-encoding = "2.9.0"
-iroh = { version = "1.0.0", default-features = false }
+iroh = { version = "1.0.0", default-features = false, features = ["tls-ring"] }
 rand = "0.10.1"
 
 [dev-dependencies]

@@ -10,6 +10,11 @@ use super::{PUBLIC_KEY_A, TEST_MUTEX, stream_ok};
 
 #[tokio::test]
 async fn conf_stream() {
+    let _lock = TEST_MUTEX.lock();
+    let dir = TempDir::new().unwrap();
+    set_current_dir(&dir).unwrap();
+    insert_secret_key().await;
+
     // Minimal node configuration
     let nodes = json!([{
         "public_key": PUBLIC_KEY_A,
@@ -126,6 +131,11 @@ async fn conf_stream() {
 
 #[tokio::test]
 async fn conf_action() {
+    let _lock = TEST_MUTEX.lock();
+    let dir = TempDir::new().unwrap();
+    set_current_dir(&dir).unwrap();
+    insert_secret_key().await;
+
     let patterns = vec!["p1".into(), "p2".into()];
 
     // Invalid type

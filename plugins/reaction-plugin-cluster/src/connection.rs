@@ -24,6 +24,7 @@ use crate::{
 };
 
 const PROTOCOL_VERSION: u32 = 1;
+const MAX_LINE_SIZE: usize = 64 * 1024;
 
 const CLOSE_RECV: (u32, &[u8]) = (1, b"error receiving from your stream");
 const CLOSE_CLOSED: (u32, &[u8]) = (2, b"you closed your stream");
@@ -92,7 +93,14 @@ impl OwnConnection {
             self.next_time_nanos = Some(self.line_rx.read_u32().await?);
         }
         if self.next_len.is_none() {
-            self.next_len = Some(self.line_rx.read_u32().await? as usize);
+            let len = self.line_rx.read_u32().await? as usize;
+            if len > MAX_LINE_SIZE {
+                return Err(IoError::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("line too long: {len} bytes (max {MAX_LINE_SIZE})"),
+                ));
+            }
+            self.next_len = Some(len);
         }
         // Ok we have next_len.is_some()
         let next_len = self.next_len.clone().unwrap();

@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use futures::{SinkExt, StreamExt};
@@ -36,10 +38,16 @@ async fn open_socket(path: &Path) -> Result<UnixListener, String> {
         .ok_or(format!("socket {path:?} has no parent directory"))?;
     err_str!(fs::create_dir_all(dir).await)?;
     // Test if file exists
-    match fs::metadata(&path).await {
+    match fs::symlink_metadata(&path).await {
         Ok(meta) => {
-            if meta.file_type().is_dir() {
+            if meta.file_type().is_symlink() {
+                Err(format!("socket {path:?} is a symbolic link"))
+            } else if meta.is_dir() {
                 Err(format!("socket {path:?} is already a directory"))
+            } else if !meta.is_file() && !meta.file_type().is_socket() {
+                Err(format!(
+                    "socket {path:?} exists and is not a regular file or socket"
+                ))
             } else {
                 warn!("socket {path:?} already exists: is the daemon already running? deleting.");
                 err_str!(fs::remove_file(path).await)
@@ -51,7 +59,12 @@ async fn open_socket(path: &Path) -> Result<UnixListener, String> {
         }),
     }?;
     // Open socket
-    err_str!(UnixListener::bind(path))
+    let listener = err_str!(UnixListener::bind(path))?;
+    err_str!(std::fs::set_permissions(
+        path,
+        std::fs::Permissions::from_mode(0o600)
+    ))?;
+    Ok(listener)
 }
 
 async fn handle_trigger_order(
@@ -241,13 +254,13 @@ async fn answer_order(
     }
 }
 
-macro_rules! or_next {
+macro_rules! or_return {
     ($msg:expr, $expression:expr) => {
         match $expression {
             Ok(x) => x,
             Err(err) => {
                 error!("failed to answer client: {}, {}", $msg, err);
-                continue;
+                return;
             }
         }
     };
@@ -268,43 +281,73 @@ impl Socket {
         })
     }
 
+    #[allow(unsafe_code)]
     pub fn manager(
         self,
         config: &'static Config,
         shared_state: SharedState,
         shutdown: ShutdownToken,
-        mut db_rotate: DatabaseRotate,
+        db_rotate: DatabaseRotate,
     ) {
         tokio::spawn(async move {
+            let shared_state = Arc::new(shared_state);
+            let allowed_uid = unsafe { nix::libc::geteuid() };
             loop {
                 tokio::select! {
                     _ = shutdown.wait() => break,
                     try_conn = self.socket.accept() => {
                         match try_conn {
                             Ok((conn, _)) => {
-                                let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-                                // Decode
-                                let received = transport.next().await;
-                                let encoded_request = match received {
-                                    Some(r) => or_next!("while reading request", r),
-                                    None => {
-                                        error!("failed to answer client: client sent no request");
+                                let peer_uid = match conn.peer_cred() {
+                                    Ok(cred) => cred.uid(),
+                                    Err(err) => {
+                                        error!("failed to get peer credentials: {err}");
                                         continue;
                                     }
                                 };
-                                let request = or_next!(
-                                    "failed to decode request",
-                                    serde_json::from_slice(&encoded_request)
+                                if peer_uid != 0 && peer_uid != allowed_uid {
+                                    warn!("refusing socket connection from uid {peer_uid}");
+                                    continue;
+                                }
+                                let shared_state = Arc::clone(&shared_state);
+                                let mut db_rotate = db_rotate.clone();
+                                tokio::spawn(async move {
+                                    let mut transport = Framed::new(
+                                        conn,
+                                        LengthDelimitedCodec::builder()
+                                            .max_frame_length(64 * 1024)
+                                            .new_codec(),
                                     );
-                                // Process
-                                let response = answer_order(config, &shared_state, &mut db_rotate, request).await;
-                                // Encode
-                                let encoded_response =
-                                    or_next!("failed to serialize response", serde_json::to_string::<DaemonResponse>(&response));
-                                or_next!(
-                                    "failed to send response:",
-                                    transport.send(Bytes::from(encoded_response)).await
+                                    let received = or_return!(
+                                        "while reading request",
+                                        tokio::time::timeout(Duration::from_secs(5), transport.next()).await
                                     );
+                                    let encoded_request = match received {
+                                        Some(r) => or_return!("while reading request", r),
+                                        None => {
+                                            error!("failed to answer client: client sent no request");
+                                            return;
+                                        }
+                                    };
+                                    let request = or_return!(
+                                        "failed to decode request",
+                                        serde_json::from_slice(&encoded_request)
+                                    );
+                                    let response = answer_order(
+                                        config,
+                                        &shared_state,
+                                        &mut db_rotate,
+                                        request,
+                                    ).await;
+                                    let encoded_response = or_return!(
+                                        "failed to serialize response",
+                                        serde_json::to_string::<DaemonResponse>(&response)
+                                    );
+                                    or_return!(
+                                        "failed to send response:",
+                                        transport.send(Bytes::from(encoded_response)).await
+                                    );
+                                });
                             }
                             Err(err) => error!("failed to open connection from cli: {err}"),
                         }

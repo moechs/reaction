@@ -1,0 +1,41 @@
+[package]
+name = "reaction-plugin-container"
+description = "Container log stream plugin for reaction (Docker)"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+repository = "https://github.com/moechs/reaction/tree/main/plugins/reaction-plugin-container"
+keywords = ["security", "docker", "containers", "logs", "monitoring"]
+default-run = "reaction-plugin-container"
+
+[features]
+default = ["docker"]
+# Docker Engine API backend (stream type `docker`).
+docker = ["dep:bollard", "dep:chrono"]
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio-util = { workspace = true, features = ["rt"] }
+futures.workspace = true
+remoc.workspace = true
+reaction-plugin.path = "../reaction-plugin"
+serde.workspace = true
+serde_json.workspace = true
+chrono = { workspace = true, optional = true }
+bollard = { version = "0.21.1", default-features = false, features = ["http", "pipe"], optional = true }
+
+[dev-dependencies]
+chrono.workspace = true
+tempfile.workspace = true
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+
+[package.metadata.deb]
+section = "net"
+revision = ""
+assets = [
+	[ "target/release/reaction-plugin-container", "/usr/bin/reaction-plugin-container", "755" ],
+]
+depends = ["reaction"]

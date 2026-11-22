@@ -1,0 +1,219 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 'docker-publish-${{ github.ref }}'
+  cancel-in-progress: true
+
+env:
+  # Full Docker Hub image path; empty derives from username/repository.
+  IMAGE_NAME: ''
+  DOCKERFILE: Dockerfile.release
+
+jobs:
+  build:
+    name: 'Build ${{ matrix.arch }}'
+    runs-on: '${{ matrix.runner }}'
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Resolve image name
+        id: names
+        env:
+          DOCKERHUB_USERNAME: '${{ secrets.DOCKERHUB_USERNAME }}'
+        run: |
+          set -euo pipefail
+          repository_name="${GITHUB_REPOSITORY##*/}"
+          repository_name="${repository_name,,}"
+          image_name="$IMAGE_NAME"
+          if [[ -z "$image_name" ]]; then
+            if [[ -z "$DOCKERHUB_USERNAME" ]]; then
+              echo "::error::DOCKERHUB_USERNAME is required when IMAGE_NAME is not set" >&2
+              exit 1
+            fi
+            image_name="${DOCKERHUB_USERNAME}/${repository_name}"
+          fi
+          printf 'repository_name=%s\n' "$repository_name" >> "$GITHUB_OUTPUT"
+          printf 'image_name=%s\n' "$image_name" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: '${{ secrets.DOCKERHUB_USERNAME }}'
+          password: '${{ secrets.DOCKERHUB_TOKEN }}'
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: '${{ env.DOCKERFILE }}'
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=https://framagit.org/ppom/reaction
+            org.opencontainers.image.licenses=AGPL-3.0
+            org.opencontainers.image.description=reaction with Docker log stream plugin and container deployment support
+          platforms: 'linux/${{ matrix.arch }}'
+          outputs: 'type=image,name=${{ steps.names.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true'
+          provenance: false
+          sbom: false
+          cache-from: 'type=gha,scope=${{ steps.names.outputs.repository_name }}-${{ matrix.arch }}'
+          cache-to: 'type=gha,mode=max,scope=${{ steps.names.outputs.repository_name }}-${{ matrix.arch }}'
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest='${{ steps.build.outputs.digest }}'
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: 'digests-${{ matrix.arch }}'
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Create Multi-Arch Manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Version comes from Cargo.toml, not from the Git tag.
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [[ -z "$version" ]]; then
+            echo "::error::could not read version from Cargo.toml" >&2
+            exit 1
+          fi
+          major_minor="$(cut -d. -f1-2 <<< "$version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
+          echo "Building version $version"
+
+      - name: Validate tag version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="v${{ steps.version.outputs.version }}"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml ($expected)" >&2
+            exit 1
+          fi
+
+      # Secret-bearing job outputs are dropped by the runner; derive locally.
+      - name: Resolve image name
+        env:
+          DOCKERHUB_USERNAME: '${{ secrets.DOCKERHUB_USERNAME }}'
+        run: |
+          set -euo pipefail
+          repository_name="${GITHUB_REPOSITORY##*/}"
+          repository_name="${repository_name,,}"
+          image_name="$IMAGE_NAME"
+          if [[ -z "$image_name" ]]; then
+            if [[ -z "$DOCKERHUB_USERNAME" || -z "$repository_name" ]]; then
+              echo "::error::DOCKERHUB_USERNAME and repository name are required when IMAGE_NAME is not set" >&2
+              exit 1
+            fi
+            image_name="${DOCKERHUB_USERNAME}/${repository_name}"
+          fi
+          printf 'IMAGE_NAME=%s\n' "$image_name" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: /tmp/digests
+          pattern: 'digests-*'
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: '${{ secrets.DOCKERHUB_USERNAME }}'
+          password: '${{ secrets.DOCKERHUB_TOKEN }}'
+
+      - name: Docker meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: '${{ env.IMAGE_NAME }}'
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ steps.version.outputs.major_minor }},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=sha,prefix=dev-,enable=${{ github.ref_type != 'tag' }}
+
+      - name: Create and push manifest
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          if [[ -z "${IMAGE_NAME:-}" ]]; then
+            echo "::error::IMAGE_NAME is empty; refusing to create manifest" >&2
+            exit 1
+          fi
+          if [[ -z "${DOCKER_METADATA_OUTPUT_JSON:-}" ]]; then
+            echo "::error::metadata output is missing; refusing to create manifest" >&2
+            exit 1
+          fi
+          mapfile -t tags < <(jq -r '.tags[]' <<< "${DOCKER_METADATA_OUTPUT_JSON}")
+          tag_args=()
+          for tag in "${tags[@]}"; do
+            tag_args+=(-t "${tag}")
+          done
+          if [[ ${#tag_args[@]} -eq 0 ]]; then
+            echo "::error::metadata-action produced no tags" >&2
+            exit 1
+          fi
+          source_args=()
+          shopt -s nullglob
+          for digest in *; do
+            source_args+=("${IMAGE_NAME}@sha256:${digest}")
+          done
+          if [[ ${#source_args[@]} -eq 0 ]]; then
+            echo "::error::no digest artifacts found in $(pwd)" >&2
+            exit 1
+          fi
+          printf 'tags: %s\n' "${tag_args[*]}"
+          printf 'sources: %s\n' "${source_args[*]}"
+          docker buildx imagetools create "${tag_args[@]}" "${source_args[@]}"
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          if [[ -z "${DOCKER_METADATA_OUTPUT_JSON:-}" ]]; then
+            echo "::error::metadata output is missing; cannot verify" >&2
+            exit 1
+          fi
+          tag_count="$(jq '.tags | length' <<< "${DOCKER_METADATA_OUTPUT_JSON}")"
+          if [[ "${tag_count}" -eq 0 ]]; then
+            echo "::error::metadata-action produced no tags; cannot verify" >&2
+            exit 1
+          fi
+          printf 'verifying %s tags\n' "${tag_count}"
+          while IFS= read -r tag; do
+            docker buildx imagetools inspect "${tag}"
+            docker buildx imagetools inspect --raw "${tag}" |
+              jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]' > /dev/null
+          done < <(jq -r '.tags[]' <<< "${DOCKER_METADATA_OUTPUT_JSON}")

@@ -1,0 +1,51 @@
+# Production image definition.
+
+FROM rust:1-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang \
+      cmake \
+      pkg-config \
+      libclang-dev \
+      libipset-dev \
+      libnftables-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /reaction
+COPY . .
+
+RUN cargo build --locked --release --workspace \
+      --bin reaction \
+      --bin reaction-plugin-container \
+      --bin reaction-plugin-httpban \
+      --bin reaction-plugin-ipset \
+      --bin reaction-plugin-nftables \
+      --bin reaction-plugin-virtual
+
+FROM debian:bookworm-slim
+
+# treedb opens the DB lock file directly, so the runtime dir must exist.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      iptables \
+      ipset \
+      nftables \
+      inotify-tools \
+      libipset13 \
+      libnftables1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/reaction /run/reaction /var/lib/reaction /usr/share/doc/reaction \
+    && chown 1000:1000 /run/reaction /var/lib/reaction
+
+COPY config/docker.yml /etc/reaction/config.yml
+COPY LICENSE /usr/share/doc/reaction/LICENSE
+
+COPY --from=builder /reaction/target/release/reaction /usr/bin/reaction
+COPY --from=builder /reaction/target/release/reaction-plugin-container /usr/bin/
+COPY --from=builder /reaction/target/release/reaction-plugin-httpban /usr/bin/
+COPY --from=builder /reaction/target/release/reaction-plugin-ipset /usr/bin/
+COPY --from=builder /reaction/target/release/reaction-plugin-nftables /usr/bin/
+COPY --from=builder /reaction/target/release/reaction-plugin-virtual /usr/bin/
+
+ENTRYPOINT ["reaction"]
+CMD ["start", "-c", "/etc/reaction"]

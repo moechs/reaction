@@ -1,0 +1,8 @@
+.git
+target
+data
+reaction
+.env*
+**/secret_key_*.txt
+*.pem
+*.key

@@ -164,12 +164,8 @@ mod tests {
                 // even if we don't want one
                 .map(|opt| opt.map(|pk| pk.to_bytes()))
         );
-        // Will fail if we're root, but who runs this as root??
-        assert!(
-            get_secret_key(&format!("/root/non_existent"))
-                .await
-                .is_err()
-        );
+        // Reading a directory fails regardless of the effective uid.
+        assert!(get_secret_key(tmp_dir_str).await.is_err());
     }
 
     #[tokio::test]

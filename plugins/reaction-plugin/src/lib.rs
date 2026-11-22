@@ -15,9 +15,6 @@
 //! This is the v1 of reaction's plugin interface.
 //! It's quite efficient and complete, but it has the big drawback of being Rust-only and [`tokio`]-only.
 //!
-//! In the future, I'd like to define a language-agnostic interface, which will be a major breaking change in the API.
-//! However, I'll try my best to reduce the necessary code changes for plugins that use this v1.
-//!
 //! ## Naming & calling conventions
 //!
 //! Your plugin should be named `reaction-plugin-$NAME`, eg. `reaction-plugin-postgresql`.

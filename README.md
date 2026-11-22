@@ -6,10 +6,6 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 🚧 This program hasn't received external security audit yet. However, it already works well on many servers 🚧
 
-> ℹ️🤖 The maintainer doesn't use LLMs.
->
-> The AGENTS.md & CLAUDE.md files are just here to "discourage" LLMs to interact with this repository.
-
 ## Rationale
 
 I was using the honorable fail2ban since quite a long time, but I was a bit frustrated by its CPU consumption

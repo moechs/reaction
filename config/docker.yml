@@ -1,0 +1,19 @@
+---
+# reaction Docker image default config (inert): it never touches the firewall.
+# Mount your own config over /etc/reaction or /etc/reaction/config.yml.
+# Run the container with --network host --cap-add NET_ADMIN.
+
+patterns:
+  docker_noop:
+    regex: '__REACTION_DOCKER_NOOP__[0-9]{8}'
+
+streams:
+  docker_idle:
+    cmd: ['sleep', 'infinity']
+    filters:
+      docker_noop:
+        regex:
+          - '<docker_noop>'
+        actions:
+          noop:
+            cmd: ['true']

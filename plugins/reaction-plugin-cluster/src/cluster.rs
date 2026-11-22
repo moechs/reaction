@@ -31,7 +31,7 @@ pub type UtcLine = (Arc<String>, Time);
 // }
 
 pub async fn bind(stream: &StreamInit) -> Result<Endpoint, String> {
-    let mut builder = Endpoint::builder(presets::Empty)
+    let mut builder = Endpoint::builder(presets::Minimal)
         .secret_key(stream.secret_key.clone())
         .alpns(ALPN.iter().map(|slice| slice.to_vec()).collect())
         .relay_mode(iroh::RelayMode::Disabled);

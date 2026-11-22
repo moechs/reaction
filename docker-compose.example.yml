@@ -1,0 +1,23 @@
+# Deployment example; adjust image and paths as needed.
+# Host networking and NET_ADMIN are required; plugins need systemd: false.
+# For non-root, use user: "1000:1000" and chown ./reaction/data to 1000:1000.
+services:
+  reaction:
+    image: moechs/reaction:latest
+    container_name: reaction
+    restart: unless-stopped
+    network_mode: host
+    user: "0:0"
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 30s
+    volumes:
+      - ./reaction/config:/etc/reaction:ro
+      - ./reaction/data:/var/lib/reaction
+      - /var/log/secure:/var/log/secure:ro
+      - /var/log/nginx:/var/log/nginx:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # For reaction-plugin-container (stream type `docker`). Socket access is
+      # root-equivalent and `:ro` does not restrict the API: prefer a socket
+      # proxy, see plugins/reaction-plugin-container/README.md.
+      # - /var/run/docker.sock:/var/run/docker.sock

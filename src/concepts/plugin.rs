@@ -188,12 +188,15 @@ impl Plugin {
     pub async fn launch(&self, state_directory: &Path) -> Result<Child, String> {
         // owner check
         if self.check_root {
-            let stat = fs::metadata(&self.path)
+            let stat = fs::symlink_metadata(&self.path)
                 .await
                 .map_err(|err| format!("checking path {}: {err}", self.path))?;
 
-            if stat.st_uid() != 0 {
-                return Err("plugin file is not owned by root".into());
+            if !stat.is_file() || stat.st_uid() != 0 || stat.st_mode() & 0o022 != 0 {
+                return Err(
+                    "plugin must be a regular file owned by root and not writable by group or others"
+                        .into(),
+                );
             }
         }
 
