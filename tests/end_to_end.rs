@@ -11,6 +11,8 @@ use assert_fs::{TempDir, prelude::*};
 use nix::sys::signal;
 use predicates::prelude::predicate;
 
+mod common;
+
 #[test]
 #[ignore = "currently failing"] // FIXME
 fn actions_delayed_and_on_exit() -> Result<(), Box<dyn Error>> {
@@ -19,6 +21,7 @@ fn actions_delayed_and_on_exit() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-after.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--config", "./config.jsonnet"]);
@@ -51,6 +54,7 @@ fn kill_stream_on_exit() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-shutdown.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     let cmd = cargo_bin_cmd!("reaction");
     let mut cmd = Command::new(cmd.get_program());
@@ -106,6 +110,7 @@ fn non_utf8_is_stripped() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-binary-input.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--config", "config.jsonnet"]);
@@ -127,6 +132,7 @@ fn capture_streams_stderr() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-stream-stderr.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--config", "config.jsonnet"]);
@@ -151,6 +157,7 @@ fn manually_trigger_filter() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-trigger.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     // start daemon
     let cmd = cargo_bin_cmd!("reaction");
@@ -222,6 +229,7 @@ fn filter_regex_match_eol() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-eol-match.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     let mut cmd = cargo_bin_cmd!("reaction");
     cmd.args(["start", "--config", "config.jsonnet"]);

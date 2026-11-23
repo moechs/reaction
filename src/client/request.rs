@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use futures::{SinkExt, StreamExt};
@@ -22,27 +23,32 @@ macro_rules! or_quit {
 }
 
 async fn send_retrieve(socket: &Path, req: &ClientRequest) -> Result<DaemonResponse, String> {
-    let conn = or_quit!(
-        "opening connection to daemon",
-        UnixStream::connect(socket).await
-    );
-    // Encode
-    let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
-    let encoded_request = or_quit!("failed to encode request", serde_json::to_string(req));
-    or_quit!(
-        "failed to send request",
-        transport.send(Bytes::from(encoded_request)).await
-    );
-    // Decode
-    let encoded_response = or_quit!(
-        "failed to read response",
-        transport.next().await.ok_or("empty response from server")
-    );
-    let encoded_response = or_quit!("failed to decode response", encoded_response);
-    Ok(or_quit!(
-        "failed to decode response",
-        serde_json::from_slice::<DaemonResponse>(&encoded_response)
-    ))
+    let exchange = async {
+        let conn = or_quit!(
+            "opening connection to daemon",
+            UnixStream::connect(socket).await
+        );
+        // Encode
+        let mut transport = Framed::new(conn, LengthDelimitedCodec::new());
+        let encoded_request = or_quit!("failed to encode request", serde_json::to_string(req));
+        or_quit!(
+            "failed to send request",
+            transport.send(Bytes::from(encoded_request)).await
+        );
+        // Decode
+        let encoded_response = or_quit!(
+            "failed to read response",
+            transport.next().await.ok_or("empty response from server")
+        );
+        let encoded_response = or_quit!("failed to decode response", encoded_response);
+        Ok(or_quit!(
+            "failed to decode response",
+            serde_json::from_slice::<DaemonResponse>(&encoded_response)
+        ))
+    };
+    tokio::time::timeout(Duration::from_secs(60), exchange)
+        .await
+        .map_err(|_| "timed out communicating with daemon".to_string())?
 }
 
 fn print_status(cs: ClientStatus, format: Format) -> Result<(), Box<dyn Error>> {

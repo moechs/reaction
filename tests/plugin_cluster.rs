@@ -3,6 +3,8 @@ use std::{fs::read_to_string, path::Path, thread, time::Duration};
 use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use assert_fs::prelude::*;
 
+mod common;
+
 const SECRET_KEY_A: &str = "g7U1LPq2cgGSyk6CH_v1QpoXowSFKVQ8IcFljd_ZKGw=";
 const PUBLIC_KEY_A: &str = "HhVh7ghqpXM9375HZ82OOeB504HBSS25wgug-1vUggY=";
 
@@ -91,6 +93,7 @@ fn launch_node(config: String, my_secret: &'static str, expected_output: Vec<&'s
 
     // Write node config
     tmp_dir.child("config.jsonnet").write_str(&config).unwrap();
+    common::restrict_file(tmp_dir.child("config.jsonnet").path()).unwrap();
     tmp_dir
         .child("plugin_data/cluster/secret_key_s1.txt")
         .write_str(my_secret)

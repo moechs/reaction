@@ -16,8 +16,10 @@ services:
       - ./reaction/data:/var/lib/reaction
       - /var/log/secure:/var/log/secure:ro
       - /var/log/nginx:/var/log/nginx:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      # For reaction-plugin-container (stream type `docker`). Socket access is
-      # root-equivalent and `:ro` does not restrict the API: prefer a socket
-      # proxy, see plugins/reaction-plugin-container/README.md.
+      # For reaction-plugin-container (stream type `docker`). The plugin reads
+      # logs through the Engine API only; it does not need direct access to
+      # /var/lib/docker/containers (which contains credentials in config.v2.json).
+      # Socket access is root-equivalent and `:ro` does not restrict the API:
+      # prefer a read-only socket proxy allowing only /containers/json, /events,
+      # /containers/{id}/logs and /containers/{id}/json.
       # - /var/run/docker.sock:/var/run/docker.sock

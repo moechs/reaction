@@ -40,11 +40,17 @@ fn check_permissions(path: &Path, expect_dir: bool) -> Result<(), ConfigError> {
     let meta = std::fs::symlink_metadata(path)?;
     let kind = if expect_dir { "directory" } else { "file" };
     if (expect_dir && !meta.is_dir()) || (!expect_dir && !meta.is_file()) {
-        return Err(ConfigError::Any(format!("{path:?} is not a regular {kind}")));
-    }
-    if meta.mode() & 0o022 != 0 {
         return Err(ConfigError::Any(format!(
-            "{path:?} must not be writable by group or others"
+            "{path:?} is not a regular {kind}"
+        )));
+    }
+    // Config files may contain secrets, so they must not be readable by
+    // group/others. Directories only need to be non-writable: a typical
+    // /etc/reaction is 0755 and that does not expose file contents.
+    let forbidden = if expect_dir { 0o022 } else { 0o077 };
+    if meta.mode() & forbidden != 0 {
+        return Err(ConfigError::Any(format!(
+            "{path:?} must not be accessible by group or others"
         )));
     }
     let uid = unsafe { nix::libc::geteuid() };
@@ -475,6 +481,11 @@ impl Config {
     }
 
     fn _from_file_raw(path: &Path) -> Result<Self, ConfigError> {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        check_permissions(parent, true)?;
         let extension = path
             .extension()
             .and_then(|ex| ex.to_str())
@@ -510,21 +521,94 @@ enum ConfigError {
 }
 
 mod jsonnet {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use jrsonnet_evaluator::{
-        FileImportResolver, State, StateBuilder, error::Error, manifest::JsonFormat,
-        trace::PathResolver,
+        AsPathLike, FileImportResolver, ImportResolver, RuntimeError, SourcePath, State,
+        StateBuilder, bail, error::Result, manifest::JsonFormat, trace::PathResolver,
     };
+    use jrsonnet_gcmodule::Acyclic;
 
-    use super::ConfigError;
+    use super::{ConfigError, check_permissions};
+
+    /// Only allow imports of private regular files below the config directory.
+    /// Otherwise `import`/`importstr` would bypass `_load_file`'s permission
+    /// check and could read arbitrary local files.
+    #[derive(Acyclic)]
+    struct CheckedImportResolver {
+        inner: FileImportResolver,
+        root: PathBuf,
+    }
+
+    impl CheckedImportResolver {
+        fn check(&self, resolved: &SourcePath) -> Result<()> {
+            let Some(path) = resolved.path() else {
+                bail!(RuntimeError("only regular files can be imported".into()));
+            };
+            if let Err(err) = check_import_path(path, &self.root) {
+                bail!(RuntimeError(err.into()));
+            }
+            Ok(())
+        }
+    }
+
+    impl ImportResolver for CheckedImportResolver {
+        fn resolve_from(&self, from: &SourcePath, path: &dyn AsPathLike) -> Result<SourcePath> {
+            let resolved = self.inner.resolve_from(from, path)?;
+            self.check(&resolved)?;
+            Ok(resolved)
+        }
+
+        fn resolve_from_default(&self, path: &dyn AsPathLike) -> Result<SourcePath> {
+            let resolved = self.inner.resolve_from_default(path)?;
+            self.check(&resolved)?;
+            Ok(resolved)
+        }
+
+        fn load_file_contents(&self, resolved: &SourcePath) -> Result<Vec<u8>> {
+            self.check(resolved)?;
+            self.inner.load_file_contents(resolved)
+        }
+    }
+
+    fn check_import_path(path: &Path, root: &Path) -> std::result::Result<(), String> {
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("cannot resolve import {}: {e}", path.display()))?;
+        if !canonical.starts_with(root) {
+            return Err(format!(
+                "import {} escapes the configuration directory",
+                path.display()
+            ));
+        }
+        check_permissions(&canonical, false).map_err(|e| e.to_string())?;
+        let relative = canonical.strip_prefix(root).map_err(|_| {
+            format!(
+                "import {} escapes the configuration directory",
+                path.display()
+            )
+        })?;
+        let mut dir = root.to_path_buf();
+        for component in relative.parent().unwrap_or(Path::new("")).components() {
+            dir.push(component);
+            check_permissions(&dir, true).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
 
     pub fn from_path(path: &Path) -> Result<String, ConfigError> {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let root = parent
+            .canonicalize()
+            .map_err(|e| ConfigError::Any(format!("cannot resolve {}: {e}", path.display())))?;
         let mut state_builder = StateBuilder::default();
-        state_builder.import_resolver(FileImportResolver::new(match path.parent() {
-            Some(dir) => vec![dir.into()],
-            None => vec![],
-        }));
+        state_builder.import_resolver(CheckedImportResolver {
+            inner: FileImportResolver::new(vec![root.clone()]),
+            root,
+        });
         state_builder.context_initializer(jrsonnet_stdlib::ContextInitializer::new(
             PathResolver::Relative(path.to_owned()),
         ));
@@ -536,7 +620,7 @@ mod jsonnet {
             Err(err) => Err(ConfigError::Any(err.to_string())),
         }
     }
-    fn evaluate(path: &Path, state: &State) -> Result<String, Error> {
+    fn evaluate(path: &Path, state: &State) -> Result<String> {
         let val = state.import(path)?;
         let result = val.manifest(JsonFormat::default())?;
         Ok(result.to_string())
@@ -585,6 +669,58 @@ fn run_commands(commands: &Vec<Vec<String>>, moment: &str) -> bool {
 mod tests {
 
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn config_files_must_be_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let err = Config::from_path_raw(&Some(path)).unwrap_err();
+        assert!(err.contains("must not be accessible"), "{err}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn jsonnet_import_cannot_escape_config_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg = dir.path().join("cfg");
+        let nested = cfg.join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(dir.path().join("secret.jsonnet"), "{}").unwrap();
+        let config = nested.join("config.jsonnet");
+        std::fs::write(&config, "import \"../../secret.jsonnet\"").unwrap();
+        for path in [dir.path().join("secret.jsonnet"), config.clone()] {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+        let err = jsonnet::from_path(&config).unwrap_err().to_string();
+        assert!(err.contains("escapes the configuration directory"), "{err}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn jsonnet_import_must_be_private() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let config = dir.path().join("config.jsonnet");
+        let imported = dir.path().join("lib.libsonnet");
+        std::fs::write(&config, "import \"lib.libsonnet\"").unwrap();
+        std::fs::write(&imported, "{}").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+            std::fs::set_permissions(&imported, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let err = jsonnet::from_path(&config).unwrap_err().to_string();
+        assert!(err.contains("must not be accessible"), "{err}");
+    }
 
     #[test]
     fn config_missing() {

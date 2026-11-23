@@ -1,9 +1,11 @@
 use std::{
     error::Error,
+    panic::AssertUnwindSafe,
     path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use futures::FutureExt;
 use http::StatusCode;
 use reaction_plugin::{ActionConfig, ActionImpl, Exec, PluginInfo};
 use reqwest::Response;
@@ -18,6 +20,11 @@ fn now() -> Duration {
 
 #[tokio::test]
 async fn integration_test() {
+    // Workspace-wide builds unify reqwest into `rustls-no-provider` mode via
+    // the cluster plugin. Install a provider explicitly so this test behaves
+    // the same whether it is run alone or with `--workspace`.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let tmp_dir = tempfile::TempDir::new().unwrap();
     let socket_path = tmp_dir.path().join("test.sock");
     // let socket_path = PathBuf::from("./test.sock");
@@ -83,14 +90,15 @@ async fn integration_test() {
 
     plugin.start().await.unwrap();
 
-    let result = integration_test_inner(socket_path, actions).await;
+    let result = AssertUnwindSafe(integration_test_inner(socket_path, actions))
+        .catch_unwind()
+        .await;
 
-    // End
+    // Always shut down the server before reporting a failure, otherwise the
+    // test process keeps the pingora runtime alive after a panic.
     plugin.close().await.unwrap();
 
-    // Only test if it was successful here, because we need to properly
-    // shutdown the server before panicking
-    result.unwrap();
+    result.unwrap().unwrap();
 }
 
 async fn integration_test_inner(

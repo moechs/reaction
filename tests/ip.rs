@@ -1,7 +1,9 @@
-use std::{env, io::IsTerminal, time::Duration};
+use std::{env, io::IsTerminal, path::Path, time::Duration};
 
 use tempfile::TempDir;
 use tracing::Level;
+
+mod common;
 
 use reaction::{cli::Format, client::request, daemon::daemon, protocol::Order};
 use tokio::{
@@ -82,6 +84,7 @@ async fn config_with_cmd(config_path: &str, cmd: &str) {
     )
     .await
     .unwrap();
+    common::restrict_file(Path::new(config_path)).unwrap();
 }
 
 #[tokio::test]

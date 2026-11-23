@@ -4,6 +4,8 @@ use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use assert_fs::prelude::*;
 use predicates::prelude::predicate;
 
+mod common;
+
 #[test]
 fn plugin_virtual() {
     // First build reaction-plugin-virtual
@@ -16,6 +18,7 @@ fn plugin_virtual() {
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-virtual.jsonnet"))
         .unwrap();
+    common::restrict_configs(tmp_dir.path()).unwrap();
 
     // Copy virtual plugin
     tmp_dir

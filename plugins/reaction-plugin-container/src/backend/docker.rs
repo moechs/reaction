@@ -106,28 +106,48 @@ impl Runtime for DockerRuntime {
     }
 
     fn watch(&self) -> impl Stream<Item = Result<RuntimeEvent, String>> + Send + 'static {
-        let since = SystemTime::now()
-            .checked_sub(EVENTS_REPLAY_MARGIN)
-            .unwrap_or(UNIX_EPOCH)
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .to_string();
         let filters = HashMap::from([
             ("type", vec!["container"]),
             ("event", vec!["start", "die", "destroy", "rename"]),
         ]);
-        let events = self.docker.events(Some(
-            EventsOptionsBuilder::new()
-                .since(&since)
-                .filters(&filters)
-                .build(),
-        ));
+        let events_docker = self.docker.clone();
+        // Compute `since` when the events stream is first polled, i.e. after
+        // the snapshot. A slow snapshot must not leave a gap before `since`.
+        let events = stream::once(async move {
+            let since = SystemTime::now()
+                .checked_sub(EVENTS_REPLAY_MARGIN)
+                .unwrap_or(UNIX_EPOCH)
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .to_string();
+            let events = events_docker.events(Some(
+                EventsOptionsBuilder::new()
+                    .since(&since)
+                    .filters(&filters)
+                    .build(),
+            ));
+            let inspect_docker = events_docker.clone();
+            Box::pin(
+                events
+                    .then(move |event| {
+                        let docker = inspect_docker.clone();
+                        async move {
+                            match event {
+                                Ok(event) => event_to_runtime(&docker, event).await,
+                                Err(err) => Some(Err(format!("reading events: {err}"))),
+                            }
+                        }
+                    })
+                    .filter_map(|event| async move { event }),
+            )
+        })
+        .flatten();
 
-        let docker = self.docker.clone();
+        let snapshot_docker = self.docker.clone();
         let snapshot = stream::once(async move {
             let options = ListContainersOptionsBuilder::new().all(false).build();
-            docker
+            snapshot_docker
                 .list_containers(Some(options))
                 .await
                 .map(|list| {
@@ -135,19 +155,6 @@ impl Runtime for DockerRuntime {
                 })
                 .map_err(|err| format!("listing containers: {err}"))
         });
-
-        let docker = self.docker.clone();
-        let events = events
-            .then(move |event| {
-                let docker = docker.clone();
-                async move {
-                    match event {
-                        Ok(event) => event_to_runtime(&docker, event).await,
-                        Err(err) => Some(Err(format!("reading events: {err}"))),
-                    }
-                }
-            })
-            .filter_map(|event| async move { event });
 
         snapshot.chain(events)
     }
@@ -157,19 +164,26 @@ impl Runtime for DockerRuntime {
         id: &str,
         request: LogRequest,
     ) -> impl Stream<Item = Result<LogLine, String>> + Send + 'static {
-        let since = request
+        let secs = request
             .since
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs()
-            .min(i32::MAX as u64) as i32;
-        let options = LogsOptionsBuilder::new()
+            .as_secs();
+        let mut builder = LogsOptionsBuilder::new();
+        builder = builder
             .follow(true)
             .stdout(request.stdout)
             .stderr(request.stderr)
-            .timestamps(true)
-            .since(since)
-            .build();
+            .timestamps(true);
+        if secs <= i32::MAX as u64 {
+            builder = builder.since(secs as i32);
+        } else {
+            // The Engine API cannot represent timestamps after 2038. Start
+            // with no backfill instead of asking for a future `since`, which
+            // would produce an empty stream forever.
+            builder = builder.tail("0");
+        }
+        let options = builder.build();
         let raw = Box::pin(self.docker.logs(id, Some(options)));
         let decoder = LogDecoder::new(request.max_line_bytes);
 

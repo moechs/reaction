@@ -15,7 +15,8 @@
 //!   through [`FollowerState`] so a quick restart can never be missed.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
     pin::pin,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -31,7 +32,7 @@ use super::{
     cursor::{Cursor, Replay},
     lines::to_text,
     meta::ContainerMeta,
-    runtime::{LogRequest, Runtime, RuntimeEvent},
+    runtime::{LogLine, LogRequest, Runtime, RuntimeEvent, Source},
 };
 
 /// One reaction stream fed by this backend.
@@ -69,6 +70,8 @@ pub struct Supervisor<R: Runtime> {
     shutdown: ShutdownToken,
     followers: HashMap<Key, Follower>,
     cursors: Cursors,
+    /// IDs explicitly destroyed: their followers must not resurrect cursors.
+    forgotten: Arc<Mutex<HashSet<Key>>>,
 }
 
 impl<R: Runtime> Supervisor<R> {
@@ -92,6 +95,7 @@ impl<R: Runtime> Supervisor<R> {
             shutdown,
             followers: HashMap::new(),
             cursors: Arc::default(),
+            forgotten: Arc::default(),
         }
     }
 
@@ -128,20 +132,43 @@ impl<R: Runtime> Supervisor<R> {
     fn handle(&mut self, event: RuntimeEvent) {
         match event {
             RuntimeEvent::Snapshot(containers) => {
-                self.followers.retain(|_, f| f.state.lock().unwrap().alive);
+                let running: HashSet<&str> =
+                    containers.iter().map(|meta| meta.id.as_str()).collect();
+                // A container missing from the snapshot stopped while the
+                // event stream was down: stop following it instead of relying
+                // on a `die` event that was never delivered.
+                self.followers.retain(|(_, id), f| {
+                    if running.contains(id.as_str()) {
+                        true
+                    } else {
+                        f.cancel.cancel();
+                        false
+                    }
+                });
                 for meta in containers {
-                    self.up(meta);
+                    self.up(meta, true);
                 }
             }
-            RuntimeEvent::Up(meta) => self.up(meta),
+            RuntimeEvent::Up(meta) => self.up(meta, false),
             RuntimeEvent::Down { id, removed } => {
                 if removed {
-                    self.cursors
-                        .lock()
-                        .unwrap()
-                        .retain(|(_, cid), _| *cid != id);
-                    self.followers
-                        .retain(|(_, cid), f| *cid != id || f.state.lock().unwrap().alive);
+                    let keys: Vec<Key> = self
+                        .followers
+                        .keys()
+                        .filter(|(_, cid)| *cid == id)
+                        .cloned()
+                        .collect();
+                    {
+                        let mut forgotten = self.forgotten.lock().unwrap();
+                        let mut cursors = self.cursors.lock().unwrap();
+                        for key in &keys {
+                            forgotten.insert(key.clone());
+                            cursors.remove(key);
+                        }
+                    }
+                    for key in keys {
+                        self.followers.remove(&key).unwrap().cancel.cancel();
+                    }
                 }
             }
         }
@@ -153,7 +180,7 @@ impl<R: Runtime> Supervisor<R> {
             .is_some_and(|own| !own.is_empty() && meta.id.starts_with(own))
     }
 
-    fn up(&mut self, meta: ContainerMeta) {
+    fn up(&mut self, meta: ContainerMeta, from_snapshot: bool) {
         if self.is_self(&meta) {
             return;
         }
@@ -166,7 +193,11 @@ impl<R: Runtime> Supervisor<R> {
                 let mut state = follower.state.lock().unwrap();
                 if state.alive {
                     if wanted {
-                        state.restarted = true;
+                        // Snapshots are idempotent: replaying them must not
+                        // make a healthy follower reconnect needlessly.
+                        if !from_snapshot {
+                            state.restarted = true;
+                        }
                         state.meta = meta.clone();
                     } else {
                         drop(state);
@@ -198,12 +229,14 @@ impl<R: Runtime> Supervisor<R> {
                 restarted: false,
             }));
             let cancel = CancellationToken::new();
+            self.forgotten.lock().unwrap().remove(&key);
             let task = FollowerTask {
                 runtime: self.runtime.clone(),
                 sink: sink.clone(),
                 key: key.clone(),
                 baseline: sink.options.since.baseline(self.started_at),
                 cursors: self.cursors.clone(),
+                forgotten: self.forgotten.clone(),
                 reconnect_delay: self.reconnect_delay,
                 state: state.clone(),
                 cancel: cancel.clone(),
@@ -222,6 +255,7 @@ struct FollowerTask<R: Runtime> {
     key: Key,
     baseline: SystemTime,
     cursors: Cursors,
+    forgotten: Arc<Mutex<HashSet<Key>>>,
     reconnect_delay: Duration,
     state: Arc<Mutex<FollowerState>>,
     cancel: CancellationToken,
@@ -305,22 +339,33 @@ impl<R: Runtime> FollowerTask<R> {
         }
     }
 
+    fn line_hash(line: &LogLine) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        line.source.hash(&mut hasher);
+        line.data.hash(&mut hasher);
+        hasher.finish()
+    }
+
     async fn follow_once(&self) -> Ended {
         let cursor = self
             .cursors
             .lock()
             .unwrap()
             .get(&self.key)
-            .copied()
+            .cloned()
             .unwrap_or_else(|| Cursor::new(self.baseline));
+        let since = cursor.ts;
         let mut replay = Replay::new(cursor);
         let options = &self.sink.options;
         let request = LogRequest {
             stdout: options.stdout,
             stderr: options.stderr,
-            since: cursor.ts,
+            since,
             max_line_bytes: options.max_line_bytes,
         };
+        // Render prefixes once per metadata generation instead of once per line.
+        let mut prefix_meta = self.meta();
+        let mut prefixes = render_prefixes(options, &prefix_meta);
         let mut lines = pin!(self.runtime.logs(self.id(), request));
 
         loop {
@@ -334,24 +379,40 @@ impl<R: Runtime> FollowerTask<R> {
                 Some(Err(err)) => return Ended::Stream(Some(err)),
                 None => return Ended::Stream(None),
             };
-            if !replay.accept(line.ts) {
-                continue;
+
+            let current_meta = self.meta();
+            if !Arc::ptr_eq(&current_meta, &prefix_meta) {
+                prefix_meta = current_meta;
+                prefixes = render_prefixes(options, &prefix_meta);
             }
 
             let received = SystemTime::now();
+            // Lines without a usable runtime timestamp are positioned at
+            // reception time so they can be deduplicated after a reconnect.
+            let effective_ts = line.ts.unwrap_or(received);
+            if !replay.accept(effective_ts, Self::line_hash(&line)) {
+                continue;
+            }
+
             let time = match options.timestamp {
                 TimestampMode::Receive => received,
-                TimestampMode::Runtime => line.ts.unwrap_or(received),
+                TimestampMode::Runtime => effective_ts,
             };
             let time = time.duration_since(UNIX_EPOCH).unwrap_or_default();
 
-            let text = if options.prefix.is_empty() {
-                to_text(&line.data)
-            } else {
-                let mut text = String::new();
-                options.prefix.render(&self.meta(), line.source, &mut text);
-                text.push_str(&to_text(&line.data));
-                text
+            let data = to_text(&line.data);
+            let text = match (&prefixes, line.source) {
+                (None, _) => data,
+                (Some((stdout, _)), Source::Stdout) => {
+                    let mut text = stdout.clone();
+                    text.push_str(&data);
+                    text
+                }
+                (Some((_, stderr)), Source::Stderr) => {
+                    let mut text = stderr.clone();
+                    text.push_str(&data);
+                    text
+                }
             };
 
             let sent = tokio::select! {
@@ -368,10 +429,24 @@ impl<R: Runtime> FollowerTask<R> {
                 }
                 return Ended::Stop;
             }
-            self.cursors
-                .lock()
-                .unwrap()
-                .insert(self.key.clone(), replay.cursor());
+            let forgotten = self.forgotten.lock().unwrap();
+            if !forgotten.contains(&self.key) {
+                self.cursors
+                    .lock()
+                    .unwrap()
+                    .insert(self.key.clone(), replay.cursor());
+            }
         }
     }
+}
+
+fn render_prefixes(options: &StreamOptions, meta: &ContainerMeta) -> Option<(String, String)> {
+    if options.prefix.is_empty() {
+        return None;
+    }
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    options.prefix.render(meta, Source::Stdout, &mut stdout);
+    options.prefix.render(meta, Source::Stderr, &mut stderr);
+    Some((stdout, stderr))
 }

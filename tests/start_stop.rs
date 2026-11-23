@@ -4,6 +4,8 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use assert_fs::{TempDir, prelude::*};
 use predicates::prelude::predicate;
 
+mod common;
+
 #[test]
 fn start_stop() {
     let tmp_dir = assert_fs::TempDir::new().unwrap();
@@ -79,6 +81,7 @@ fn run_reaction(tmp_dir: &TempDir) {
         .child("config.jsonnet")
         .write_file(Path::new("tests/start_stop.jsonnet"))
         .unwrap();
+    common::restrict_configs(tmp_dir.path()).unwrap();
 
     cargo_bin_cmd!("reaction")
         .args(["start", "--socket", "./s", "--config", "./config.jsonnet"])

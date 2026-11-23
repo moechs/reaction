@@ -4,6 +4,8 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use assert_fs::prelude::*;
 use predicates::prelude::predicate;
 
+mod common;
+
 #[test]
 fn resume_action() -> Result<(), Box<dyn Error>> {
     let tmp_dir = assert_fs::TempDir::new()?;
@@ -11,6 +13,7 @@ fn resume_action() -> Result<(), Box<dyn Error>> {
     tmp_dir
         .child("config.jsonnet")
         .write_file(Path::new("tests/test-conf/test-resume-action.jsonnet"))?;
+    common::restrict_configs(tmp_dir.path())?;
 
     // first run
     let mut cmd = cargo_bin_cmd!("reaction");

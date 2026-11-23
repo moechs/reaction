@@ -12,7 +12,7 @@ use regex::Regex;
 use tokio::{fs, net::UnixListener};
 use tokio_util::{
     bytes::Bytes,
-    codec::{Framed, LengthDelimitedCodec},
+    codec::{FramedRead, FramedWrite, LengthDelimitedCodec},
 };
 use tracing::{error, warn};
 use treedb::DatabaseRotate;
@@ -32,22 +32,33 @@ async fn open_socket(path: &Path) -> Result<UnixListener, String> {
             $expression.map_err(|err| err.to_string())
         };
     }
-    // First create all directories to the file
+    // First create all directories to the file, private to the daemon user.
     let dir = path
         .parent()
         .ok_or(format!("socket {path:?} has no parent directory"))?;
-    err_str!(fs::create_dir_all(dir).await)?;
-    // Test if file exists
+    let mut dir_builder = fs::DirBuilder::new();
+    dir_builder.recursive(true);
+    dir_builder.mode(0o700);
+    err_str!(dir_builder.create(dir).await)?;
+    let dir_meta = err_str!(std::fs::symlink_metadata(dir))?;
+    if !dir_meta.is_dir() {
+        return Err(format!("socket parent {dir:?} is not a directory"));
+    }
+    if dir_meta.permissions().mode() & 0o022 != 0 {
+        return Err(format!(
+            "socket parent {dir:?} must not be writable by group or others"
+        ));
+    }
+    // Only a stale socket may be removed: deleting a regular file here would
+    // silently destroy unrelated data when the path is misconfigured.
     match fs::symlink_metadata(&path).await {
         Ok(meta) => {
             if meta.file_type().is_symlink() {
                 Err(format!("socket {path:?} is a symbolic link"))
             } else if meta.is_dir() {
                 Err(format!("socket {path:?} is already a directory"))
-            } else if !meta.is_file() && !meta.file_type().is_socket() {
-                Err(format!(
-                    "socket {path:?} exists and is not a regular file or socket"
-                ))
+            } else if !meta.file_type().is_socket() {
+                Err(format!("socket {path:?} exists and is not a socket"))
             } else {
                 warn!("socket {path:?} already exists: is the daemon already running? deleting.");
                 err_str!(fs::remove_file(path).await)
@@ -60,6 +71,10 @@ async fn open_socket(path: &Path) -> Result<UnixListener, String> {
     }?;
     // Open socket
     let listener = err_str!(UnixListener::bind(path))?;
+    let meta = err_str!(std::fs::symlink_metadata(path))?;
+    if !meta.file_type().is_socket() {
+        return Err(format!("socket {path:?} changed while binding"));
+    }
     err_str!(std::fs::set_permissions(
         path,
         std::fs::Permissions::from_mode(0o600)
@@ -312,41 +327,58 @@ impl Socket {
                                 let shared_state = Arc::clone(&shared_state);
                                 let mut db_rotate = db_rotate.clone();
                                 tokio::spawn(async move {
-                                    let mut transport = Framed::new(
-                                        conn,
+                                    let (read, write) = conn.into_split();
+                                    // The 64 KiB limit applies to untrusted requests only.
+                                    // Responses (e.g. `show`) can legitimately be much
+                                    // larger, so the write side keeps the codec default.
+                                    let mut read = FramedRead::new(
+                                        read,
                                         LengthDelimitedCodec::builder()
                                             .max_frame_length(64 * 1024)
                                             .new_codec(),
                                     );
-                                    let received = or_return!(
-                                        "while reading request",
-                                        tokio::time::timeout(Duration::from_secs(5), transport.next()).await
-                                    );
-                                    let encoded_request = match received {
-                                        Some(r) => or_return!("while reading request", r),
-                                        None => {
-                                            error!("failed to answer client: client sent no request");
-                                            return;
-                                        }
+                                    let mut write =
+                                        FramedWrite::new(write, LengthDelimitedCodec::new());
+                                    let answer = async {
+                                        let received = or_return!(
+                                            "while reading request",
+                                            tokio::time::timeout(
+                                                Duration::from_secs(5),
+                                                read.next()
+                                            ).await
+                                        );
+                                        let encoded_request = match received {
+                                            Some(r) => or_return!("while reading request", r),
+                                            None => {
+                                                error!("failed to answer client: client sent no request");
+                                                return;
+                                            }
+                                        };
+                                        let request = or_return!(
+                                            "failed to decode request",
+                                            serde_json::from_slice(&encoded_request)
+                                        );
+                                        let response = answer_order(
+                                            config,
+                                            &shared_state,
+                                            &mut db_rotate,
+                                            request,
+                                        ).await;
+                                        let encoded_response = or_return!(
+                                            "failed to serialize response",
+                                            serde_json::to_string::<DaemonResponse>(&response)
+                                        );
+                                        or_return!(
+                                            "failed to send response:",
+                                            write.send(Bytes::from(encoded_response)).await
+                                        );
                                     };
-                                    let request = or_return!(
-                                        "failed to decode request",
-                                        serde_json::from_slice(&encoded_request)
-                                    );
-                                    let response = answer_order(
-                                        config,
-                                        &shared_state,
-                                        &mut db_rotate,
-                                        request,
-                                    ).await;
-                                    let encoded_response = or_return!(
-                                        "failed to serialize response",
-                                        serde_json::to_string::<DaemonResponse>(&response)
-                                    );
-                                    or_return!(
-                                        "failed to send response:",
-                                        transport.send(Bytes::from(encoded_response)).await
-                                    );
+                                    if tokio::time::timeout(Duration::from_secs(60), answer)
+                                        .await
+                                        .is_err()
+                                    {
+                                        error!("failed to answer client: request timed out");
+                                    }
                                 });
                             }
                             Err(err) => error!("failed to open connection from cli: {err}"),
@@ -390,13 +422,12 @@ mod tests {
     #[tokio::test]
     async fn open_socket_empty_dir() {
         let tmp_dir = TempDir::new().unwrap();
-        let res = open_socket(&tmp_dir).await;
+        let path = tmp_dir.join("socket.sock");
+        std::fs::create_dir(&path).unwrap();
+        let res = open_socket(&path).await;
         assert_eq!(
             res.err(),
-            Some(format!(
-                "socket {:?} is already a directory",
-                tmp_dir.path()
-            ))
+            Some(format!("socket {path:?} is already a directory"))
         );
     }
 
@@ -433,13 +464,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_socket_in_world_writable_parent() {
+        let tmp_dir = TempDir::new().unwrap();
+        let world = tmp_dir.join("world");
+        std::fs::create_dir(&world).unwrap();
+        std::fs::set_permissions(&world, std::os::unix::fs::PermissionsExt::from_mode(0o777))
+            .unwrap();
+        let res = open_socket(&world.join("socket.sock")).await;
+        assert!(
+            res.err()
+                .is_some_and(|err| err.contains("must not be writable by group or others"))
+        );
+    }
+
+    #[tokio::test]
     async fn open_socket_on_replacable_file() {
         let tmp_dir = TempDir::new().unwrap();
         let path = tmp_dir.join("socket.sock");
         File::create(&path).await.unwrap();
-        // This should write a warning to stderr, but we can't easily test that
+        // A regular file must not be silently deleted, even if it has the
+        // requested socket path.
         let res = open_socket(&path).await;
-        assert!(res.is_ok());
+        assert_eq!(
+            res.err(),
+            Some(format!("socket {path:?} exists and is not a socket"))
+        );
         assert!(path.try_exists().is_ok_and(|b| b));
     }
 

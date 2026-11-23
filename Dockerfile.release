@@ -34,10 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libipset13 \
       libnftables1 \
     && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --set iptables /usr/sbin/iptables-nft \
+    && update-alternatives --set ip6tables /usr/sbin/ip6tables-nft \
     && mkdir -p /etc/reaction /run/reaction /var/lib/reaction /usr/share/doc/reaction \
     && chown 1000:1000 /run/reaction /var/lib/reaction
 
 COPY config/docker.yml /etc/reaction/config.yml
+RUN chmod 600 /etc/reaction/config.yml
 COPY LICENSE /usr/share/doc/reaction/LICENSE
 
 COPY --from=builder /reaction/target/release/reaction /usr/bin/reaction

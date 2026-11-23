@@ -148,12 +148,14 @@ async fn wait_for_runtime_baseline_starts_when_connected() {
         .load_config(
             vec![stream("s", "docker", json!({"match": {"names": ["web"]}}))],
             vec![],
-            vec![json!({
-                "docker": {"host": format!("unix://{}", socket.display())},
-                "wait_for_runtime": true,
-                "reconnect_delay": "50ms",
-            })
-            .into()],
+            vec![
+                json!({
+                    "docker": {"host": format!("unix://{}", socket.display())},
+                    "wait_for_runtime": true,
+                    "reconnect_delay": "50ms",
+                })
+                .into(),
+            ],
         )
         .await
         .unwrap();
