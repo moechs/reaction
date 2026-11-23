@@ -62,16 +62,75 @@ impl LineAssembler {
     }
 }
 
+/// Remove ANSI escape sequences (CSI and OSC) from a log line.
+///
+/// Applications that emit colored logs (e.g. `tracing_subscriber` with ANSI
+/// enabled) insert escape sequences between field names, `=` and values. Those
+/// sequences break literal-text filters such as `client_ip="<ip>"`.
+///
+/// Lines without an ESC byte are returned unchanged: the common case costs a
+/// single vectorized scan ([`std::slice::contains`] uses memchr) and no
+/// allocation beyond the line itself.
+fn strip_ansi(text: String) -> String {
+    if !text.as_bytes().contains(&0x1b) {
+        return text;
+    }
+    let input = text.as_str();
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek().copied() {
+            // CSI: ESC [ ... final byte in @..~. Parameter bytes (0x30-0x3f)
+            // and intermediate bytes (0x20-0x2f) are below @, so the first
+            // character can be a terminator, e.g. in `\x1b[m`.
+            Some('[') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            // OSC: ESC ] ... terminated by BEL or ST (ESC \)
+            Some(']') => {
+                chars.next();
+                let mut prev_esc = false;
+                for next in chars.by_ref() {
+                    if next == '\u{7}' {
+                        break;
+                    }
+                    if prev_esc && next == '\\' {
+                        break;
+                    }
+                    prev_esc = next == '\x1b';
+                }
+            }
+            // Other two-byte escape sequences.
+            Some(_) => {
+                chars.next();
+            }
+            None => {}
+        }
+    }
+    out
+}
+
 /// Convert raw bytes to a reaction line, like reaction does for `cmd` streams:
-/// invalid UTF-8 is dropped, and so is a trailing `\r` (TTY output).
+/// invalid UTF-8 is dropped, and so is a trailing `\r` (TTY output). ANSI
+/// escape sequences are also removed so colored logs remain filterable.
 pub fn to_text(data: &[u8]) -> String {
     let data = data.strip_suffix(b"\r").unwrap_or(data);
     let text = String::from_utf8_lossy(data);
-    if text.contains(char::REPLACEMENT_CHARACTER) {
+    let text = if text.contains(char::REPLACEMENT_CHARACTER) {
         text.replace(char::REPLACEMENT_CHARACTER, "")
     } else {
         text.into_owned()
-    }
+    };
+    strip_ansi(text)
 }
 
 #[cfg(test)]
@@ -125,5 +184,29 @@ mod tests {
         assert_eq!(to_text(b"hello\r"), "hello");
         assert_eq!(to_text(b"a\xffb"), "ab");
         assert_eq!(to_text("été".as_bytes()), "été");
+    }
+
+    #[test]
+    fn ansi_escape_codes_are_stripped() {
+        // CSI sequences inserted between a field name, '=' and its value,
+        // as produced by tracing_subscriber with ANSI colors enabled.
+        let colored = "\x1b[2m2026-11-23T16:46:37Z\x1b[0m \x1b[33m WARN\x1b[0m \
+            lorica::proxy_wiring: request completed \x1b[3mclient_ip\x1b[0m\x1b[2m=\x1b[0m\"127.0.0.1\" \
+            \x1b[3mstatus\x1b[0m\x1b[2m=\x1b[0m403";
+        assert_eq!(
+            to_text(colored.as_bytes()),
+            "2026-11-23T16:46:37Z  WARN lorica::proxy_wiring: request completed client_ip=\"127.0.0.1\" status=403"
+        );
+
+        // OSC sequences (window title, hyperlinks) are removed too.
+        let osc = "\x1b]0;title\u{7}hello\x1b]8;;http://x\x1b\\world";
+        assert_eq!(to_text(osc.as_bytes()), "helloworld");
+
+        // CSI with no parameters (\x1b[m) must not eat the following text.
+        assert_eq!(to_text(b"\x1b[mhello"), "hello");
+
+        // A lone ESC at the end is dropped; normal text is untouched.
+        assert_eq!(to_text(b"\x1b"), "");
+        assert_eq!(to_text(b"plain text"), "plain text");
     }
 }

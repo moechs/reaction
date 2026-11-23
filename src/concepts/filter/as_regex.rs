@@ -90,6 +90,49 @@ mod tests {
         pattern::tests::{boubou_pattern_with_ignore, default_pattern, ok_pattern_with_ignore},
     };
 
+    /// Log lines from applications with ANSI colors enabled (e.g.
+    /// tracing_subscriber) contain escape sequences between field names,
+    /// `=` and values. These break literal-text regexes such as
+    /// `client_ip="<ip>"`.
+    #[test]
+    fn ansi_escape_codes_prevent_literal_match() {
+        use crate::concepts::pattern::{Pattern, PatternIp, PatternType};
+
+        let ip_name = "ip".to_string();
+        let mut ip_pattern = Pattern {
+            ip: PatternIp {
+                pattern_type: PatternType::Ip,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        ip_pattern.setup(&ip_name).unwrap();
+        let patterns = Patterns::from([(ip_name, Arc::new(ip_pattern))]);
+
+        let mut filter = FilterMethodRegex::default();
+        filter.regex.push(r#"client_ip="<ip>""#.to_string());
+        filter.setup(&patterns).unwrap();
+
+        // Plain log line (what the user copied into test-regex) matches.
+        let plain = r#"lorica: request completed client_ip="127.0.0.1" status=403"#;
+        assert_eq!(
+            filter
+                .get_match(plain, &mut LineContext::default(), true)
+                .unwrap(),
+            Some(vec!["127.0.0.1".to_string()])
+        );
+
+        // Same line as delivered by Docker with ANSI colors enabled: escape
+        // codes are inserted between "client_ip", "=" and the value.
+        let ansi = "lorica: request completed \x1b[3mclient_ip\x1b[0m\x1b[2m=\x1b[0m\"127.0.0.1\" \x1b[3mstatus\x1b[0m\x1b[2m=\x1b[0m403";
+        assert_eq!(
+            filter
+                .get_match(ansi, &mut LineContext::default(), true)
+                .unwrap(),
+            None
+        );
+    }
+
     // TODO move things here
     #[test]
     fn setup_regexes() {
