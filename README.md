@@ -4,6 +4,17 @@ A daemon that scans program outputs for repeated patterns, and takes action.
 
 A common usage is to scan ssh and webserver logs, and to ban hosts that cause multiple authentication errors.
 
+## About this fork
+
+This repository is a personal fork of [reaction](https://framagit.org/ppom/reaction), maintained for use in my homelab. Prebuilt images are available on Docker Hub as [`moechs/reaction`](https://hub.docker.com/r/moechs/reaction).
+
+Two input plugins are added on top of the upstream code:
+
+- `reaction-plugin-container`: feeds stdout/stderr from running containers into reaction streams via the Docker Engine API.
+- `reaction-plugin-syslog`: receives syslog messages over UDP or TCP and feeds them into reaction streams.
+
+Together with reaction core, they are used to monitor application logs and trigger firewall bans on repeated malicious requests. This fork is not expected to receive further updates unless serious bugs or other special needs arise.
+
 🚧 This program hasn't received external security audit yet. However, it already works well on many servers 🚧
 
 ## For AI agents and contributors
