@@ -1,0 +1,27 @@
+[package]
+name = "reaction-plugin-syslog"
+description = "Syslog input stream plugin for reaction"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+repository = "https://github.com/moechs/reaction/tree/main/plugins/reaction-plugin-syslog"
+keywords = ["security", "syslog", "logs", "monitoring"]
+default-run = "reaction-plugin-syslog"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+tokio-util = { workspace = true, features = ["rt"] }
+futures.workspace = true
+remoc.workspace = true
+chrono.workspace = true
+reaction-plugin.path = "../reaction-plugin"
+serde.workspace = true
+serde_json.workspace = true
+
+[package.metadata.deb]
+section = "net"
+revision = ""
+assets = [
+	[ "target/release/reaction-plugin-syslog", "/usr/bin/reaction-plugin-syslog", "755" ],
+]
+depends = ["reaction"]

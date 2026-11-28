@@ -89,6 +89,7 @@ members = [
 	"plugins/reaction-plugin-httpban",
 	"plugins/reaction-plugin-ipset",
 	"plugins/reaction-plugin-nftables",
+	"plugins/reaction-plugin-syslog",
 	"plugins/reaction-plugin-virtual"
 ]
 

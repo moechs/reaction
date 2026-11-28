@@ -6,6 +6,10 @@ A common usage is to scan ssh and webserver logs, and to ban hosts that cause mu
 
 🚧 This program hasn't received external security audit yet. However, it already works well on many servers 🚧
 
+## For AI agents and contributors
+
+Before starting any work in this repository, read [`AGENTS.md`](AGENTS.md). It is the authoritative source for repository-specific contracts and the contributor/AI specification: architecture boundaries, development checks, tests, documentation rules and Git commit conventions. [`ARCHITECTURE.md`](ARCHITECTURE.md) is a codebase tour and does not override `AGENTS.md`.
+
 ## Rationale
 
 I was using the honorable fail2ban since quite a long time, but I was a bit frustrated by its CPU consumption

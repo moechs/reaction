@@ -20,6 +20,7 @@ RUN cargo build --locked --release --workspace \
       --bin reaction-plugin-httpban \
       --bin reaction-plugin-ipset \
       --bin reaction-plugin-nftables \
+      --bin reaction-plugin-syslog \
       --bin reaction-plugin-virtual
 
 FROM debian:bookworm-slim
@@ -48,6 +49,7 @@ COPY --from=builder /reaction/target/release/reaction-plugin-container /usr/bin/
 COPY --from=builder /reaction/target/release/reaction-plugin-httpban /usr/bin/
 COPY --from=builder /reaction/target/release/reaction-plugin-ipset /usr/bin/
 COPY --from=builder /reaction/target/release/reaction-plugin-nftables /usr/bin/
+COPY --from=builder /reaction/target/release/reaction-plugin-syslog /usr/bin/
 COPY --from=builder /reaction/target/release/reaction-plugin-virtual /usr/bin/
 
 ENTRYPOINT ["reaction"]

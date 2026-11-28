@@ -23,23 +23,35 @@ use serde::{Deserialize, Deserializer, de};
 pub fn parse_duration(d: &str) -> Result<Duration, String> {
     let d_trimmed = d.trim();
     let chars = d_trimmed.as_bytes();
-    let mut value = 0;
+    let mut value: u64 = 0;
     let mut i = 0;
     while i < chars.len() && chars[i].is_ascii_digit() {
-        value = value * 10 + (chars[i] - b'0') as u32;
+        value = value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add((chars[i] - b'0') as u64))
+            .ok_or_else(|| format!("duration '{d}' number is too large"))?;
         i += 1;
     }
     if i == 0 {
         return Err(format!("duration '{}' doesn't start with digits", d));
     }
-    let ok_as = |func: fn(u64) -> Duration| -> Result<_, String> { Ok(func(value as u64)) };
+    let too_large = || format!("duration '{d}' is too large");
 
     match d_trimmed[i..].trim() {
-        "ms" | "millis" | "millisecond" | "milliseconds" => ok_as(Duration::from_millis),
-        "s" | "sec" | "secs" | "second" | "seconds" => ok_as(Duration::from_secs),
-        "m" | "min" | "mins" | "minute" | "minutes" => ok_as(Duration::from_mins),
-        "h" | "hour" | "hours" => ok_as(Duration::from_hours),
-        "d" | "day" | "days" => ok_as(|d: u64| Duration::from_hours(d * 24)),
+        "ms" | "millis" | "millisecond" | "milliseconds" => Ok(Duration::from_millis(value)),
+        "s" | "sec" | "secs" | "second" | "seconds" => Ok(Duration::from_secs(value)),
+        "m" | "min" | "mins" | "minute" | "minutes" => value
+            .checked_mul(60)
+            .map(Duration::from_secs)
+            .ok_or_else(too_large),
+        "h" | "hour" | "hours" => value
+            .checked_mul(3600)
+            .map(Duration::from_secs)
+            .ok_or_else(too_large),
+        "d" | "day" | "days" => value
+            .checked_mul(86_400)
+            .map(Duration::from_secs)
+            .ok_or_else(too_large),
         unit => Err(format!(
             "unit {} not recognised. must be one of s/sec/seconds, m/min/minutes, h/hours, d/days",
             unit
@@ -50,11 +62,11 @@ pub fn parse_duration(d: &str) -> Result<Duration, String> {
 pub fn print_duration(val: &Duration) -> String {
     let (u, n) = if val.is_zero() {
         ("s", 0)
-    } else if val.as_millis() % 1000 != 0 {
+    } else if !val.as_millis().is_multiple_of(1000) {
         ("ms", val.as_millis())
-    } else if val.as_secs() % (3600 * 24) == 0 {
+    } else if val.as_secs().is_multiple_of(3600 * 24) {
         ("d", (val.as_secs() / (3600 * 24)) as u128)
-    } else if val.as_secs() % 3600 == 0 {
+    } else if val.as_secs().is_multiple_of(3600) {
         ("h", (val.as_secs() / 3600) as u128)
     } else {
         ("s", val.as_secs() as u128)
@@ -67,7 +79,7 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    Ok(parse_duration(&s).map_err(de::Error::custom)?)
+    parse_duration(&s).map_err(de::Error::custom)
 }
 
 pub fn ser_duration<S>(val: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -120,7 +132,7 @@ mod tests {
         assert_eq!(parse_duration("  12  secs  "), Ok(Duration::from_secs(12)));
         assert_eq!(parse_duration("2m"), Ok(Duration::from_mins(2)));
         assert_eq!(parse_duration("6 hours"), Ok(Duration::from_hours(6)));
-        assert_eq!(parse_duration("1d"), Ok(Duration::from_hours(1 * 24)));
+        assert_eq!(parse_duration("1d"), Ok(Duration::from_hours(24)));
         assert_eq!(parse_duration("365d"), Ok(Duration::from_hours(365 * 24)));
 
         assert!(parse_duration("d 3").is_err());
@@ -130,6 +142,8 @@ mod tests {
         assert!(parse_duration("_3d").is_err());
         assert!(parse_duration("3 3d").is_err());
         assert!(parse_duration("3.3d").is_err());
+        assert!(parse_duration("999999999999999999999999s").is_err());
+        assert!(parse_duration("18446744073709551615d").is_err());
     }
 
     #[test]
@@ -183,7 +197,7 @@ mod tests {
         }
         // None
         let json = r#"{}"#;
-        let parsed = serde_json::from_str::<A>(&json).expect("deser works");
+        let parsed = serde_json::from_str::<A>(json).expect("deser works");
         assert_eq!(None, parsed.d);
         assert_eq!(json, serde_json::to_string(&parsed).expect("ser works"))
     }

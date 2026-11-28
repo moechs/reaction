@@ -122,6 +122,7 @@ $ sudo systemctl enable --now reaction.service
             "reaction-plugin-httpban",
             "reaction-plugin-ipset",
             "reaction-plugin-nftables",
+            "reaction-plugin-syslog",
             "reaction-plugin-virtual",
         ]
 
@@ -149,6 +150,7 @@ $ sudo systemctl enable --now reaction.service
             "reaction-plugin-httpban",
             "reaction-plugin-ipset",
             "reaction-plugin-nftables",
+            "reaction-plugin-syslog",
         ]
         for deb in debs:
             cmd = run_command(

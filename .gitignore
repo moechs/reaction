@@ -11,6 +11,7 @@ reaction.db
 /target
 /local
 .direnv
+.vscode/
 
 # macOS metadata / junk files
 .DS_Store

@@ -4037,6 +4037,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "reaction-plugin-syslog"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "reaction-plugin",
+ "remoc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "reaction-plugin-virtual"
 version = "1.0.0"
 dependencies = [
