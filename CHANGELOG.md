@@ -1,6 +1,6 @@
 ## Changelog
 
-## Unreleased
+## v2.8.4
 
 - Add `reaction-plugin-syslog`, an input plugin for UDP and TCP syslog streams with RFC 3164/RFC 5424 parsing, metadata selectors and safe prefix templates.
 
